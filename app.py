@@ -14,7 +14,7 @@ from motor import claves, idioma
 from motor.idioma import t
 from ui import iconos
 from ui.brillo import Brillo
-from ui.comun import boton, ESTILO, etiqueta, Reproductor
+from ui.comun import boton, ESTILO, EstiloApp, etiqueta, Reproductor
 from ui.linea_tiempo import render
 from ui.paginas.anuncios import PaginaAnuncios
 from ui.paginas.cabina import PaginaCabina
@@ -183,7 +183,7 @@ class Ventana(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")  # el estilo nativo de Windows ignora el tema oscuro en las listas desplegables
+    app.setStyle(EstiloApp())  # Fusion: el estilo nativo de Windows ignora el tema oscuro en las listas desplegables
     app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(ESTILO)
     app.setWindowIcon(QIcon(str(ICONO)))

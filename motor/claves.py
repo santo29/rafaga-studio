@@ -54,15 +54,22 @@ GRATIS = {"imagen": "pollinations", "transcripcion": "pc", "video": "ninguno"}
 AJUSTES = ARCHIVO.with_name("ajustes.json")
 
 
+TOKEN_CF = r"(?:[A-Za-z0-9_-]{40}|cf[ua]t_[A-Za-z0-9_-]{40,60})"  # clásico, o cfut_/cfat_ (formato de 2026)
+
+
 def candidatos(clave: str) -> list[str]:
     """Proveedores posibles según el formato de la clave, del más probable al menos."""
     c = clave.strip()
     # Modal: se pegan juntos el token id (ak-) y el secreto (as-), en cualquier orden
     if re.fullmatch(r"ak-[A-Za-z0-9]+[\s:;,]+as-[A-Za-z0-9]+|as-[A-Za-z0-9]+[\s:;,]+ak-[A-Za-z0-9]+", c):
         return ["modal"]
-    token_cf = r"(?:[A-Za-z0-9_-]{40}|cf[ua]t_[A-Za-z0-9_-]{40,60})"  # clásico, o cfut_/cfat_ (formato de 2026)
-    if re.fullmatch(rf"[0-9a-f]{{32}}[\s:;,]+{token_cf}|{token_cf}[\s:;,]+[0-9a-f]{{32}}", c):
+    if re.fullmatch(rf"[0-9a-f]{{32}}[\s:;,]+{TOKEN_CF}|{TOKEN_CF}[\s:;,]+[0-9a-f]{{32}}", c):
         return ["cloudflare"]  # «ID_de_cuenta token» con el formato exacto de Cloudflare
+    # Solo el token (la cuenta se le pregunta a Cloudflare): el de 2026 lleva su prefijo; el clásico, 40 caracteres
+    # sin el prefijo de otro servicio (ghp_ de GitHub, glpat- de GitLab…: esos nunca se mandan a Cloudflare)
+    if re.fullmatch(r"cf[ua]t_[A-Za-z0-9_-]{40,60}", c) or (re.fullmatch(r"[A-Za-z0-9_-]{40}", c)
+                                                             and not re.match(r"[A-Za-z]{2,10}[_-]", c)):
+        return ["cloudflare"]
     if not re.fullmatch(r"[A-Za-z0-9_-]+", c):  # varias claves o texto pegados (espacio, coma, barra…): a nadie
         return []
     if c.startswith("sk-ant-"):
@@ -223,7 +230,36 @@ def limpiar(clave: str) -> str:
     ids, secretos = re.findall(r"\bak-[A-Za-z0-9]+", c), re.findall(r"\bas-[A-Za-z0-9]+", c)
     if len(ids) == 1 and len(secretos) == 1 and len(c) <= 500:
         return f"{ids[0]} {secretos[0]}"
+    # Cloudflare: el ID de cuenta y el token copiados con texto alrededor («Account ID: …», la orden curl de su
+    # página «Use REST API»…). Si hay exactamente uno de cada, se sacan solo esos dos.
+    if 72 < len(c) <= 2000 and not candidatos(c):
+        cuentas = set(re.findall(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])", c))
+        tokens = set(re.findall(rf"(?<![A-Za-z0-9_-]){TOKEN_CF}(?![A-Za-z0-9_-])", c)) - cuentas
+        if len(cuentas) == 1 and len(tokens) == 1:
+            return f"{cuentas.pop()} {tokens.pop()}"
     return c
+
+
+def _cuenta_cloudflare(token: str) -> str:
+    """El ID de la única cuenta a la que da acceso el token (si Cloudflare lo dice; si no, se pide pegarlo)."""
+    falta = t("Pega también tu Account ID junto al token, separados por un espacio. Está en la página principal de "
+              "tu cuenta de Cloudflare, a la derecha (32 letras y números).")
+    try:
+        r = httpx.get("https://api.cloudflare.com/client/v4/accounts", headers={"Authorization": f"Bearer {token}"},
+                      timeout=20)
+    except httpx.HTTPError as e:
+        raise ValueError(t("No hay conexión con {proveedor}: {error}. Inténtalo de nuevo.", proveedor="cloudflare",
+                           error=type(e).__name__)) from None
+    if r.status_code in (401, 403):
+        raise ValueError(t("Cloudflare no acepta ese token (¿se copió entero?). {falta}", falta=falta))
+    try:
+        cuentas = {str(a.get("id")) for a in r.json().get("result") or [] if isinstance(a, dict)}
+    except (ValueError, AttributeError):
+        cuentas = set()
+    cuentas = {c for c in cuentas if re.fullmatch(r"[0-9a-f]{32}", c)}
+    if r.status_code >= 400 or len(cuentas) != 1:
+        raise ValueError(falta)
+    return cuentas.pop()
 
 
 def detectar(clave: str) -> dict:
@@ -238,6 +274,8 @@ def detectar(clave: str) -> dict:
         raise ValueError(t("No reconozco el formato de esta clave (llegaron {n} caracteres que empiezan por "
                            "«{inicio}…»). Pega solo la clave, sin espacios ni texto alrededor.", n=len(clave),
                            inicio=clave[:6]))
+    if opciones == ["cloudflare"] and not re.search(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])", clave):
+        clave = f"{_cuenta_cloudflare(clave)} {clave}"  # solo pegó el token: su cuenta se le pregunta a Cloudflare
     ultimo_error = None
     for proveedor in opciones:
         try:

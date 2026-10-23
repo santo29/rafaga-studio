@@ -68,6 +68,39 @@ except ValueError as e:
 finally:
     _sp.run = _run
 assert claves.candidatos("0123456789abcdef0123456789abcdef " + "T" * 40) == ["cloudflare"]
+# Cloudflare: el token solo (la cuenta se pregunta) y lo copiado con texto alrededor
+cuenta, token = "0123456789abcdef0123456789abcdef", "Ab9" * 13 + "x"
+assert claves.candidatos(token) == ["cloudflare"] and claves.candidatos("cfut_" + "A1b" * 15) == ["cloudflare"]
+assert claves.candidatos("ghp_" + "a" * 36) == [] and claves.candidatos("glpat-" + "a" * 34) == []  # GitHub, GitLab
+assert claves.limpiar(f"Account ID: {cuenta}\nAPI token: {token}") == f"{cuenta} {token}"
+assert claves.limpiar(f'curl https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/x -H "Authorization: '
+                      f'Bearer {token}"') == f"{cuenta} {token}"
+_get = claves.httpx.get
+
+
+class RespuestaCF:
+    def __init__(self, codigo, datos=None):
+        self.status_code, self.datos = codigo, datos or {}
+
+    def json(self):
+        return self.datos
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise claves.httpx.HTTPStatusError("x", request=None, response=self)
+
+
+try:
+    for cuentas, error in (([cuenta], None), ([cuenta, "f" * 32], "Account ID"), (None, "no acepta")):
+        claves.httpx.get = lambda url, **k: (RespuestaCF(401) if cuentas is None else
+                                             RespuestaCF(200, {"result": [{"id": c} for c in cuentas]}))
+        try:
+            info = claves.detectar(token)
+            assert error is None and info["clave"] == f"{cuenta} {token}", info
+        except ValueError as e:
+            assert error and error in str(e), e
+finally:
+    claves.httpx.get = _get
 from motor import ia
 assert ia.cloudflare_partes("MiToken_123:0123456789abcdef0123456789abcdef") == ("0123456789abcdef0123456789abcdef",
                                                                                   "MiToken_123")

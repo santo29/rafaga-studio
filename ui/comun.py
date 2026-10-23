@@ -8,12 +8,12 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSlider, QTextEdit,
-                               QVBoxLayout, QWidget)
+                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QProxyStyle, QPushButton,
+                               QSlider, QStyle, QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
 
 from motor import desde_prompt, seguro
 from motor.idioma import t
-from ui.iconos import COLOR, poner, separar
+from ui.iconos import COLOR, icono, poner, separar
 
 
 ESTILO = """
@@ -62,6 +62,13 @@ QListWidget::item:selected { background: #2A2340; }
 QSlider::groove:horizontal { height: 4px; background: #2C2C36; }
 QSlider::handle:horizontal { background: #FFFFFF; width: 12px; margin: -5px 0; border-radius: 6px; }
 QSlider::sub-page:horizontal { background: #7C5CFF; }
+QDialog { background: #17171D; }
+QMessageBox QLabel#qt_msgbox_label { min-width: 360px; font-size: 15px; padding: 4px 6px; }
+QDialog QPushButton { background: #20202A; border: 1px solid #2C2C36; border-radius: 9px; padding: 8px 22px;
+                      min-width: 80px; font-weight: 600; }
+QDialog QPushButton:hover { background: #2A2A36; border: 1px solid #3C3C48; }
+QDialog QPushButton:default { background: #7C5CFF; border: 1px solid #7C5CFF; color: #FFFFFF; }
+QDialog QPushButton:default:hover { background: #8E72FF; }
 """
 # Al dar estilo a ::drop-down y a los botones de los números, Qt deja de pintar sus flechas: se ponen a mano
 _ASSETS = (Path(__file__).resolve().parent.parent / "assets").as_posix()
@@ -70,6 +77,22 @@ QComboBox::down-arrow {{ image: url("{_ASSETS}/flecha-abajo.svg"); width: 14px; 
 QAbstractSpinBox::up-arrow {{ image: url("{_ASSETS}/flecha-arriba.svg"); width: 12px; height: 12px; }}
 QAbstractSpinBox::down-arrow {{ image: url("{_ASSETS}/flecha-abajo.svg"); width: 12px; height: 12px; }}
 """
+
+
+class EstiloApp(QProxyStyle):
+    """Fusion con los iconos de la app en las ventanas de aviso (en vez de los genéricos del sistema)."""
+    AVISOS = {QStyle.SP_MessageBoxInformation: ("circle-check", "#7C5CFF"),
+              QStyle.SP_MessageBoxWarning: ("triangle-alert", "#FFB454"),
+              QStyle.SP_MessageBoxCritical: ("circle-x", "#FF4D8D"),
+              QStyle.SP_MessageBoxQuestion: ("circle-help", "#7C5CFF")}
+
+    def __init__(self):
+        super().__init__(QStyleFactory.create("Fusion"))
+
+    def standardIcon(self, cual, opcion=None, widget=None):
+        if cual in self.AVISOS:
+            return icono(*self.AVISOS[cual])
+        return super().standardIcon(cual, opcion, widget)
 
 
 NOMBRES_FORMATO = {"9:16": "9:16  TikTok · Shorts · Reels", "16:9": "16:9  YouTube",

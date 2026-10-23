@@ -14,14 +14,28 @@ está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia aba
 
 | Pantalla | Qué hace |
 |---|---|
+| 🤖 Director IA | Le pides el trabajo por escrito **o con tu voz**, como a tu equipo («hazme un anuncio de mi barbería y un post»), y la IA usa todo el estudio: guion, imágenes, video, diseño, música y edición |
 | ✨ Crear con IA | Guion con IA → imágenes → voz → animación → subtítulos tipo CapCut |
 | ⚡ Shorts mágicos | Pega un enlace; la IA elige los mejores momentos y los recorta en vertical con subtítulos |
 | 🚀 Anuncios | Foto del producto → varias versiones de anuncio (pruebas A/B) con tu producto real |
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |
 | 🎨 Diseño | Editor por capas tipo Canva (texto, formas, fotos, 2.100+ iconos, emojis, 8 fuentes) y una IA que diseña anuncios, posts, miniaturas, flyers y logos **en capas editables** con tu marca; exporta PNG, JPG, PDF y SVG |
+| ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 |
 | 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y master |
 | 🔎 Nichos virales | Vistas por día reales de YouTube + investigación web en vivo → nichos con ideas listas |
 | 🔌 MCP | Claude (u otro agente) puede usar todo el estudio desde el chat |
+
+## El Director y el asistente de voz
+
+El Director es la IA que maneja el estudio entero. Tú eres la marca o el creador: pides el trabajo y él decide qué
+herramientas usar, las usa una tras otra y te entrega los videos, diseños o canciones. Usa las mismas herramientas que
+el servidor MCP, así que también lo puedes dirigir desde Claude. Funciona con cualquier IA de texto conectada (también
+la gratis sin clave) y se detiene tras 6 pasos para no gastar de más.
+
+Pulsa **Hablar** o **Ctrl+Espacio** y pídeselo con la voz: escucha solo mientras está activo, se para solo cuando
+terminas de hablar y te contesta en voz alta. Mientras te escucha, piensa o habla, una luz de colores recorre el borde
+de la ventana y se ilumina la página que está usando. Tu voz se entiende en tu PC con Whisper y la respuesta usa las
+voces gratis de Edge: no hace falta ElevenLabs ni ningún servicio de pago.
 
 ## Trae tus propias claves (BYOK)
 
@@ -31,7 +45,7 @@ entre nubes (cuota diaria gratis → este PC → créditos → pago), para que p
 | Tarea | Gratis | Con crédito o de pago |
 |---|---|---|
 | Texto / guiones | Groq, Gemini | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
-| Imágenes | Cloudflare Workers AI (~100/día), Pollinations | OpenAI, Replicate |
+| Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate |
 | Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal ($30 gratis/mes), Pollinations |
 | Voz | Voces de Edge | ElevenLabs |
 | Transcripción | Este PC (Whisper), Groq | OpenAI |
@@ -57,7 +71,8 @@ Python 3.13+ y Node.js (para descargar de YouTube).
 - **Tu token de Hugging Face nunca se envía a Spaces de terceros**: se usan sin token, con la cuota anónima.
 - **El servidor MCP solo acepta imágenes y audios de tu disco** y enlaces de sitios conocidos, así una web
   maliciosa no puede pedirle a Claude que saque archivos privados ni que ataque tu red.
-- **Qué sale de tu PC:** la cabina (voz, mezcla, master) y la separación de voz se hacen en tu PC. Los guiones, las
+- **Qué sale de tu PC:** la cabina (voz, mezcla, master), la separación de voz y lo que le dices al Director con el
+  micrófono se procesan en tu PC (tu voz solo sale si eliges Groq u OpenAI para transcribir). Los guiones, las
   imágenes y la animación usan los servicios que conectes; en el modo gratis sin clave, Pollinations (pedido como
   privado) y Spaces públicos de Hugging Face, que reciben lo que se les manda.
 - ¿Encontraste un problema de seguridad? Escríbelo en privado a los responsables en lugar de abrir un *issue* público.
@@ -78,6 +93,7 @@ cabina.sesion("beat.mp3", "mi_voz.wav", estilo="Dembow / urbano (seco y al frent
 | `mcp_server.py` — para que Claude u otro agente use el estudio | **MIT** (abierto) |
 | `modal_app.py` — video IA en tu propia nube de Modal | **MIT** (abierto) |
 | `pruebas.py` — pruebas sin internet ni claves (`python pruebas.py`) | **MIT** (abierto) |
+| `ejemplos/` — los videos de ejemplo y cómo se hicieron (`python ejemplos/crear.py`) | **MIT** (abierto) |
 | `assets/` — iconos Lucide y fuentes de Google Fonts (ver `assets/LEEME.md`) | ISC (iconos) y OFL (fuentes) |
 | `app.py` y `ui/` — la app de escritorio | Privado (Ráfaga Studio Pro) |
 

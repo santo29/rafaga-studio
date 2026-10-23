@@ -11,6 +11,7 @@ from . import claves, seguro
 from .idioma import t
 
 VIDEO_MAXIMO = 300 * 1024 ** 2  # un clip de IA de 5 s pesa unos pocos MB
+ESPACIO_IMAGEN = "black-forest-labs/FLUX.1-schnell"  # imágenes gratis sin clave y con calidad (el oficial de FLUX)
 
 
 def _ruta_url(texto: str) -> str:
@@ -314,7 +315,12 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
         return seguro.descargar(url, cabeceras)
 
     def huggingface():
-        c = todas["huggingface"]
+        c = todas.get("huggingface")
+        if not c:  # sin token: el Space gratis de FLUX schnell (cuota anónima de ZeroGPU; el prompt llega a un Space público)
+            escala = min(1, 1280 / max(ancho, alto))  # lado largo de 1280: rápido y gasta poca cuota; el montaje escala
+            salida = nubes.llamar_space(ESPACIO_IMAGEN, prompt[:2000], semilla, False, int(ancho * escala) // 16 * 16,
+                                        int(alto * escala) // 16 * 16, 4, api_name="/infer")
+            return nubes.archivo_del_space(salida[0] if isinstance(salida, (list, tuple)) else salida)
         r = httpx.post(f"https://router.huggingface.co/hf-inference/models/{c['modelo_imagen']}", timeout=300,
                        headers={"Authorization": f"Bearer {c['clave']}"},
                        json={"inputs": prompt, "parameters": {"width": ancho // 16 * 16, "height": alto // 16 * 16}})
@@ -349,11 +355,9 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
         d = r.json()["data"][0]
         return base64.b64decode(d["b64_json"]) if d.get("b64_json") else seguro.descargar(d["url"])
 
-    tareas = {"cloudflare": cloudflare, "pollinations": pollinations, "replicate": replicate, "openai": openai,
-              "gratis_sin_clave": lambda: pollinations(con_clave=False)}
-    if "huggingface" in todas:  # para imágenes Hugging Face sí necesita token (para video y separación no)
-        tareas["huggingface"] = huggingface
-    tareas = {p: (lambda f=f: _imagen_real(f())) for p, f in tareas.items()}
+    tareas = {"cloudflare": cloudflare, "pollinations": pollinations, "huggingface": huggingface, "replicate": replicate,
+              "openai": openai, "gratis_sin_clave": lambda: pollinations(con_clave=False)}
+    tareas ={p: (lambda f=f: _imagen_real(f())) for p, f in tareas.items()}
     datos, _ = nubes.rotar("imagen", tareas)
     destino.write_bytes(datos)
     return destino

@@ -4,20 +4,23 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
-from PySide6.QtGui import QFont, QIcon, QPixmap
-from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame,
+                               QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
                                QMessageBox,
                                QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
 
 from motor import claves, idioma
 from motor.idioma import t
 from ui import iconos
+from ui.brillo import Brillo
 from ui.comun import boton, ESTILO, etiqueta, Reproductor
 from ui.linea_tiempo import render
 from ui.paginas.anuncios import PaginaAnuncios
 from ui.paginas.cabina import PaginaCabina
 from ui.paginas.claves import PaginaClaves
 from ui.paginas.crear import PaginaCrear
+from ui.paginas.director import PAGINA, PaginaDirector
 from ui.paginas.diseno import PaginaDiseno
 from ui.paginas.edicion import PaginaEdicion
 from ui.paginas.mcp import PaginaMCP
@@ -59,8 +62,9 @@ class Ventana(QMainWindow):
         self.grupo = QButtonGroup(self)
         Reproductor.al_editar = self._editar_video  # antes de crear las páginas: así sale su botón «✂️ Editar»
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
-        paginas = [(f"✨  {t('Crear con IA')}", self.crear), (f"⚡  {t('Shorts mágicos')}", PaginaShorts()),
-                   (f"🚀  {t('Anuncios')}", PaginaAnuncios()), (f"🎵  {t('Música')}", PaginaMusica()),
+        self.director = PaginaDirector()
+        paginas = [(f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
+                   (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()), (f"🎵  {t('Música')}", PaginaMusica()),
                    (f"🎨  {t('Diseño')}", self.diseno), (f"✂️  {t('Editor de video')}", self.edicion),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
@@ -85,14 +89,33 @@ class Ventana(QMainWindow):
         lay.addWidget(barra)
         lay.addWidget(self.paginas, 1)
         self.setCentralWidget(raiz)
+        # La luz del asistente de voz recorre el borde de toda la ventana; y el menú se ilumina en la página que usa
+        self.director.brillo = Brillo(raiz)
+        self.director.usando.connect(self._iluminar)
+        self.director.termino.connect(lambda: self._iluminar(None))
+        hablar = QShortcut(QKeySequence("Ctrl+Space"), self)
+        hablar.activated.connect(lambda: (self.ir_a(self.orden.index(self.director)), self.director.alternar_voz()))
         for campo in raiz.findChildren(QAbstractSpinBox):  # Qt ignora el padding izquierdo de ESTILO en estos campos
             campo.lineEdit().setTextMargins(6, 0, 0, 0)
-        if not claves.para("texto"):
-            self.ir_a(self.orden.index(self.claves))
+        if not claves.para("texto"):  # el Director funciona igual (con la IA gratis sin clave), pero lento: se avisa
+            self.director.consejo_claves(lambda: self.ir_a(self.orden.index(self.claves)))
 
     def ir_a(self, i):
         self.paginas.setCurrentIndex(i)
         self.grupo.buttons()[i].setChecked(True)
+
+    def _iluminar(self, herramienta):
+        """Brilla el botón del menú de la página que está usando el Director (None: se apagan todos)."""
+        nombre = t(PAGINA[herramienta]) if herramienta in PAGINA else None
+        for b in self.grupo.buttons():
+            if b.text() == nombre:
+                luz = QGraphicsDropShadowEffect(b)
+                luz.setColor(QColor("#00E5FF"))
+                luz.setBlurRadius(28)
+                luz.setOffset(0, 0)
+                b.setGraphicsEffect(luz)
+            else:
+                b.setGraphicsEffect(None)
 
     def _selector_idioma(self):
         """Idioma de la app: automático (el del PC o el del país, ver motor/idioma.py) o uno fijo. Se aplica al reiniciar."""
@@ -115,6 +138,11 @@ class Ventana(QMainWindow):
         # un diseño o un video sin guardar se perdería al cerrar
         if not (self.diseno._descartar_ok() and self.edicion._descartar_ok()):
             return e.ignore()
+        if self.director.ocupado() and QMessageBox.question(
+                self, t("Está trabajando"), t("El Director está haciendo un trabajo. Si cierras, se pierde lo que "
+                                              "lleva. ¿Cerrar igual?")) != QMessageBox.Yes:
+            return e.ignore()
+        self.director.cerrar()
         if self.edicion.tareas:  # cerrar a medias dejaría ffmpeg exportando solo y un «tmp-…mp4» en Videos
             if QMessageBox.question(self, t("Está trabajando"), t("El editor de video está exportando o preparando "
                                                                   "algo. ¿Cancelarlo y cerrar?")) != QMessageBox.Yes:

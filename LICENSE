@@ -3,7 +3,7 @@ MIT License
 Copyright (c) 2026 Ráfaga Studio
 
 This license applies to the open-source engine of Ráfaga Studio: the `motor/` folder, `mcp_server.py`,
-`modal_app.py`, `pruebas.py` and `pruebas_seguridad.py`. The desktop application (`app.py` and the `ui/`
+`modal_app.py`, `pruebas.py`, `pruebas_seguridad.py` and the `ejemplos/` folder. The desktop application (`app.py` and the `ui/`
 folder) is not covered by this license and is not part of the open-source release.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

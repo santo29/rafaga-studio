@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QStandardPaths, Qt, QUrl  # noqa: E402
 from PySide6.QtGui import (QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QImage, QMouseEvent,  # noqa: E402
                            QPainter)
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton  # noqa: E402
 
 from motor import claves, diseno, marca  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
@@ -413,7 +413,11 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     ventana = aplicacion.Ventana()
     i = next(i for i, pagina in enumerate(ventana.orden) if isinstance(pagina, pd.PaginaDiseno))
     assert isinstance(ventana.orden[i - 1], PaginaMusica) and "Diseño" in ventana.grupo.buttons()[i].text()
-    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)  # sin claves abre «Claves de IA»
+    # Sin claves abre el Director (funciona con la IA gratis), que aconseja conectar una y lleva a «Claves de IA»
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.director) == 0
+    assert "Conecta Groq o Gemini" in ventana.director.chat.toPlainText()
+    next(b for b in ventana.director.findChildren(QPushButton) if b.text() == "Ir a Claves de IA").click()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
     ventana.ir_a(i)
     assert ventana.paginas.currentIndex() == i and ventana.grupo.buttons()[i].isChecked()
     ventana.diseno.sucio = True  # un diseño sin guardar: cerrar pregunta, y «No» deja la ventana abierta

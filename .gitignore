@@ -1,0 +1,24 @@
+# Entorno y cachés
+.venv/
+__pycache__/
+*.pyc
+
+# Datos del usuario: proyectos, claves cifradas, ajustes, marca. Nunca al repositorio.
+datos/
+
+# Secretos por si acaso alguien los deja sueltos
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Temporales y del sistema
+*.log
+*.tmp
+tmp-*
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

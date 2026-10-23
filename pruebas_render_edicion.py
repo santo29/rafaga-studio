@@ -1,0 +1,480 @@
+"""Pruebas del render del editor de video (motor/render_edicion.py), sin red ni claves:
+python pruebas_render_edicion.py"""
+import os
+import re
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+import numpy as np
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtGui import QImage  # noqa: E402
+
+from motor import claves, desde_prompt, diseno, edicion, ia, video  # noqa: E402
+from motor import render_edicion as render  # noqa: E402
+
+diseno.asegurar_qt()
+
+
+def falla(funcion, *args, **kw):
+    """Lo hostil se rechaza con un ValueError claro: ni revienta con otro error ni pasa."""
+    try:
+        funcion(*args, **kw)
+    except ValueError:
+        return
+    raise AssertionError(f"debió rechazar {args!r:.300}")
+
+
+def ffmpeg_salida(*args) -> subprocess.CompletedProcess:
+    return subprocess.run([video.FFMPEG, "-hide_banner", *video.solo_medios([str(a) for a in args])],
+                          capture_output=True)
+
+
+def info(archivo) -> tuple[int, int, int]:
+    """(ancho, alto, fotogramas) del video, contando los fotogramas sin decodificar."""
+    texto = ffmpeg_salida("-i", archivo, "-map", "0:v", "-c", "copy", "-f", "null", "-").stderr.decode("utf-8",
+                                                                                                     "replace")
+    w, h = re.search(r"Video: .*?, (\d{2,5})x(\d{2,5})", texto).groups()
+    return int(w), int(h), int(re.findall(r"frame=\s*(\d+)", texto)[-1])
+
+
+def cuadros(archivo) -> int:
+    """Los fotogramas que salen al decodificarlo (sin los que el MP4 marca como descartados)."""
+    texto = ffmpeg_salida("-i", archivo, "-map", "0:v", "-f", "null", "-").stderr.decode("utf-8", "replace")
+    return int(re.findall(r"frame=\s*(\d+)", texto)[-1])
+
+
+def blanco_y_pitido(archivo) -> tuple[int, float]:
+    """El primer fotograma blanco y el segundo en que empieza el pitido (de marca.mp4 y sus variantes)."""
+    datos = ffmpeg_salida("-i", archivo, "-vf", "scale=32:32", "-f", "rawvideo", "-pix_fmt", "gray", "-").stdout
+    brillo = np.frombuffer(datos, np.uint8).reshape(-1, 32 * 32).mean(axis=1)
+    return int(np.argmax(brillo > 200)), float(np.argmax(np.abs(sonido(archivo)) > 0.3) / 48000)
+
+
+def sonido(archivo) -> np.ndarray:
+    """Las muestras mono a 48 kHz."""
+    return np.frombuffer(ffmpeg_salida("-i", archivo, "-map", "0:a", "-ac", "1", "-ar", "48000", "-f", "f32le",
+                                       "-").stdout, np.float32)
+
+
+def cuadro(archivo, n: int) -> np.ndarray:
+    """El fotograma n (exacto, contando desde 0) como RGB."""
+    w, h, _ = info(archivo)
+    datos = ffmpeg_salida("-i", archivo, "-vf", f"select=eq(n\\,{n})", "-frames:v", "1", "-f", "rawvideo",
+                          "-pix_fmt", "rgb24", "-").stdout
+    return np.frombuffer(datos, np.uint8).reshape(h, w, 3).astype(int)
+
+
+def de_qimage(q: QImage) -> np.ndarray:
+    q = q.convertToFormat(QImage.Format_RGB888)
+    filas = np.frombuffer(q.constBits(), np.uint8, q.sizeInBytes()).reshape(q.height(), q.bytesPerLine())
+    return filas[:, :q.width() * 3].reshape(q.height(), q.width(), 3).astype(int)
+
+
+def reducir(imagen: np.ndarray, w: int, h: int) -> np.ndarray:
+    """Media por bloques: compara dos tamaños sin depender de cómo escala cada uno."""
+    fy, fx = imagen.shape[0] // h, imagen.shape[1] // w
+    return imagen[:h * fy, :w * fx].reshape(h, fy, w, fx, 3).mean(axis=(1, 3))
+
+
+def rojo(imagen: np.ndarray) -> np.ndarray:
+    return (imagen[..., 0] > 150) & (imagen[..., 1] < 90) & (imagen[..., 2] < 90)
+
+
+with tempfile.TemporaryDirectory() as d:
+    d = Path(d)
+    edicion.CARPETA = d / "ediciones"  # nada de tocar datos/ de verdad
+    claves.ARCHIVO, claves.AJUSTES = d / "claves.json", d / "ajustes.json"  # ni se leen ni se tocan las claves
+    carpeta = edicion.nueva_carpeta("pruebas")
+
+    # ---------- Medios de prueba (ffmpeg lavfi, 1–3 s, 360p) ----------
+    def hacer(nombre, *args):
+        video.ffmpeg(*args, d / nombre)
+        return d / nombre
+    h264 = ("-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+    prueba = hacer("prueba.mp4", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=3", "-f", "lavfi", "-i",
+                   "sine=frequency=440:duration=3", *h264)
+    # Negro hasta el segundo 1 y blanco después; el pitido empieza a la vez (exacto a la muestra)
+    marca = hacer("marca.mp4", "-f", "lavfi", "-i", "color=c=black:s=640x360:r=30:d=2,drawbox=c=white:t=fill:"
+                  "enable='gte(t,1)'", "-f", "lavfi", "-i",
+                  "aevalsrc='if(gte(t,1),0.8*sin(2*PI*1000*t),0)':s=48000:d=2", *h264)
+    musica = hacer("musica.wav", "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*660*t)':s=48000:d=3")
+    foto = hacer("foto.png", "-f", "lavfi", "-i", "testsrc2=s=480x360", "-frames:v", "1")
+    hacer("roja.png", "-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1")
+    (carpeta / "imagenes" / "roja.png").write_bytes((d / "roja.png").read_bytes())
+
+    def proyecto(*medios, **datos):
+        p = edicion.nuevo()
+        for m in medios:
+            p = edicion.anadir_medio(p, str(m))
+        return {**p, **datos}
+
+    def clips(p, *cambios):
+        for c, cambio in zip(p["clips"], cambios):
+            c.update(cambio)
+        return edicion.validar(p)
+
+    # ---------- Duración exacta: sin y con transiciones, con velocidades y fotos ----------
+    p = clips(proyecto(prueba, prueba, foto), {"hasta": 2}, {"desde": 0.5, "hasta": 2.5, "velocidad": 2},
+              {"hasta": 1.5})
+    t0 = time.perf_counter()
+    avisos = []
+    vista = render.vista_previa(p, carpeta, lambda t, f: avisos.append(f))
+    tiempo_vista = time.perf_counter() - t0
+    assert info(vista) == (360, 640, 135), info(vista)  # 2 + 1 + 1.5 = 4.5 s a 30 fps
+    assert abs(len(sonido(vista)) / 48000 - 4.5) < 0.03, len(sonido(vista)) / 48000
+    assert avisos == sorted(avisos) and avisos[-1] == 1.0, avisos  # el progreso solo avanza
+    p = clips(p, {"transicion": "fundido", "duracion_transicion": 0.5},
+              {"transicion": "zoom", "duracion_transicion": 0.3})
+    vista = render.vista_previa(p, carpeta)
+    assert info(vista)[2] == 111, info(vista)  # 4.5 - 0.5 - 0.3 = 3.7 s
+    assert abs(len(sonido(vista)) / 48000 - 3.7) < 0.03
+    # Exportar: 720p (2/3 de 1080×1920), a 25 fps y con un clip a cámara lenta
+    p = clips(proyecto(prueba, foto, fps=25), {"hasta": 1, "velocidad": 0.5, "transicion": "circulo",
+                                               "duracion_transicion": 0.4}, {"hasta": 1})
+    avisos = []
+    t0 = time.perf_counter()
+    hecho = render.exportar(p, carpeta, d / "exportado", "720p", lambda t, f: avisos.append((t, f)))
+    tiempo_export = time.perf_counter() - t0
+    assert hecho == d / "exportado.mp4" and info(hecho) == (720, 1280, 65), info(hecho)  # 2 + 1 - 0.4 = 2.6 s
+    assert cuadros(hecho) == 65, cuadros(hecho)  # a 25 y 60 fps el MP4 marcaba el último como descartado
+    assert cuadros(render.vista_previa(clips(proyecto(prueba, foto, fps=60), {"hasta": 1.37, "transicion": "zoom",
+                                                                            "duracion_transicion": 0.37}, {"hasta": 1}),
+                                       carpeta)) == 120
+    assert abs(len(sonido(hecho)) / 48000 - 2.6) < 0.03
+    assert any("Exportando… " in t for t, _ in avisos), avisos  # progreso real de -progress
+    # Ni restos a medias ni los tramos de exportar (casi sin pérdida: pesan mucho)
+    assert not [f for patron in ("tmp-*", "grafo-*", "lista-*", "*-exp*.mov")
+                for f in (carpeta / "cache").glob(patron)]
+
+    # ---------- A/V sincronizados tras una transición y a velocidad 2 ----------
+    # El clip 2 entra en 1.1 s (transición de 0.4); su marca (segundo 1 del archivo, a velocidad 2) cae en 1.6 s
+    p = clips(proyecto(prueba, marca), {"hasta": 1.5, "transicion": "fundido", "duracion_transicion": 0.4},
+              {"velocidad": 2})
+    vista = render.vista_previa(p, carpeta)
+    blanco = next(n for n in range(45, 60) if cuadro(vista, n).mean() > 128)
+    muestras = sonido(vista)
+    pitido = (np.argmax(np.abs(muestras[int(1.5 * 48000):]) > 0.2) + int(1.5 * 48000)) / 48000
+    assert blanco == 48, blanco
+    assert abs(pitido - 1.6) < 0.03 and abs(pitido - blanco / 30) < 0.04, (pitido, blanco)
+
+    # ---------- Exacto en los casos difíciles ----------
+    gris = hacer("gris.mp4", "-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=1", *h264[:6])  # sin sonido
+    # Clips cortos entre dos transiciones (fotos de 0.5 s con fundidos): concat perdía los trozos de un fotograma
+    p = clips(proyecto(*[gris] * 8, marca),
+              *[{"hasta": 0.47, "transicion": "fundido", "duracion_transicion": 0.21}] * 8)
+    vista = render.vista_previa(p, carpeta)
+    blanco, pitido = blanco_y_pitido(vista)
+    assert cuadros(vista) == round(edicion.duracion_total(p) * 30) == 122 and blanco == 92, (cuadros(vista), blanco)
+    assert abs(pitido - blanco / 30) < 0.005, (pitido, blanco)
+    # A 0.25x desde un punto que cae a mitad de un fotograma: la imagen se adelantaba 2 fotogramas y el sonido
+    # (atempo) unos 90 ms
+    blanco, pitido = blanco_y_pitido(render.vista_previa(clips(proyecto(gris, marca), {}, {
+        "desde": 0.75, "hasta": 1.25, "velocidad": 0.25}), carpeta))
+    # 1 s de gris + 0.25 s a 0.25x. El sonido, a un fotograma como mucho: estirado 4 veces, el pitido entra suave
+    assert blanco == 60 and abs(pitido - 2) < 0.04, (blanco, pitido)
+    # Imagen que empieza 0.3 s después que el sonido (grabaciones de pantalla, .ts), con un pitido en 0.1 s: -ss 0
+    # tiraba ese sonido y STARTPTS adelantaba la imagen
+    tarde = d / "tarde.mp4"
+    video.ffmpeg("-itsoffset", "0.3", "-i", marca, "-f", "lavfi", "-i", "aevalsrc='0.8*sin(2*PI*1000*t)*between(t,0.1,"
+                 "0.2)':s=48000:d=2", "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", tarde)
+    blanco, pitido = blanco_y_pitido(render.vista_previa(clips(proyecto(tarde), {"hasta": 2}), carpeta))
+    assert blanco == 39 and abs(pitido - 0.1) < 0.005, (blanco, pitido)  # como en el original: 1.3 s y 0.1 s
+    # A velocidad 1, sonido mono de 44.1 kHz: atempo=1 lo adelantaba 22 ms y el mono sonaba 3 dB más bajo
+    marca44 = hacer("marca44.mp4", "-f", "lavfi", "-i", "color=c=black:s=640x360:r=25:d=2,drawbox=c=white:t=fill:"
+                    "enable='gte(t,1)'", "-f", "lavfi", "-i",
+                    "aevalsrc='if(gte(t,1),0.8*sin(2*PI*1000*t),0)':s=44100:d=2:c=mono", *h264)
+    vista = render.vista_previa(clips(proyecto(marca44, fps=25), {}), carpeta)
+    blanco, pitido = blanco_y_pitido(vista)
+    assert blanco == 25 and abs(pitido - 1) < 0.005, (blanco, pitido)
+    lados = np.frombuffer(ffmpeg_salida("-i", vista, "-map", "0:a", "-f", "f32le", "-").stdout, np.float32)
+    assert np.abs(np.abs(lados.reshape(-1, 2)).max(axis=0) - 0.8).max() < 0.05, np.abs(lados.reshape(-1, 2)).max(0)
+
+    # ---------- Cálido y Frío se notan ----------
+    hacer("gris.png", "-f", "lavfi", "-i", "color=c=0x808080:s=320x320", "-frames:v", "1")
+    tinte = {}
+    for filtro in ("ninguno", "calido", "frio"):
+        f = de_qimage(render.fotograma(clips(proyecto(d / "gris.png"), {"filtro": filtro}), carpeta, 0.5))
+        tinte[filtro] = f[..., 0].mean() - f[..., 2].mean()  # rojo menos azul
+    assert tinte["calido"] > tinte["ninguno"] + 15 and tinte["frio"] < tinte["ninguno"] - 15, tinte
+
+    # ---------- fotograma() da el que se ve en el montaje, también desde el proxy ----------
+    # Fuente de 25 fps (en un proyecto de 30) cuyo brillo es el número de fotograma; 1280x720: más grande que la
+    # vista previa, así que miniatura() le encarga un proxy
+    def numero(imagen):
+        return round((16 + 219 * imagen[..., 1].mean() / 255) / 8)
+    indices = hacer("indices.mp4", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25:d=1.2,geq=lum='8*N':cb=128:"
+                    "cr=128,scale=1280:720", "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0",
+                    "-pix_fmt", "yuv420p")
+    p = clips(proyecto(indices, formato="16:9"), {"desde": 0.33, "hasta": 0.93})
+    montaje = [numero(cuadro(render.vista_previa(p, carpeta), n)) for n in range(2, 18)]
+    def vistos():
+        return [numero(de_qimage(render.fotograma(p, carpeta, n / 30))) for n in range(2, 18)]
+    assert vistos() == montaje, (vistos(), montaje)  # -ss justo en t daba el fotograma siguiente
+    assert not list((carpeta / "cache").glob("proxy-*"))
+    render.miniatura(p["clips"][0], carpeta)
+    render._proxies.join()  # se hace en otro hilo
+    proxy = next((carpeta / "cache").glob("proxy-*.mp4"))
+    assert info(proxy)[:2] == (1138, 640) and vistos() == montaje, info(proxy)
+    original = proxy.read_bytes()
+    video.ffmpeg("-f", "lavfi", "-i", "color=c=red:s=1138x640:r=25:d=1.2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                 proxy)  # si fotograma() usa el proxy, ahora sale rojo
+    assert rojo(de_qimage(render.fotograma(p, carpeta, 0.2))).mean() > 0.9
+    proxy.write_bytes(original)
+    render.miniatura(clips(proyecto(prueba), {})["clips"][0], carpeta)  # 640x360: no hace falta
+    render._proxies.join()
+    assert len(list((carpeta / "cache").glob("proxy-*"))) == 1
+
+    # ---------- Tasa de fotogramas variable (pantalla quieta de un móvil): un solo fotograma rojo de 1 a 3 s ----------
+    # La vista parada salía negra en lo quieto y, dividido en 1.5 s, el montaje adelantaba la imagen 1.5 s
+    vfr = hacer("vfr.mp4", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=1", "-f", "lavfi", "-i",
+                "color=c=red:s=640x360:r=30:d=2", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=1",
+                "-filter_complex", "[0][1][2]concat=n=3,mpdecimate=hi=1:lo=1:frac=1:max=0", "-fps_mode", "vfr",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+    p = edicion.dividir(clips(proyecto(vfr, formato="16:9"), {}), 1.5)
+    vista = render.vista_previa(p, carpeta)
+    # 115: el final del segundo trozo (un -t contado desde el fotograma clave lo cortaba y repetía el rojo)
+    assert all(rojo(cuadro(vista, n)).mean() > 0.9 and rojo(de_qimage(render.fotograma(p, carpeta, n / 30))).mean()
+               > 0.9 for n in (40, 50, 85)) and rojo(cuadro(vista, 115)).mean() < 0.5
+
+    # ---------- .ts con fotogramas clave cada 250 (OBS): «desde» después del último ya no deja el clip sin imagen ----------
+    ts = hacer("obs.ts", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=11,geq=lum='8*mod(N,30)':cb=128:cr=128",
+               "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-g", "250", "-f", "mpegts")
+    p = clips(proyecto(ts, formato="16:9"), {"desde": 9.5, "hasta": 10.5})  # el último fotograma clave: 8.33 s
+    vista = render.vista_previa(p, carpeta)
+    assert ([numero(cuadro(vista, n)) for n in (0, 9)] == [15, 24] ==  # el fotograma 285 % 30 del archivo, y 294
+            [numero(de_qimage(render.fotograma(p, carpeta, n / 30))) for n in (0, 9)]
+            and render.miniatura(p["clips"][0], carpeta).height() == 72)
+
+    # ---------- Vista previa de un trozo (▶ desde el cursor): igual que ese trozo de la entera ----------
+    texto = {"tipo": "texto", "texto": "Hola", "x": 100, "y": 200, "ancho": 800, "alto": 300, "tamano": 120,
+             "inicio": 0.5, "duracion": 3, "entrada": "fundido", "salida": "fundido"}
+    p = clips(proyecto(prueba, marca, musica, capas=[texto], subtitulos={"activos": True, "palabras": [
+        {"palabra": "hola", "inicio": 1.2, "fin": 1.6}]}), {"hasta": 1.5, "transicion": "disolver",
+                                                             "duracion_transicion": 0.4})
+    p["audios"][0].update(inicio=0.2, desde=0.5, hasta=2.5, volumen=0.2)
+    p = edicion.validar(p)
+    entera = d / "entera.mp4"  # copiada: la caché solo guarda la última vista previa
+    entera.write_bytes(render.vista_previa(p, carpeta).read_bytes())
+    assert not list((carpeta / "cache").glob("proxy-*"))  # el proxy de un clip que ya no está, borrado
+    trozo = render.vista_previa(p, carpeta, desde=1.2, segundos=1)  # empieza a mitad de la transición
+    assert cuadros(trozo) == 30 and abs(len(sonido(trozo)) / 48000 - 1) < 0.03, (cuadros(trozo), len(sonido(trozo)))
+    for n in (0, 5, 13, 29):
+        diferencia = np.abs(reducir(cuadro(trozo, n), 90, 160) - reducir(cuadro(entera, 36 + n), 90, 160)).mean()
+        assert diferencia < 5, (n, diferencia)  # un fotograma de más o de menos da más de 10
+    blanco, pitido = blanco_y_pitido(trozo)  # el segundo clip entra en 1.1 s y su marca está en su segundo 1
+    assert blanco == 63 - 36 and abs(pitido - (2.1 - 1.2)) < 0.003, (blanco, pitido)
+    fuerza = [np.sqrt((s[:len(s) // 480 * 480].reshape(-1, 480) ** 2).mean(axis=1))  # cada 10 ms
+              for s in (sonido(trozo), sonido(entera)[int(1.2 * 48000):int(2.2 * 48000)])]
+    assert np.abs(fuerza[0] - fuerza[1]).max() < 0.05, np.abs(fuerza[0] - fuerza[1]).max()
+    # Después del último clip (en 3.1 s) solo sigue el texto, hasta 3.5 s
+    assert cuadros(render.vista_previa(p, carpeta, desde=3.2)) == 9
+    falla(render.vista_previa, p, carpeta, desde=-1)
+    falla(render.vista_previa, p, carpeta, segundos=0)
+
+    # ---------- Exportar sin espacio en el disco: avisa antes de empezar ----------
+    libre = render.shutil.disk_usage
+    render.shutil.disk_usage = lambda ruta: libre(ruta)._replace(free=10 ** 6)
+    aviso = ""
+    try:
+        render.exportar(p, carpeta, d / "lleno.mp4")
+    except ValueError as e:
+        aviso = str(e)
+    finally:
+        render.shutil.disk_usage = libre
+    assert re.search(r"unos \d+ MB", aviso) and not (d / "lleno.mp4").exists(), aviso  # decía «unos 0.0 GB»
+
+    # ---------- Medios que faltan: el clip, color de fondo y silencio; el audio, no suena ----------
+    p = clips(proyecto(prueba, prueba, fondo="#336699"), {"hasta": 1, "transicion": "fundido",
+                                                          "duracion_transicion": 0.4}, {"hasta": 1})
+    p["clips"].insert(1, {"tipo": "video", "archivo": str(d / "no_esta.mp4"), "hasta": 1, "duracion_archivo": 2,
+                          "falta": True})
+    p["audios"].append({"archivo": str(d / "no_esta.mp3"), "hasta": 1, "falta": True})
+    p = edicion.validar(p)
+    vista = render.vista_previa(p, carpeta)
+    assert cuadros(vista) == 78, cuadros(vista)  # 1 + 1 + 1 - 0.4 = 2.6 s
+    assert np.abs(cuadro(vista, 40) - [0x33, 0x66, 0x99]).max() < 6, cuadro(vista, 40)[0, 0]
+    assert np.abs(sonido(vista)[int(1.05 * 48000):int(1.55 * 48000)]).max() < 0.01  # el clip de 1.0 a 1.6 s
+    assert np.abs(sonido(vista)[:int(0.5 * 48000)]).max() > 0.1
+    assert (de_qimage(render.fotograma(p, carpeta, 1.3)) == [0x33, 0x66, 0x99]).all()
+    # Un .mp4 de solo sonido como clip de video (lo guardaban versiones de antes): un ValueError claro, no el de ffmpeg
+    p["clips"].append({"tipo": "video", "archivo": str(hacer("sonido.mp4", "-f", "lavfi", "-i", "sine=duration=1",
+                                                              "-c:a", "aac")), "hasta": 1, "duracion_archivo": 1})
+    falla(render.vista_previa, edicion.validar(p), carpeta)
+
+    # ---------- Sin clips: fondo, música en su sitio y capas solo en su tramo ----------
+    capa = {"tipo": "imagen", "archivo": "roja.png", "ajuste": "cubrir"}
+    p = edicion.validar({
+        "fondo": "#000000",
+        "audios": [{"archivo": str(musica), "inicio": 1.25, "desde": 0.5, "hasta": 1.5, "duracion_archivo": 3}],
+        "capas": [{**capa, "x": 0, "y": 0, "ancho": 540, "alto": 540, "inicio": 1, "duracion": 1},
+                  {**capa, "x": 540, "y": 1200, "ancho": 540, "alto": 540, "inicio": 0.5, "duracion": 2,
+                   "entrada": "deslizar"}]})
+    vista = render.vista_previa(p, carpeta)
+    assert info(vista)[2] == 75, info(vista)  # lo que acaba más tarde: la segunda capa, en 2.5 s
+    suena = np.flatnonzero(np.abs(sonido(vista)) > 0.05) / 48000
+    assert abs(suena[0] - 1.25) < 0.005 and abs(suena[-1] - 2.25) < 0.005, (suena[0], suena[-1])
+    for n, visible in ((15, False), (29, False), (30, True), (55, True), (60, False), (70, False)):
+        assert rojo(cuadro(vista, n)[10:170, 10:170]).mean() > 0.95 if visible else \
+            not rojo(cuadro(vista, n)[:200, :200]).any(), n
+    deslizando = np.flatnonzero(rojo(cuadro(vista, 18)[400:580]).any(axis=0))  # 0.1 s después de entrar
+    quieta = np.flatnonzero(rojo(cuadro(vista, 45)[400:580]).any(axis=0))
+    assert deslizando.max() < 175 and (quieta.min(), quieta.max()) == (180, 359), (deslizando, quieta)
+
+    # ---------- El fotograma de la vista previa es el del video montado ----------
+    p = clips(proyecto(prueba, foto, ajuste="difuminar"),
+              {"desde": 0.3, "hasta": 2.7, "velocidad": 1.5, "filtro": "sepia", "brillo": 20, "contraste": 10},
+              {"hasta": 1.5, "movimiento": "acercar", "filtro": "vineta", "saturacion": -40})
+    vista = render.vista_previa(p, carpeta)
+    exportado = render.exportar(p, carpeta, d / "comparar.mp4", "720p")
+    for n in (10, 40, 60, 90):  # clip, clip, foto al principio del zoom, foto casi al final
+        t0 = time.perf_counter()
+        f = de_qimage(render.fotograma(p, carpeta, n / 30))
+        frio = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        render.fotograma(p, carpeta, n / 30 + 0.01)  # mismo fotograma: de la caché
+        caliente = time.perf_counter() - t0
+        assert f.shape == (640, 360, 3) and frio < 2 and caliente < 0.1, (f.shape, frio, caliente)
+        de_vista = np.abs(reducir(f, 90, 160) - reducir(cuadro(vista, n), 90, 160)).mean()
+        de_export = np.abs(reducir(f, 90, 160) - reducir(cuadro(exportado, n), 90, 160)).mean()
+        assert de_vista < 3 and de_export < 3, (n, de_vista, de_export)
+    assert (de_qimage(render.fotograma(p, carpeta, 99)) == [0, 0, 0]).all()  # después del último clip: el fondo
+
+    # ---------- La caché: cambiar un texto no vuelve a codificar los clips ----------
+    texto = {"tipo": "texto", "texto": "Hola", "x": 100, "y": 200, "ancho": 800, "alto": 300, "tamano": 120,
+             "inicio": 0.2, "duracion": 1.5, "entrada": "aparecer", "salida": "fundido"}
+    p = clips(proyecto(prueba, prueba, capas=[texto], subtitulos={"activos": True, "palabras": [
+        {"palabra": "hola {\\b1}", "inicio": 0.5, "fin": 1}]}), {"hasta": 1.5, "transicion": "disolver"},
+        {"hasta": 1.5, "filtro": "byn"})
+    t0 = time.perf_counter()
+    primera = render.vista_previa(p, carpeta)
+    tiempo_primera = time.perf_counter() - t0
+    def hechos(patron):
+        return {f.name: f.stat().st_mtime_ns for f in (carpeta / "cache").glob(patron)}
+    tramos, pasos = hechos("tramo-vista*.mov"), hechos("paso-vista*.mov")
+    assert len(tramos) == 2 and len(pasos) == 1, (tramos, pasos)  # los de los proyectos anteriores ya se borraron
+    t0 = time.perf_counter()
+    assert render.vista_previa(p, carpeta) == primera and time.perf_counter() - t0 < 1  # nada cambió: la misma
+    p["capas"][0]["texto"] = "Adiós ' ; [x] , \\ : %"  # lo que rompería un filtro de ffmpeg va dentro de un PNG
+    t0 = time.perf_counter()
+    segunda = render.vista_previa(p, carpeta)
+    tiempo_segunda = time.perf_counter() - t0
+    assert segunda != primera and segunda.is_file() and not primera.exists()
+    assert hechos("tramo-vista*.mov") == tramos and hechos("paso-vista*.mov") == pasos  # ni clips ni transiciones
+    p["clips"][0]["transicion"] = "pixelado"  # otra transición: solo se rehace su paso
+    render.vista_previa(p, carpeta)
+    assert hechos("tramo-vista*.mov") == tramos and len(hechos("paso-vista*.mov").keys() - pasos.keys()) == 1
+    p["clips"][1]["filtro"] = "sepia"  # esto sí cambia un tramo: se hace uno y el viejo se borra
+    render.vista_previa(p, carpeta)
+    nuevos = {f.name for f in (carpeta / "cache").glob("tramo-vista*.mov")}
+    assert len(nuevos) == 2 and len(nuevos & set(tramos)) == 1, nuevos
+
+    # ---------- Miniaturas y formas de onda (caché en disco) ----------
+    mini = render.miniatura(p["clips"][0], carpeta)
+    assert (mini.width(), mini.height()) == (128, 72), mini.size()
+    assert render.miniatura(p["clips"][0], carpeta, 40).height() == 40
+    assert render.miniatura({"tipo": "imagen", "archivo": str(foto), "hasta": 2}, carpeta).height() == 72
+    t0 = time.perf_counter()
+    onda = render.forma_de_onda(str(musica), carpeta, 300, 40)
+    assert (onda.width(), onda.height()) == (300, 40) and onda.pixelColor(150, 20).alpha() > 0
+    assert onda.pixelColor(150, 0).alpha() == 0  # una onda de 0.5: no llega arriba
+    assert len(list((carpeta / "cache").glob("onda-*.png"))) == 1
+    t0 = time.perf_counter()
+    assert render.forma_de_onda(str(musica), carpeta, 300, 40).size() == onda.size() and time.perf_counter() - t0 < 0.2
+    hacer("muda.mp4", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=1", "-c:v", "libx264", "-preset", "ultrafast")
+    muda = render.forma_de_onda(str(d / "muda.mp4"), carpeta, 100, 20)
+    assert muda.width() == 100 and muda.pixelColor(50, 10).alpha() == 0  # sin sonido: vacía, sin error
+
+    # ---------- Subtítulos automáticos (la transcripción, de mentira: sin red ni Whisper) ----------
+    oido = {}
+
+    def transcribir_falso(audio, progreso=lambda f: None, **_):
+        oido["duracion"] = video.duracion(audio)
+        progreso(1.0)
+        return [{"palabra": " hola ", "inicio": 0.5, "fin": 0.9}, {"palabra": "", "inicio": 1, "fin": 1.2},
+                {"palabra": "fuera", "inicio": 2.9, "fin": 9.0}, {"palabra": "rara", "inicio": "x", "fin": 1}]
+    real, ia.transcribir = ia.transcribir, transcribir_falso
+    avisos = []
+    try:
+        palabras = render.subtitulos_automaticos(p, carpeta, lambda t, f: avisos.append(t))
+    finally:
+        ia.transcribir = real
+    assert abs(oido["duracion"] - edicion.duracion_total(p)) < 0.1, oido  # la mezcla de toda la línea de tiempo
+    total = edicion.duracion_total(p)  # lo que se sale del video se queda en su final
+    assert palabras == [{"palabra": "hola", "inicio": 0.5, "fin": 0.9},
+                        {"palabra": "fuera", "inicio": total, "fin": total}], palabras
+    assert any("en tu PC" in t for t in avisos) and not list((carpeta / "cache").glob("audio-*"))
+    edicion.validar({**p, "subtitulos": {"activos": True, "palabras": palabras}})  # se pueden guardar tal cual
+
+    # ---------- Voz IA (la voz, de mentira) ----------
+    narrar = desde_prompt.narrar
+    desde_prompt.narrar = lambda texto, voz, destino: destino.write_bytes(b"ID3" + b"\x00" * 100)
+    try:
+        voz = render.voz_ia("Hola a todos", "Jorge (México)", carpeta)
+        assert voz.parent == carpeta / "voces" and voz.suffix == ".mp3" and voz.is_file()
+        assert render.voz_ia("Hola", "es-DO-EmilioNeural", carpeta) != voz
+        falla(render.voz_ia, "Hola", "eleven:../../v1/user", carpeta)  # una voz que no está en la lista
+        falla(render.voz_ia, "Hola", {"x": 1}, carpeta)
+        falla(render.voz_ia, "   ", "es-DO-EmilioNeural", carpeta)
+        falla(render.voz_ia, "x" * 5001, "es-DO-EmilioNeural", carpeta)
+        falla(render.voz_ia, "Hola", "es-DO-EmilioNeural", r"\\atacante.example\s")
+    finally:
+        desde_prompt.narrar = narrar
+
+    # ---------- Lo hostil se rechaza antes de llegar a ffmpeg ----------
+    secreto = d / "claves.mp4"
+    secreto.write_text('{"openai": "sk-SECRETO"}', encoding="utf-8")
+    malo = clips(proyecto(prueba), {})
+    malo["clips"][0]["archivo"] = str(secreto)  # validar no toca el disco: lo para archivo_medio al usarlo
+    falla(render.fotograma, malo, carpeta, 0.5)
+    falla(render.vista_previa, malo, carpeta)
+    falla(render.miniatura, malo["clips"][0], carpeta)
+    falla(render.fotograma, {**p, "clips": [{**p["clips"][0], "brillo": "0:enable=1"}]}, carpeta, 0.5)
+    falla(render.fotograma, {**p, "clips": [{**p["clips"][0], "archivo": r"\\atacante.example\s\v.mp4"}]}, carpeta, 0)
+    falla(render.fotograma, p, carpeta, float("nan"))
+    falla(render.fotograma, p, r"\\atacante.example\s", 0.5)
+    falla(render.exportar, p, carpeta, r"\\atacante.example\s\video.mp4")
+    falla(render.exportar, p, carpeta, d / "x.mp4", "4k")
+    falla(render.forma_de_onda, r"\\atacante.example\s\a.mp3", carpeta, 100, 20)
+    falla(render.forma_de_onda, str(secreto), carpeta, 100, 20)
+    falla(render.forma_de_onda, str(musica), carpeta, 10 ** 9, 20)
+    falla(render.vista_previa, edicion.nuevo(), carpeta)  # vacío
+
+    # ---------- Al cerrar la app: ni un proxy más (su ffmpeg seguía solo y dejaba un tmp-…) ----------
+    otra = edicion.nueva_carpeta("cerrar")
+    grande = hacer("grande0.mp4", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=30:d=4", "-c:v", "libx264",
+                   "-preset", "ultrafast")
+    for i in (1, 2):
+        (d / f"grande{i}.mp4").write_bytes(grande.read_bytes())
+    for i in range(3):
+        render._proxies.put((d / f"grande{i}.mp4", render._proxy(d / f"grande{i}.mp4", render._cache(otra))))
+    while not render._en_curso:
+        time.sleep(0.01)
+    render._parar_proxy()  # lo que hace atexit
+    render._proxies.join()
+    assert not list((otra / "cache").glob("*proxy-*")), list((otra / "cache").glob("*"))
+    render._cerrando.clear()
+
+    # ---------- cancelar() (cerrar la app a mitad de una exportación): para ffmpeg y no deja restos ----------
+    errores, p = [], clips(proyecto(prueba), {})
+
+    def exportar_hasta_cancelar():
+        try:
+            render.exportar(p, otra, d / "cancelado.mp4")
+        except Exception as e:  # noqa: BLE001  lo que haya dado: lo comprueba el assert
+            errores.append(e)
+    hilo = threading.Thread(target=exportar_hasta_cancelar)
+    hilo.start()
+    while not render._procesos and hilo.is_alive():
+        time.sleep(0.01)
+    t0 = time.perf_counter()
+    render.cancelar()
+    hilo.join()
+    assert errores and time.perf_counter() - t0 < 2 and not (d / "cancelado.mp4").exists() and not list(
+        (otra / "cache").glob("tmp-*")), (errores, time.perf_counter() - t0)
+
+print(f"Pruebas del render del editor pasadas (vista previa {tiempo_vista:.1f} s, exportar {tiempo_export:.1f} s, "
+      f"primera vista con capas {tiempo_primera:.1f} s y tras cambiar un texto {tiempo_segunda:.1f} s).")

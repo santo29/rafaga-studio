@@ -1,0 +1,93 @@
+"""Gestiona la conexión MCP: registra Ráfaga Studio en Claude Code y Claude Desktop, y comprueba que responde."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from .idioma import t
+
+RAIZ = Path(__file__).resolve().parent.parent
+NOMBRE = "rafaga-studio"
+PYTHON = str(Path(sys.executable).with_name("python.exe"))  # pythonw no sirve para stdio
+SERVIDOR = {
+    "type": "stdio",
+    "command": PYTHON,
+    "args": [str(RAIZ / "mcp_server.py")],
+    "env": {"PYTHONIOENCODING": "utf-8", "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"},
+}
+
+CLIENTES = {
+    "Claude Code": Path.home() / ".claude.json",
+    "Claude Desktop (chat)": Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json",
+}
+
+
+def _leer(archivo: Path) -> dict:
+    try:
+        datos = json.loads(archivo.read_text(encoding="utf-8-sig"))  # -sig: acepta archivos guardados con BOM
+    except FileNotFoundError:
+        return {}
+    # Formato inesperado: mejor no tocarla que machacar la config del usuario.
+    if not isinstance(datos, dict) or not isinstance(datos.get("mcpServers") or {}, dict):
+        raise ValueError(t("La configuración de Claude tiene un formato inesperado: {archivo}", archivo=archivo))
+    return datos
+
+
+def _escribir(archivo: Path, datos: dict) -> None:
+    if archivo.exists():
+        shutil.copy(archivo, archivo.with_name(archivo.name + ".bak-rafaga"))  # copia antes de tocar la config
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    temporal = archivo.with_name(archivo.name + ".tmp-rafaga")  # atómico: nunca deja la config de Claude a medias
+    temporal.write_text(json.dumps(datos, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporal, archivo)
+
+
+def estado() -> dict[str, bool]:
+    resultado = {}
+    for cliente, archivo in CLIENTES.items():
+        try:  # una config de Claude ilegible cuenta como «sin conectar»; no debe impedir abrir la app
+            resultado[cliente] = NOMBRE in (_leer(archivo).get("mcpServers") or {})
+        except Exception:  # cualquier fallo al leerla (incluso JSON absurdo): «sin conectar», nunca tumba la app
+            resultado[cliente] = False
+    return resultado
+
+
+def conectar(cliente: str) -> None:
+    archivo = CLIENTES[cliente]
+    datos = _leer(archivo)
+    servidor = SERVIDOR if cliente == "Claude Code" else {k: v for k, v in SERVIDOR.items() if k != "type"}
+    datos["mcpServers"] = {**(datos.get("mcpServers") or {}), NOMBRE: servidor}
+    _escribir(archivo, datos)
+
+
+def desconectar(cliente: str) -> None:
+    archivo = CLIENTES[cliente]
+    datos = _leer(archivo)
+    if (datos.get("mcpServers") or {}).pop(NOMBRE, None) is not None:
+        _escribir(archivo, datos)
+
+
+def probar() -> list[str]:
+    """Arranca el servidor como lo haría Claude y devuelve los nombres de sus herramientas."""
+    proc = subprocess.Popen([SERVIDOR["command"], *SERVIDOR["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", env={**os.environ, **SERVIDOR["env"]},
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        def enviar(m):
+            proc.stdin.write(json.dumps(m) + "\n")
+            proc.stdin.flush()
+        enviar({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "rafaga", "version": "1"}}})
+        json.loads(proc.stdout.readline())
+        enviar({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        enviar({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        return [t["name"] for t in json.loads(proc.stdout.readline())["result"]["tools"]]
+    finally:
+        proc.kill()
+
+
+def comando_manual() -> str:
+    """Para otros clientes MCP (Cursor, Windsurf…): el comando que deben ejecutar."""
+    return f'"{SERVIDOR["command"]}" "{SERVIDOR["args"][0]}"'

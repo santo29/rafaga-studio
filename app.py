@@ -1,0 +1,152 @@
+"""Ráfaga Studio: app de escritorio. Crea videos con IA y saca shorts de videos largos."""
+import os
+import sys
+from pathlib import Path
+
+from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
+from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
+                               QMessageBox,
+                               QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+
+from motor import claves, idioma
+from motor.idioma import t
+from ui import iconos
+from ui.comun import boton, ESTILO, etiqueta, Reproductor
+from ui.linea_tiempo import render
+from ui.paginas.anuncios import PaginaAnuncios
+from ui.paginas.cabina import PaginaCabina
+from ui.paginas.claves import PaginaClaves
+from ui.paginas.crear import PaginaCrear
+from ui.paginas.diseno import PaginaDiseno
+from ui.paginas.edicion import PaginaEdicion
+from ui.paginas.mcp import PaginaMCP
+from ui.paginas.musica import PaginaMusica
+from ui.paginas.nichos import PaginaNichos
+from ui.paginas.proyectos import PaginaProyectos
+from ui.paginas.shorts import PaginaShorts
+
+# Siempre desde la carpeta de la app, la arranque quien la arranque: yt-dlp busca node/deno primero en la carpeta de
+# trabajo, y un «deno.cmd» en otra carpeta (p. ej. Descargas) se ejecutaría.
+os.chdir(Path(__file__).resolve().parent)
+ICONO = Path(__file__).resolve().parent / "assets" / "icono.ico"
+
+
+class Ventana(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Ráfaga Studio")
+        self.resize(1280, 860)
+        raiz = QWidget()
+        lay = QHBoxLayout(raiz)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        barra = QFrame()
+        barra.setObjectName("barra")
+        barra.setFixedWidth(250)
+        nav = QVBoxLayout(barra)
+        nav.setContentsMargins(10, 0, 10, 16)
+        marca = QHBoxLayout()  # el icono de la app junto al nombre (no un emoji)
+        marca.setContentsMargins(14, 18, 0, 22)
+        logo = QLabel()
+        logo.setPixmap(QPixmap(str(ICONO.with_suffix(".png"))).scaled(30, 30, Qt.KeepAspectRatio,
+                                                                      Qt.SmoothTransformation))
+        marca.addWidget(logo)
+        marca.addWidget(etiqueta("Ráfaga Studio", "marca"), 1)
+        nav.addLayout(marca)
+        self.paginas = QStackedWidget()
+        self.paginas.setObjectName("contenido")
+        self.grupo = QButtonGroup(self)
+        Reproductor.al_editar = self._editar_video  # antes de crear las páginas: así sale su botón «✂️ Editar»
+        self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
+        paginas = [(f"✨  {t('Crear con IA')}", self.crear), (f"⚡  {t('Shorts mágicos')}", PaginaShorts()),
+                   (f"🚀  {t('Anuncios')}", PaginaAnuncios()), (f"🎵  {t('Música')}", PaginaMusica()),
+                   (f"🎨  {t('Diseño')}", self.diseno), (f"✂️  {t('Editor de video')}", self.edicion),
+                   (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
+                   (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
+                   (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"🔑  {t('Claves de IA')}", self.claves),
+                   (f"🔌  {t('Conexión MCP')}", PaginaMCP())]
+        self.orden = [p for _, p in paginas]  # para ir a una página sin contar posiciones
+        for i, (nombre, pagina) in enumerate(paginas):
+            b = boton(nombre, "nav")
+            b.setCheckable(True)
+            b.setChecked(i == 0)
+            b.clicked.connect(lambda _, i=i: self.ir_a(i))
+            self.grupo.addButton(b)
+            nav.addWidget(b)
+            # Cada página con su barra de desplazamiento, para pantallas pequeñas.
+            desplazable = QScrollArea()
+            desplazable.setWidgetResizable(True)
+            desplazable.setFrameShape(QFrame.NoFrame)
+            desplazable.setWidget(pagina)
+            self.paginas.addWidget(desplazable)
+        nav.addStretch()
+        nav.addWidget(self._selector_idioma())
+        lay.addWidget(barra)
+        lay.addWidget(self.paginas, 1)
+        self.setCentralWidget(raiz)
+        for campo in raiz.findChildren(QAbstractSpinBox):  # Qt ignora el padding izquierdo de ESTILO en estos campos
+            campo.lineEdit().setTextMargins(6, 0, 0, 0)
+        if not claves.para("texto"):
+            self.ir_a(self.orden.index(self.claves))
+
+    def ir_a(self, i):
+        self.paginas.setCurrentIndex(i)
+        self.grupo.buttons()[i].setChecked(True)
+
+    def _selector_idioma(self):
+        """Idioma de la app: automático (el del PC o el del país, ver motor/idioma.py) o uno fijo. Se aplica al reiniciar."""
+        combo = QComboBox()
+        combo.setToolTip(t("Idioma de la app"))
+        combo.addItem(iconos.icono("languages"), t("{idioma} (auto)", idioma=idioma.IDIOMAS[idioma.actual()]), "auto")
+        for codigo, nombre in idioma.IDIOMAS.items():
+            combo.addItem(iconos.icono("languages"), nombre, codigo)
+        combo.setCurrentIndex(combo.findData(idioma.elegido()))
+        combo.currentIndexChanged.connect(lambda _: self._cambiar_idioma(combo.currentData()))
+        return combo
+
+    def _cambiar_idioma(self, codigo):
+        idioma.elegir(codigo)
+        reiniciar = QMessageBox.question(self, t("Idioma"), t("El idioma cambia al reiniciar la app. ¿Reiniciar ahora?"))
+        if reiniciar == QMessageBox.Yes and self.close():  # close() pregunta antes si hay algo sin guardar
+            QProcess.startDetached(sys.executable, [str(Path(__file__).resolve())], str(Path(__file__).resolve().parent))
+
+    def closeEvent(self, e):
+        # un diseño o un video sin guardar se perdería al cerrar
+        if not (self.diseno._descartar_ok() and self.edicion._descartar_ok()):
+            return e.ignore()
+        if self.edicion.tareas:  # cerrar a medias dejaría ffmpeg exportando solo y un «tmp-…mp4» en Videos
+            if QMessageBox.question(self, t("Está trabajando"), t("El editor de video está exportando o preparando "
+                                                                  "algo. ¿Cancelarlo y cerrar?")) != QMessageBox.Yes:
+                return e.ignore()
+            for tarea in self.edicion.tareas:
+                tarea.blockSignals(True)  # que no salga «No se pudo terminar» al cerrar
+            if hasattr(r := render(), "cancelar"):  # las pruebas lo cambian por uno simulado
+                r.cancelar()  # mata sus ffmpeg: el trabajo termina enseguida con un error que nadie ve
+            for tarea in self.edicion.tareas:
+                tarea.wait(10_000)  # ponytail: Whisper en el PC no se puede parar; pasado este rato se cierra igual
+            self.edicion.tareas.clear()
+        self.edicion._limpiar(self.edicion.carpeta)
+
+    def _editar_video(self, archivo, formato):
+        if self.edicion.editar_video(archivo, formato):
+            self.ir_a(self.orden.index(self.edicion))
+
+    def _crear_desde_idea(self, prompt):
+        self.crear.prompt.setPlainText(prompt)
+        self.ir_a(self.orden.index(self.crear))
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")  # el estilo nativo de Windows ignora el tema oscuro en las listas desplegables
+    app.setFont(QFont("Segoe UI", 10))
+    app.setStyleSheet(ESTILO)
+    app.setWindowIcon(QIcon(str(ICONO)))
+    # Los botones de los diálogos de Qt (Sí/No, Aceptar/Cancelar) en el idioma de la app; sin esto salen en inglés
+    traductor = QTranslator()
+    if traductor.load(f"qtbase_{'pt_BR' if idioma.actual() == 'pt' else idioma.actual()}",
+                      QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+        app.installTranslator(traductor)
+    Ventana().show()
+    sys.exit(app.exec())

@@ -1,0 +1,340 @@
+"""Pruebas del modelo del editor de video (motor/edicion.py) y de los videos en motor/seguro.py, sin red ni claves:
+python pruebas_edicion.py"""
+import copy
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from motor import edicion, seguro, video  # noqa: E402
+
+
+def falla(funcion, *args):
+    """Lo hostil se rechaza con un ValueError claro: ni revienta con otro error ni pasa."""
+    try:
+        funcion(*args)
+    except ValueError:
+        return
+    raise AssertionError(f"debió rechazar {args!r:.300}")
+
+
+def cerca(a, b):
+    return abs(a - b) < 1e-6
+
+
+def clip(**c):
+    return {"tipo": "video", "archivo": r"C:\videos\a.mp4", "desde": 0, "hasta": 4, **c}
+
+
+with tempfile.TemporaryDirectory() as d:
+    d = Path(d)
+    edicion.CARPETA = d / "ediciones"  # nada de tocar datos/ de verdad
+
+    # ---------- Medios de prueba (ffmpeg lavfi, 1–2 s, pequeños) ----------
+    def hacer(nombre, segundos, *salida):
+        destino = d / nombre
+        video.ffmpeg("-f", "lavfi", "-i", f"testsrc2=s=160x90:r=30:d={segundos}",
+                     "-f", "lavfi", "-i", f"sine=frequency=440:duration={segundos}", *salida, "-shortest", destino)
+        return destino
+    h264 = ("-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac")
+    videos = {n: hacer(n, 2, *h264) for n in ("clip.mp4", "clip.mov", "clip.mkv", "clip.ts")}
+    videos["clip.avi"] = hacer("clip.avi", 1, "-c:v", "mpeg4", "-c:a", "pcm_s16le")
+    videos["camara.mts"] = hacer("camara.mts", 1, *h264, "-f", "mpegts", "-mpegts_m2ts_mode", "1")
+    video.ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=3", d / "musica.wav")
+    video.ffmpeg("-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1", d / "foto.png")
+    secreto = d / "claves.json"
+    secreto.write_text('{"openai": "sk-SECRETO"}', encoding="utf-8")
+
+    # ---------- seguro: videos de verdad pasan, disfrazados no ----------
+    assert videos["camara.mts"].read_bytes()[4:5] == b"G"  # el .mts de prueba lleva la marca de tiempo delante
+    for nombre, ruta in videos.items():
+        assert seguro.archivo_medio(str(ruta), seguro.VIDEOS, "video") == ruta.resolve(), nombre
+    for nombre, contenido in (("disfrazado.mp4", secreto.read_bytes()), ("texto.ts", b"GET /x\n" * 200),
+                              ("una_g.mts", b"\x00\x00\x00\x00G" + b"\x00" * 600),  # una sola sincronía no basta
+                              ("riff.avi", b"RIFF\x00\x00\x00\x00WAVEfmt " + b"\x00" * 600)):  # un WAV no es un AVI
+        (d / nombre).write_bytes(contenido)
+        falla(seguro.archivo_medio, str(d / nombre), seguro.VIDEOS)
+    for malo in (r"\\atacante.example\s\v.mp4", "//atacante.example/s/v.mp4", r"\\?\UNC\srv\s\v.mp4",
+                 str(d / "no_existe.mp4"), str(secreto), str(d / "foto.png"), ""):
+        falla(seguro.archivo_medio, malo, seguro.VIDEOS)
+    # Lo de antes sigue igual: un MP4 vale como audio, un video no es una imagen, un WAV no es un video
+    assert seguro.archivo_medio(str(videos["clip.mp4"]), seguro.AUDIOS) == videos["clip.mp4"].resolve()
+    falla(seguro.archivo_medio, str(videos["clip.mp4"]), seguro.IMAGENES)
+    (d / "musica.mp4").write_bytes((d / "musica.wav").read_bytes())
+    falla(seguro.archivo_medio, str(d / "musica.mp4"), seguro.VIDEOS)
+    assert not seguro.es_video(videos["clip.ts"].read_bytes()[:16])  # con 16 bytes (ia.py) no da error, solo «no»
+    # Tope: 8 GB solo cuando se piden videos; el mismo .mp4 pedido como audio sigue con el tope general
+    original = seguro.TAMANO_MAXIMO, seguro.TAMANO_VIDEO
+    seguro.TAMANO_MAXIMO, seguro.TAMANO_VIDEO = 1000, 10 ** 9
+    try:
+        assert seguro.archivo_medio(str(videos["clip.mp4"]), seguro.VIDEOS | seguro.AUDIOS)
+        falla(seguro.archivo_medio, str(videos["clip.mp4"]), seguro.AUDIOS)
+        falla(seguro.archivo_medio, str(d / "musica.wav"), seguro.VIDEOS | seguro.AUDIOS)
+        seguro.TAMANO_VIDEO = 1000
+        falla(seguro.archivo_medio, str(videos["clip.mp4"]), seguro.VIDEOS)
+    finally:
+        seguro.TAMANO_MAXIMO, seguro.TAMANO_VIDEO = original
+
+    # ---------- Un proyecto con varios clips, transiciones, fotos, capas y audios: tiempos exactos ----------
+    base = {
+        "nombre": "Prueba", "formato": "16:9", "fps": 25, "ajuste": "difuminar", "fondo": "#112233", "extra": "x",
+        "clips": [clip(id="A", transicion="fundido", duracion_transicion=1, duracion_archivo=10, onclick="x"),
+                  clip(id="B", archivo="C:/videos/b.mov", desde=2, hasta=8, velocidad=2),
+                  {"id": "C", "tipo": "imagen", "archivo": r"C:\fotos\c.png", "hasta": 2, "transicion": "disolver",
+                   "duracion_transicion": 0.5, "movimiento": "acercar"},
+                  clip(id="D", hasta=3, transicion="zoom", movimiento="acercar")],
+        "capas": [{"id": "t1", "tipo": "texto", "texto": "Hola", "inicio": 2, "duracion": 3, "entrada": "fundido"},
+                  {"id": "e1", "tipo": "emoji", "texto": "🔥", "inicio": 9, "duracion": 1, "ancho": 5000}],
+        "audios": [{"id": "a1", "archivo": r"C:\musica\m.mp3", "inicio": 1, "desde": 0, "hasta": 5, "volumen": 0.8,
+                    "entrada": 1, "salida": 2}],
+        "subtitulos": {"activos": True, "palabras": [{"palabra": "Hola", "inicio": 0.5, "fin": 0.9}]}}
+    p = edicion.validar(base)
+    assert "extra" not in p and "onclick" not in p["clips"][0] and p["fps"] == 25 and p["fondo"] == "#112233"
+    assert edicion.validar(p) == p and edicion.validar(json.loads(json.dumps(p))) == p  # estable al guardar
+    assert edicion.tiempos(p) == [(0, 4), (3, 6), (6, 8), (7.5, 10.5)], edicion.tiempos(p)
+    assert cerca(edicion.duracion_clip(p["clips"][1]), 3) and cerca(edicion.duracion_total(p), 10.5)
+    assert p["clips"][-1]["transicion"] == "ninguna"  # el último no tiene a quién pasar
+    assert p["clips"][3]["movimiento"] == "ninguno" and p["clips"][2]["movimiento"] == "acercar"  # solo fotos
+    assert p["clips"][2]["desde"] == 0 and p["clips"][2]["velocidad"] == 1 and "duracion_archivo" not in p["clips"][2]
+    assert p["clips"][1]["duracion_archivo"] == 8  # si falta, vale «hasta»: no se puede alargar a ciegas
+    assert p["capas"][1]["ancho"] == 2 * 1920  # capa recortada al doble del formato, como en diseño
+    assert edicion.clip_en(p, 0) == (0, 0) and edicion.clip_en(p, 2) == (0, 2)
+    assert edicion.clip_en(p, 3.5) == (1, 3)  # en la transición, el clip que entra (B va a velocidad 2)
+    assert edicion.clip_en(p, 7.6) == (3, 0.1) and edicion.clip_en(p, 6.5) == (2, 0.5)
+    for fuera in (-1, 10.5, 99, float("nan")):
+        assert edicion.clip_en(p, fuera) is None, fuera
+    assert [c["id"] for c in edicion.capas_en(p, 2)] == ["t1"] and edicion.capas_en(p, 5) == []
+    assert edicion.capas_en(p, 4.99)[0]["texto"] == "Hola" and edicion.capas_en(p, 1.99) == []
+    edicion.capas_en(p, 2)[0]["texto"] = "cambiado"
+    assert p["capas"][0]["texto"] == "Hola"  # son copias: no tocan el proyecto (ni la pila de deshacer)
+    con_audio = edicion.validar({**base, "audios": [{**base["audios"][0], "inicio": 9, "hasta": 3}]})
+    assert cerca(edicion.duracion_total(con_audio), 12)  # lo que acaba más tarde de las tres pistas
+
+    # Transiciones más largas que el clip: se recortan a la mitad del más corto, o se quitan si no caben
+    t = edicion.validar({"clips": [clip(transicion="barrido", duracion_transicion=2, hasta=3), clip(hasta=8),
+                                   clip(transicion="circulo", duracion_transicion=2, hasta=0.3), clip()]})
+    assert t["clips"][0]["duracion_transicion"] == 1.5 and t["clips"][2]["transicion"] == "ninguna"
+    assert edicion.tiempos(t)[1] == (1.5, 9.5)
+
+    # ---------- Operaciones: devuelven un proyecto nuevo y no tocan el que reciben ----------
+    antes = copy.deepcopy(p)
+    q = edicion.dividir(p, 5)  # en B (3–6): 2 s de línea de tiempo = 4 s de archivo a velocidad 2
+    assert p == antes
+    b1, b2 = q["clips"][1], q["clips"][2]
+    assert (b1["desde"], b1["hasta"], b1["transicion"]) == (2, 6, "ninguna") and (b2["desde"], b2["hasta"]) == (6, 8)
+    assert len({b1["id"], b2["id"], "A", "B", "C", "D"}) == 6  # ids nuevos
+    assert edicion.tiempos(q) == [(0, 4), (3, 5), (5, 6), (6, 8), (7.5, 10.5)]
+    f = edicion.dividir(p, 7)  # una foto (6–8): el segundo trozo empieza en 0 y conserva la transición
+    assert [(c["desde"], c["hasta"]) for c in f["clips"][2:4]] == [(0, 1), (0, 1)]
+    assert f["clips"][2]["transicion"] == "ninguna" and f["clips"][3]["transicion"] == "disolver"
+    assert f["clips"][3]["duracion_transicion"] == 0.5 and cerca(edicion.duracion_total(f), 10.5)
+    for malo in (3.05, 5.97, 20, -1, float("nan"), "5", None):  # pegado al borde, fuera de la pista, no es un número
+        falla(edicion.dividir, p, malo)
+
+    r = edicion.recortar(p, "A", 1, 3)
+    assert (r["clips"][0]["desde"], r["clips"][0]["hasta"]) == (1, 3) and r["clips"][0]["duracion_transicion"] == 1
+    assert edicion.tiempos(r)[:2] == [(0, 2), (1, 4)]
+    assert edicion.recortar(p, "A", -5, 50)["clips"][0]["hasta"] == 10  # ajustado al archivo (duracion_archivo)
+    assert edicion.recortar(p, "C", 1, 6)["clips"][2]["hasta"] == 5  # foto: lo que dura
+    a = edicion.recortar(p, "a1", 2, 5)["audios"][0]
+    assert (a["inicio"], a["desde"], a["hasta"]) == (3, 2, 5)  # el sonido sigue en el mismo sitio
+    for args in (("A", 3, 1), ("A", 2, 2.05), ("no_existe", 0, 1), ("t1", 0, 1), ("A", float("inf"), 1)):
+        falla(edicion.recortar, p, *args)
+    assert p == antes
+
+    m = edicion.mover_clip(p, "D", 0)
+    assert [c["id"] for c in m["clips"]] == ["D", "A", "B", "C"] and m["clips"][-1]["transicion"] == "ninguna"
+    assert [c["id"] for c in edicion.mover_clip(p, "A", 99)["clips"]] == ["B", "C", "D", "A"]
+    assert [c["id"] for c in edicion.mover_clip(p, "D", -3)["clips"]][0] == "D"
+    for args in (("D", True), ("D", 1.5), ("t1", 0), ("x", 0)):
+        falla(edicion.mover_clip, p, *args)
+
+    for elemento, clave in (("B", "clips"), ("t1", "capas"), ("a1", "audios")):
+        sin = edicion.borrar(p, elemento)
+        assert elemento not in [e["id"] for e in sin[clave]] and len(sin[clave]) == len(p[clave]) - 1
+    assert edicion.tiempos(edicion.borrar(p, "B")) == [(0, 4), (3, 5), (4.5, 7.5)]
+    falla(edicion.borrar, p, "no_existe")
+    assert p == antes
+
+    # ---------- JSON hostil ----------
+    falla(edicion.validar, [])
+    falla(edicion.validar, {"version": 2})
+    inicio = time.monotonic()
+    falla(edicion.validar, {"clips": [clip()] * 100_000})
+    falla(edicion.validar, {"capas": [{"tipo": "texto"}] * 101})
+    falla(edicion.validar, {"audios": [base["audios"][0]] * 51})
+    assert time.monotonic() - inicio < 1, "los topes se miran antes de recorrer"
+    assert len(edicion.validar({"clips": [clip(hasta=1)] * 300})["clips"]) == 300
+    for archivo in (r"\\atacante.example\s\v.mp4", "//atacante.example/s/v.mp4", r"\\?\UNC\srv\s\v.mp4",
+                    r"\\?\C:\v.mp4", "/\\srv\\s\\v.mp4", "v.mp4", r"videos\v.mp4", r"C:v.mp4",
+                    r"..\..\datos\claves.mp4", r"C:\x\..\..\datos\claves.mp4", r"C:\x\v.mp4:oculto",
+                    r"C:\x\CON.mp4", r"C:\x\nul.mp4", r"C:\x\claves.json", r"C:\x\foto.png", "C:\\x\\v\x00.mp4",
+                    "C:\\x\\v\n.mp4", "C:\\x\\" + "a" * 2000 + ".mp4", "", 123, None, ["C:\\x\\v.mp4"]):
+        falla(edicion.validar, {"clips": [clip(archivo=archivo)]})
+    for campo, malo in (("velocidad", 0), ("velocidad", -1), ("velocidad", 1e308), ("velocidad", 4.5),
+                        ("velocidad", float("nan")), ("velocidad", "2"), ("velocidad", True), ("volumen", 3),
+                        ("volumen", -0.1), ("brillo", 101), ("saturacion", float("-inf")), ("silencio", 1),
+                        ("filtro", "colorchannelmixer=1"), ("transicion", "xfade;rm"), ("duracion_transicion", 5),
+                        ("duracion_transicion", 0.1), ("movimiento", "girar"), ("tipo", "audio"), ("tipo", []),
+                        ("desde", -1), ("hasta", float("inf")), ("hasta", None), ("duracion_archivo", 3)):
+        falla(edicion.validar, {"clips": [clip(**{campo: malo})]})
+    for malo in ({"hasta": 0}, {"desde": 4, "hasta": 4}, {"desde": 5}, {"hasta": 0.05}):  # sin tramo o casi nada
+        falla(edicion.validar, {"clips": [clip(**malo)]})
+    falla(edicion.validar, {"clips": ["no soy un clip"]})
+    falla(edicion.validar, {"clips": [clip(hasta=3700, duracion_archivo=3700)]})  # más de 60 minutos
+    falla(edicion.validar, {"clips": [clip(hasta=2000, duracion_archivo=4000)] * 2})
+    for campo, malo in (("formato", "21:9"), ("fps", 29.97), ("fps", True), ("fps", "30"), ("ajuste", "estirar"),
+                        ("fondo", "red"), ("nombre", "x" * 121), ("nombre", 5), ("clips", {}), ("capas", "x"),
+                        ("subtitulos", []), ("subtitulos", {"palabras": {}}), ("subtitulos", {"activos": "sí"})):
+        falla(edicion.validar, {campo: malo})
+    for capa in ({"tipo": "forma"}, {"tipo": "texto", "inicio": float("nan")}, {"tipo": "texto", "duracion": 0},
+                 {"tipo": "texto", "entrada": "explotar"}, {"tipo": "texto", "salida": "deslizar"},
+                 {"tipo": "imagen", "archivo": r"..\..\claves.png"}, {"tipo": "imagen", "archivo": r"C:\x\a.png"},
+                 {"tipo": "texto", "color": "rojo"}, {"tipo": "texto", "inicio": 3599, "duracion": 2}, "capa"):
+        falla(edicion.validar, {"capas": [capa]})
+    falla(edicion.validar, {"capas": [{"tipo": "imagen", "archivo": "a.png"}] * 13})  # los topes de diseño
+    falla(edicion.validar, {"capas": [{"tipo": "texto", "sombra": True}] * 13})
+    for audio in ({"archivo": r"\\srv\s\m.mp3", "hasta": 1}, {"archivo": r"C:\x\m.exe", "hasta": 1},
+                  {"archivo": r"C:\x\m.mp3", "hasta": 1, "entrada": 11}, {"archivo": r"C:\x\m.mp3", "hasta": 1,
+                                                                         "tipo": "ruido"},
+                  {"archivo": r"C:\x\m.mp3", "hasta": 1, "volumen": float("nan")}, {"archivo": r"C:\x\m.mp3"}):
+        falla(edicion.validar, {"audios": [audio]})
+    for palabras in ([{"palabra": 5, "inicio": 0, "fin": 1}], [{"palabra": "a", "inicio": 2, "fin": 1}],
+                     [{"palabra": "a" * 101, "inicio": 0, "fin": 1}], ["hola"],
+                     [{"palabra": "a", "inicio": 0, "fin": 1}] * 20_001):
+        falla(edicion.validar, {"subtitulos": {"palabras": palabras}})
+    inicio = time.monotonic()
+    edicion.validar({"subtitulos": {"palabras": [{"palabra": "a", "inicio": 0, "fin": 1}] * 20_000}})
+    assert time.monotonic() - inicio < 2
+    # Ids repetidos o raros entre clips, capas y audios se cambian: borrar no se equivoca de elemento
+    rep = edicion.validar({"clips": [clip(id="x"), clip(id="x"), clip(id="../a")],
+                           "capas": [{"id": "x", "tipo": "texto"}], "audios": [{**base["audios"][0], "id": "x"}]})
+    ids = [e["id"] for e in rep["clips"] + rep["capas"] + rep["audios"]]
+    assert len(set(ids)) == 5 and ids[0] == "x"
+
+    # ---------- Carpetas, guardar, abrir y listar ----------
+    carpeta = edicion.nueva_carpeta("Mi vídeo ñandú")
+    assert carpeta.parent == edicion.CARPETA and carpeta.name.endswith("-mi-video-nandu"), carpeta
+    assert (carpeta / "imagenes").is_dir() and (carpeta / "cache").is_dir()
+    assert edicion.nueva_carpeta("../../..\\x").parent == edicion.CARPETA
+    with ThreadPoolExecutor(8) as hilos:  # el MCP crea proyectos en paralelo: mismo nombre a la vez, ninguno falla
+        a_la_vez = list(hilos.map(edicion.nueva_carpeta, ["A la vez"] * 40))
+    assert len(set(a_la_vez)) == 40 and all((c / "cache").is_dir() for c in a_la_vez)
+
+    # anadir_medio: mide con ffmpeg, valida el contenido y no toca el proyecto que recibe
+    vacio = edicion.nuevo("Real")
+    real = edicion.anadir_medio(vacio, str(videos["clip.mp4"]))
+    assert vacio["clips"] == [] and len(real["clips"]) == 1
+    c = real["clips"][0]
+    assert c["tipo"] == "video" and abs(c["hasta"] - 2) < 0.1 and c["hasta"] <= c["duracion_archivo"]
+    assert c["archivo"] == str(videos["clip.mp4"].resolve())
+    real = edicion.anadir_medio(real, str(d / "foto.png"))
+    assert real["clips"][1]["tipo"] == "imagen" and real["clips"][1]["hasta"] == edicion.IMAGEN
+    real = edicion.anadir_medio(real, str(videos["camara.mts"]))
+    real = edicion.anadir_medio(real, str(d / "musica.wav"))
+    assert real["audios"][0]["inicio"] == 0 and abs(real["audios"][0]["hasta"] - 3) < 0.1
+    assert len(real["clips"]) == 3
+    for malo in (str(d / "disfrazado.mp4"), str(secreto), r"\\atacante.example\s\v.mp4", str(d / "virus.exe"),
+                 "datos/claves.json", str(d / "no_existe.mp4"), "", str(d / "musica.mp4")):
+        falla(edicion.anadir_medio, real, malo)
+    lleno = edicion.validar({"clips": [{"tipo": "imagen", "archivo": str(d / "foto.png"), "hasta": 3599}]})
+    casi = edicion.anadir_medio(lleno, str(videos["clip.mp4"]))  # entra recortado a lo que cabe en 60 min
+    assert casi["clips"][1]["hasta"] == 1 and edicion.duracion_total(casi) == 3600
+    falla(edicion.anadir_medio, casi, str(d / "foto.png"))
+
+    # Una canción en .mp4/.webm sin imagen (o con portada) entra como audio: como clip, el render no podría montarla.
+    # Un .mkv solo de sonido se rechaza claro, y «Importar música» (audio=True) siempre da un audio
+    video.ffmpeg("-f", "lavfi", "-i", "sine=duration=2", "-c:a", "aac", d / "cancion.mp4")
+    video.ffmpeg("-f", "lavfi", "-i", "sine=duration=2", "-c:a", "libopus", d / "cancion.webm")
+    video.ffmpeg("-f", "lavfi", "-i", "sine=duration=2", "-c:a", "aac", d / "cancion.mkv")
+    video.ffmpeg("-f", "lavfi", "-i", "sine=duration=2", "-i", d / "foto.png", "-map", "0", "-map", "1", "-c:a", "aac",
+                 "-c:v", "mjpeg", "-disposition:v:0", "attached_pic", d / "portada.mp4")
+    for nombre in ("cancion.mp4", "cancion.webm", "portada.mp4"):
+        q = edicion.anadir_medio(vacio, str(d / nombre))
+        assert q["clips"] == [] and abs(q["audios"][0]["hasta"] - 2) < 0.1, nombre
+    falla(edicion.anadir_medio, vacio, str(d / "cancion.mkv"))
+    q = edicion.anadir_medio(vacio, str(videos["clip.mp4"]), audio=True)
+    assert q["clips"] == [] and q["audios"][0]["archivo"] == str(videos["clip.mp4"].resolve())
+    assert video.medir(videos["clip.mkv"])[1] and edicion.anadir_medio(vacio, str(videos["clip.mkv"]))["clips"]
+
+    # Un .webm grabado en el navegador (escrito a una tubería: sin duración en la cabecera) se mide recorriéndolo
+    with open(d / "navegador.webm", "wb") as f:
+        subprocess.run([video.FFMPEG, "-hide_banner", "-loglevel", "error", *video.solo_medios([
+            "-f", "lavfi", "-i", "testsrc2=s=160x90:r=30:d=2", "-f", "lavfi", "-i", "sine=duration=2", "-c:v", "libvpx",
+            "-deadline", "realtime", "-c:a", "libopus", "-f", "webm", "pipe:1"])], stdout=f, check=True)
+    assert "Duration: N/A" in video._leer_ffmpeg("-i", d / "navegador.webm")
+    q = edicion.anadir_medio(vacio, str(d / "navegador.webm"))
+    assert q["clips"][0]["tipo"] == "video" and abs(q["clips"][0]["duracion_archivo"] - 2) < 0.1, q["clips"]
+
+    # Subtítulos: el borde y la sombra encogen con el video como las letras (la vista previa a 640 no los engorda)
+    video.subtitulos_ass([{"palabra": "Hola", "inicio": 0, "fin": 1}, {"palabra": "mundo", "inicio": 1, "fin": 2}],
+                         "9:16", d / "s.ass")
+    oscuros = []
+    for tam, reducir in (("360x640", ""), ("1080x1920", ",scale=360:640")):
+        video.ffmpeg("-f", "lavfi", "-i", f"color=c=white:s={tam}", "-vf", f"subtitles=s.ass{reducir},format=gray",
+                     "-frames:v", "1", "-f", "rawvideo", "s.gray", cwd=d)
+        oscuros.append(sum(b < 128 for b in (d / "s.gray").read_bytes()))  # borde y sombra sobre blanco
+    assert 0.8 < oscuros[0] / oscuros[1] < 1.25, oscuros
+
+    archivo = edicion.guardar(real, carpeta)
+    assert archivo == carpeta / "proyecto.json" and edicion.abrir(carpeta) == real
+    falla(edicion.guardar, real, r"\\atacante.example\s\proyecto")
+    falla(edicion.abrir, r"\\atacante.example\s\proyecto")
+    falla(edicion.abrir, d / "no_existe")
+    (carpeta / "miniatura.png").write_bytes((d / "foto.png").read_bytes())
+    assert edicion.listar() == [{"nombre": "Real", "carpeta": str(carpeta),
+                                 "miniatura": str((carpeta / "miniatura.png").resolve())}]
+
+    # Un archivo movido o borrado (USB quitado) no impide abrir: se marca «falta» y se vuelve a enlazar de una vez
+    for origen, copia in ((videos["clip.mp4"], "perdido.mp4"), (d / "musica.wav", "perdida.wav")):
+        shutil.copy(origen, d / copia)
+    mio = edicion.dividir(edicion.anadir_medio(edicion.nuevo("Perdidos"), str(d / "perdido.mp4")), 1)
+    mio = edicion.anadir_medio(edicion.anadir_medio(mio, str(d / "foto.png")), str(d / "perdida.wav"))
+    mio = edicion.anadir_medio(mio, str(d / "perdido.mp4"), audio=True)  # el mismo video, también como música
+    perdidos = edicion.nueva_carpeta("perdidos")
+    edicion.guardar(edicion.validar({**mio, "capas": [{"tipo": "texto", "texto": "Mis textos"}]}), perdidos)
+    (d / "movido").mkdir()
+    (d / "perdido.mp4").rename(d / "movido" / "perdido.mp4")
+    (d / "perdida.wav").unlink()
+    abierto = edicion.abrir(perdidos)
+    assert [c.get("falta") for c in abierto["clips"]] == [True, True, None] and abierto["audios"][0]["falta"] is True
+    assert abierto["capas"][0]["texto"] == "Mis textos" and edicion.validar(abierto) == abierto
+    falla(edicion.validar, {"clips": [clip(falta="sí")]})
+    nueva = str((d / "movido" / "perdido.mp4").resolve())
+    arreglado = edicion.reenlazar(abierto, abierto["clips"][1]["id"], nueva)  # los dos trozos del clip dividido
+    assert [c.get("falta") for c in arreglado["clips"]] == [None] * 3 and arreglado["audios"][0]["falta"]
+    assert [c["archivo"] for c in arreglado["clips"][:2]] == [nueva] * 2 and abierto["clips"][0]["falta"]
+    assert arreglado["audios"][1]["archivo"] == nueva and "falta" not in arreglado["audios"][1]  # su audio también
+    corto = hacer("corto.mp4", 1, *h264)
+    for elemento, ruta in ((abierto["clips"][0], d / "foto.png"), (abierto["clips"][0], d / "cancion.mp4"),
+                           (abierto["clips"][1], corto), (abierto["audios"][0], d / "foto.png"),
+                           (abierto["capas"][0], videos["clip.mp4"]), (abierto["clips"][0], d / "no_existe.mp4")):
+        falla(edicion.reenlazar, abierto, elemento["id"], str(ruta))  # otro tipo, sin imagen, más corto, una capa…
+    assert "falta" not in edicion.reenlazar(abierto, abierto["audios"][0]["id"], str(d / "musica.wav"))["audios"][0]
+    shutil.copy(d / "musica.wav", d / "perdida.wav")  # el USB vuelve: al abrir ya no falta
+    assert "falta" not in edicion.abrir(perdidos)["audios"][0]
+    (d / "perdida.wav").write_bytes(b"")  # vacío (copia o sincronización a medias): falta, no impide abrir
+    assert edicion.abrir(perdidos)["audios"][0]["falta"] is True
+
+    # Un proyecto ajeno: JSON roto, NaN, enorme o con archivos que no son lo que dicen no se abre
+    ajeno = edicion.nueva_carpeta("ajeno")
+    datos = json.loads(archivo.read_text(encoding="utf-8"))
+    (d / "secreto.mp4").write_bytes(secreto.read_bytes())
+    for texto in ('{"clips": [', "[" * 100_000, '{"fps": NaN}', '{"fps": Infinity}', b"\xff\xfe{}", "",
+                  json.dumps({**datos, "clips": [{**datos["clips"][0], "archivo": str(d / "secreto.mp4")}]}),
+                  json.dumps({**datos, "audios": [{**datos["audios"][0], "archivo": str(d / "secreto.mp4")}]}),
+                  json.dumps({**datos, "clips": [{**datos["clips"][0], "archivo": r"\\srv\s\v.mp4"}]}),
+                  json.dumps({**datos, "clips": [datos["clips"][0]] * 100_000})):
+        (ajeno / "proyecto.json").write_bytes(texto if isinstance(texto, bytes) else texto.encode("utf-8"))
+        falla(edicion.abrir, ajeno)
+    with open(ajeno / "proyecto.json", "w", encoding="utf-8") as f:  # más de 8 MB aunque sea JSON válido
+        f.write('{"nombre": "' + "x" * (9 * 1024 ** 2) + '"}')
+    falla(edicion.abrir, ajeno)
+    assert sorted(x["nombre"] for x in edicion.listar()) == ["Perdidos", "Real"]  # el roto no impide ver los demás
+
+print("Pruebas del editor de video (modelo) pasadas.")

@@ -201,6 +201,121 @@ with tempfile.TemporaryDirectory() as d:
         tinte[filtro] = f[..., 0].mean() - f[..., 2].mean()  # rojo menos azul
     assert tinte["calido"] > tinte["ninguno"] + 15 and tinte["frio"] < tinte["ninguno"] - 15, tinte
 
+    # ---------- Filtros, ajustes, efectos y transiciones nuevos (a 160 de alto: rápido) ----------
+    carpeta_fx = edicion.nueva_carpeta("efectos")  # aparte: lo de abajo cuenta los tramos de `carpeta`
+
+    def montado(p, alto=160):
+        """(sus fotogramas en RGB, (ancho, alto, fotogramas)) del video montado por el camino de la vista previa."""
+        hecho = render._render(edicion.validar(p), carpeta_fx, d / "montado.mp4", alto, False, lambda t, f: None)
+        w, h, n = info(hecho)
+        datos = ffmpeg_salida("-i", hecho, "-f", "rawvideo", "-pix_fmt", "rgb24", "-").stdout
+        return np.frombuffer(datos, np.uint8).reshape(-1, h, w, 3).astype(int), (w, h, n)
+
+    def sin_cambiar(p, **campos):
+        return edicion.validar({**p, "clips": [{**c, **campos} for c in p["clips"]]})
+    assert set(edicion.FILTROS) == {"ninguno", *render._FILTROS}
+    assert set(edicion.TRANSICIONES) == {"ninguna", *render._XFADE}
+    # Cada filtro nuevo y cada ajuste (temperatura, viñeta, nitidez) se nota y no cambia tamaño ni fotogramas
+    cambios = [{"filtro": f} for f in ("cine", "caribe", "noir", "dorado", "neon", "pastel", "retro", "nocturno")]
+    cambios += [{"temperatura": 80}, {"temperatura": -80}, {"vineta": 100}, {"nitidez": 100}]
+    p = clips(proyecto(*[foto] * len(cambios)), *[{"hasta": 1, **cambio} for cambio in cambios])
+    con, tam = montado(p)
+    sin, _ = montado(sin_cambiar(p, filtro="ninguno", temperatura=0, vineta=0, nitidez=0))
+    assert tam == (90, 160, 30 * len(cambios)) and len(con) == len(sin) == tam[2], (tam, len(con))
+    for i, cambio in enumerate(cambios):
+        assert np.abs(con[30 * i + 15] - sin[30 * i + 15]).mean() > 1.5, cambio
+    tinte = [(f[..., 0] - f[..., 2]).mean() for f in (con[8 * 30 + 15], sin[8 * 30 + 15], con[9 * 30 + 15])]
+    assert tinte[0] > tinte[1] + 10 > tinte[2] + 20, tinte  # temperatura: + más cálido, - más frío
+    # Las transiciones nuevas: 9 clips de 1 s con 8 transiciones de 0.3 s
+    nuevas = ["desvanecer_negro", "desvanecer_blanco", "radial", "abrir_vertical", "deslizar_abajo", "difuminar",
+              "cortes", "aplastar"]
+    p = clips(proyecto(*[prueba, foto] * 4, prueba), *[{"hasta": 1, "transicion": x, "duracion_transicion": 0.3}
+                                                       for x in nuevas], {"hasta": 1})
+    _, tam = montado(p)
+    assert tam == (90, 160, 270 - 8 * 9), tam
+
+    # Efectos: tamaño y fotogramas de siempre, se notan, fotograma() da lo mismo que el montaje y los de «al ritmo»
+    # siguen los golpes de la primera pista de música (analizada una sola vez: la de mentira cuenta las llamadas)
+    llamadas = []
+
+    def ritmo_falso(cancion):
+        llamadas.append(Path(cancion).name)
+        return 80.0, 0.25  # un golpe cada 0.75 s; el primero, a 0.25 s de la canción
+    ritmo_real, video.ritmo = video.ritmo, ritmo_falso
+    try:
+        efectos = [e for e in edicion.EFECTOS if e != "ninguno"]
+        p = clips(proyecto(*[prueba] * len(efectos), musica),
+                  *[{"hasta": 1, "efecto": e, "intensidad": 100} for e in efectos])
+        p["audios"][0]["inicio"] = 0.5  # golpes en 0, 0.75, 1.5, 2.25… de la línea de tiempo
+        p["audios"].insert(0, {"tipo": "voz", "archivo": str(marca), "hasta": 1, "duracion_archivo": 2})
+        p = edicion.validar(p)
+        con, tam = montado(p)
+        assert tam == (90, 160, 30 * len(efectos)) and len(con) == tam[2], tam
+        assert llamadas == ["musica.wav"], llamadas  # la voz no cuenta: la primera pista de música
+        sin, _ = montado(sin_cambiar(p, efecto="ninguno"))
+        for i, e in enumerate(efectos):
+            diferencia = np.abs(con[30 * i:30 * i + 30] - sin[30 * i:30 * i + 30]).mean(axis=(1, 2, 3))
+            assert diferencia.max() > 4, (e, diferencia.round(1))
+        # El destello, en el clip de 1 a 2 s: su golpe cae en 1.5 s (el fotograma 15 del clip), no en 0 ni en 0.75
+        f0 = 30 * efectos.index("flash_ritmo")
+        assert f0 == 30
+        luz = con[f0:f0 + 30].mean(axis=(1, 2, 3)) - sin[f0:f0 + 30].mean(axis=(1, 2, 3))
+        assert luz.argmax() == 15 and luz[15] > 30 and luz[14] < 3 and luz[0] < 15, luz.round(1)
+        for i, e in enumerate(efectos):
+            for n in (30 * i + 2, 30 * i + 15):
+                f = de_qimage(render.fotograma(p, carpeta_fx, n / 30, 160))
+                # Con el de antes, el suyo y el de después: el suyo es el que más se parece (sin el ruido del H.264)
+                diferencias = [np.abs(reducir(f, 45, 80) - reducir(con[m], 45, 80)).mean() for m in (n - 1, n, n + 1)]
+                assert f.shape == con[n].shape and min(diferencias) == diferencias[1] < 4, (e, n, diferencias)
+        assert llamadas == ["musica.wav"] and len(list((carpeta_fx / "cache").glob("ritmo2-*.json"))) == 1
+        render._render(p, carpeta_fx, d / "montado.mp4", 160, False, lambda t, f: None)  # todo de la caché
+        assert llamadas == ["musica.wav"], llamadas
+        # Sin música: 120 BPM desde 0 (golpes en 0 y 0.5 s del clip)
+        p = clips(proyecto(prueba), {"hasta": 1, "efecto": "flash_ritmo", "intensidad": 100})
+        luz = montado(p)[0].mean(axis=(1, 2, 3)) - montado(sin_cambiar(p, efecto="ninguno"))[0].mean(axis=(1, 2, 3))
+        assert luz[0] > 30 and luz[15] > 30 and luz[14] < 3, luz.round(1)
+    finally:
+        video.ritmo = ritmo_real
+    # Arreglos de la revisión:
+    # - Una foto quieta con un efecto: fotograma() da el del montaje (sin -framerate salía un fotograma desfasado)
+    p = clips(proyecto(foto), {"hasta": 1, "efecto": "flash_ritmo", "intensidad": 100})
+    con, _ = montado(p)
+    for n in (1, 15, 16):  # junto a los golpes (0 y 0.5 s, sin música): ahí cada fotograma es distinto
+        f = de_qimage(render.fotograma(p, carpeta_fx, n / 30, 160))
+        diferencias = [np.abs(reducir(f, 45, 80) - reducir(con[m], 45, 80)).mean() for m in (n - 1, n, n + 1)]
+        assert min(diferencias) == diferencias[1] < 6, (n, diferencias)  # el suyo, no el de al lado
+    # - El Brillo Ráfaga se pinta una vez: cambiar la intensidad no repinta, y un juego a medias se completa
+    for intensidad in (60, 90):
+        montado(clips(proyecto(prueba), {"hasta": 1, "efecto": "brillo_rafaga", "intensidad": intensidad}))
+    pngs = sorted((carpeta_fx / "cache").glob("brillo-*.png"))
+    assert len(pngs) == render._VUELTA * 30, len(pngs)
+    pngs[3].unlink()
+    patron, k = render._brillo(carpeta_fx / "cache", "9:16", 160, 30)
+    assert all((carpeta_fx / "cache" / (patron % i)).is_file() for i in range(k))
+    # - El ritmo de la caché es el mismo que el recién analizado (si no, el 2.º render rehacía tramos)
+    ritmo_real, video.ritmo = video.ritmo, lambda cancion: (117.123456789, 0.987654321)
+    try:
+        p = clips(proyecto(prueba, musica), {"hasta": 1})
+        carpeta_ritmo = d / "ritmo"
+        (carpeta_ritmo / "cache").mkdir(parents=True)
+        primero = render._ritmo(p, carpeta_ritmo / "cache")
+        assert render._ritmo(p, carpeta_ritmo / "cache") == primero
+    finally:
+        video.ritmo = ritmo_real
+    # - El tempo sale de los golpes, no de los escalones de librosa: un bombo a 120 BPM da ~120, no 117,45
+    import soundfile  # noqa: E402
+    golpes = np.zeros(22050 * 20, np.float32)
+    for i in range(0, len(golpes), 22050 // 2):
+        golpes[i:i + 600] = np.sin(np.arange(600) * 0.3) * np.linspace(1, 0, 600)
+    soundfile.write(str(d / "bombo.wav"), golpes, 22050)
+    bpm, _ = video.ritmo(d / "bombo.wav")
+    assert abs(bpm - 120) < 0.5, bpm
+    # Subtítulos: el render usa el estilo del proyecto
+    p = clips(proyecto(foto, subtitulos={"activos": True, "estilo": "karaoke", "palabras": [
+        {"palabra": "hola", "inicio": 0.1, "fin": 0.8}]}), {"hasta": 1})
+    montado(p)
+    assert any("\\kf70}HOLA" in f.read_text(encoding="utf-8") for f in (carpeta_fx / "cache").glob("subs-*.ass"))
+
     # ---------- fotograma() da el que se ve en el montaje, también desde el proxy ----------
     # Fuente de 25 fps (en un proyecto de 30) cuyo brillo es el número de fotograma; 1280x720: más grande que la
     # vista previa, así que miniatura() le encarga un proxy

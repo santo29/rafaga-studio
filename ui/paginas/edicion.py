@@ -1,7 +1,8 @@
-"""Página «✂️ Editor de video»: edición a mano como en CapCut. Arriba a la izquierda, los medios (importar, texto,
-stickers, audio, filtros, transiciones y subtítulos); en el centro, la vista previa (el fotograma del video con las
-capas encima, que se mueven y cambian de tamaño como en el editor de diseño); a la derecha, las propiedades de lo
-elegido; abajo, a todo lo ancho, la línea de tiempo (ui/linea_tiempo.py).
+"""Página «✂️ Editor de video»: edición a mano como en CapCut. Arriba, la barra de herramientas (medios, audio, texto,
+stickers, efectos, transiciones, subtítulos, filtros, ajustes, plantillas y avatar IA) y, a la izquierda, el panel de
+la elegida; en el centro, la vista previa (el fotograma del video con las capas encima, que se mueven y cambian de
+tamaño como en el editor de diseño); a la derecha, las propiedades de lo elegido; abajo, a todo lo ancho, la línea de
+tiempo (ui/linea_tiempo.py).
 
 El proyecto es el dict de motor/edicion.py y nunca se cambia por dentro: cada cambio hace uno nuevo validado, así el
 deshacer es una pila de proyectos. Lo lento (medir archivos, fotogramas, vista previa, exportar, subtítulos, voz) va
@@ -18,8 +19,8 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QFrame, QGraphicsItem, QGraphicsScene, QHBoxLayout, QLabel,
                                QLineEdit,
-                               QListView, QListWidget, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSplitter,
-                               QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
+                               QListView, QListWidget, QMessageBox, QProgressBar, QScrollArea, QSlider, QSplitter,
+                               QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from motor import diseno, edicion, marca, seguro, video
 from motor.idioma import t
@@ -47,8 +48,21 @@ ESTILOS_TEXTO = {  # puntos de partida; luego todo se cambia en Propiedades
 ESTILO_PAGINA = ("QDoubleSpinBox { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 8px; padding: 6px; }"
                  "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 18px; border: none; "
                  "background: #20202A; } QSplitter::handle { background: #24242C; height: 4px; }"
-                 "#pestana { border: none; border-radius: 8px; padding: 6px; font-size: 18px; background: transparent; }"
-                 "#pestana:checked { background: #2A2340; } #pestana:hover { background: #20202A; }")
+                 "#herramienta { border: none; border-radius: 8px; padding: 6px 4px; font-size: 12px; color: #B4B4C0; "
+                 "background: transparent; } #herramienta:hover { background: #20202A; color: #FFFFFF; }"
+                 "#herramienta:checked { background: #1C1830; color: #7C5CFF; font-weight: 700; }"
+                 "#rejilla { font-size: 13px; } #rejilla::item { background: #20202A; border: 1px solid #2C2C36; "
+                 "border-radius: 8px; margin: 3px; padding: 2px; }"
+                 "#rejilla::item:selected { background: #1C1830; border: 1px solid #7C5CFF; color: #FFFFFF; }"
+                 "#plantilla { background: #20202A; border: 1px solid #2C2C36; border-radius: 10px; }"
+                 "#plantilla_nombre { font-weight: 700; color: #FFFFFF; }"
+                 "QSlider::sub-page:horizontal:disabled { background: #3C3C48; }"  # sin clip elegido se ve apagado
+                 "QSlider::handle:horizontal:disabled { background: #5A5A66; } #secundario:disabled { color: #5A5A66; }"
+                 # los paneles que se desplazan van dentro de la tarjeta: sin esto saldrían con el fondo de la página
+                 "#desplazable, #desplazable > QWidget > QWidget { background: transparent; }")
+VIOLETA = "#7C5CFF"  # la herramienta elegida
+AJUSTES = {"brillo": (-100, 100), "contraste": (-100, 100), "saturacion": (-100, 100), "temperatura": (-100, 100),
+           "vineta": (0, 100), "nitidez": (0, 100)}  # campo del clip: (mínimo, máximo); «Restablecer» los pone a 0
 
 
 def carpeta_videos() -> Path:
@@ -101,6 +115,11 @@ def _abrir(carpeta, aviso):
         if c["tipo"] == "imagen":
             diseno._imagen(Path(carpeta), c["archivo"])
     return {"proyecto": proyecto}
+
+
+def _musica(proyecto) -> list[dict]:
+    """[la primera pista de música] (la que marca el ritmo de los efectos «al ritmo»), o [] si no hay."""
+    return [a for a in proyecto["audios"] if a["tipo"] == "musica"][:1]
 
 
 def _propiedades() -> dict:
@@ -174,11 +193,15 @@ class PaginaEdicion(QWidget):
         lay.addWidget(etiqueta(t("Editor de video"), "titulo"))
         lay.addLayout(self._barra())
         arriba = QWidget()
-        fila = QHBoxLayout(arriba)
-        fila.setContentsMargins(0, 0, 0, 0)
-        fila.addWidget(self._medios())
+        col = QVBoxLayout(arriba)
+        col.setContentsMargins(0, 0, 0, 0)
+        herramientas, panel = self._herramientas()
+        fila = QHBoxLayout()
+        fila.addWidget(panel)
         fila.addWidget(self._centro(), 1)
         fila.addWidget(self._panel_propiedades())
+        col.addWidget(herramientas)
+        col.addLayout(fila, 1)
         partes = QSplitter(Qt.Vertical)
         partes.addWidget(arriba)
         partes.addWidget(self._linea())
@@ -232,33 +255,52 @@ class PaginaEdicion(QWidget):
             fila.addWidget(w, 1 if w is self.estado else 0)
         return fila
 
-    def _medios(self):
+    def _herramientas(self):
+        """(barra, panel): la barra de herramientas como en CapCut (icono encima, nombre debajo; la elegida en violeta)
+        y la tarjeta de la izquierda con el panel de la herramienta elegida."""
         caja, lay = tarjeta()
         lay.setContentsMargins(10, 10, 10, 10)
         caja.setFixedWidth(290)
-        self.pestanas, self.paneles, fila, self.listas = QButtonGroup(self), QStackedWidget(), QHBoxLayout(), {}
-        for i, (simbolo, texto, panel) in enumerate((
-                ("📁", t("Medios"), self._panel_medios()), ("🔤", t("Texto"), self._panel_texto()),
-                ("⭐", t("Stickers"), self._panel_stickers()), ("🎵", t("Audio"), self._panel_audio()),
-                ("🎨", t("Filtros"), self._panel_lista(edicion.FILTROS, "filtro")),
-                ("🔀", t("Transiciones"), self._panel_lista(edicion.TRANSICIONES, "transicion")),
-                ("💬", t("Subtítulos"), self._panel_subtitulos()))):
-            b = QPushButton()
-            b.setIcon(iconos.icono(iconos.MAPA[simbolo]))  # icono de línea, no emoji
-            b.setIconSize(QSize(20, 20))
-            b.setObjectName("pestana")
+        barra = QWidget()
+        fila = QHBoxLayout(barra)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(2)
+        self.pestanas, self.paneles, self.listas, self.deslizadores = QButtonGroup(self), QStackedWidget(), {}, {}
+        self.herramientas = {}
+        for i, (clave, nombre_icono, texto, panel) in enumerate((
+                ("medios", "folder-open", t("Medios"), self._panel_medios()),
+                ("audio", "music", t("Audio"), self._panel_audio()),
+                ("texto", "type", t("Texto"), self._panel_texto()),
+                ("stickers", "sticker", t("Stickers"), self._panel_stickers()),
+                ("efectos", "wand-sparkles", t("Efectos"), self._panel_lista(
+                    edicion.EFECTOS, "efecto", self._deslizador("intensidad", t("Intensidad"), 0, 100))),
+                ("transiciones", "blend", t("Transiciones"), self._panel_lista(edicion.TRANSICIONES, "transicion")),
+                ("subtitulos", "captions", t("Subtítulos"), self._desplazable(self._panel_subtitulos())),
+                ("filtros", "aperture", t("Filtros"), self._panel_lista(edicion.FILTROS, "filtro")),
+                ("ajustes", "sliders-horizontal", t("Ajustes"), self._desplazable(self._panel_ajustes())),
+                ("plantillas", "layout-template", t("Plantillas"), self._desplazable(self._panel_plantillas())),
+                ("avatar", "scan-face", t("Avatar IA"), self._panel_avatar()))):
+            b = self.herramientas[clave] = QToolButton()
+            b.setText(texto)
+            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            icono = QIcon()  # gris y, la elegida, violeta
+            icono.addPixmap(iconos.icono(nombre_icono, "#B4B4C0").pixmap(48, 48), QIcon.Normal, QIcon.Off)
+            icono.addPixmap(iconos.icono(nombre_icono, VIOLETA).pixmap(48, 48), QIcon.Normal, QIcon.On)
+            b.setIcon(icono)
+            b.setIconSize(QSize(22, 22))
+            b.setObjectName("herramienta")
             b.setCheckable(True)
-            b.setToolTip(texto)
+            b.setMinimumWidth(62)
             b.setCursor(Qt.PointingHandCursor)
             self.pestanas.addButton(b, i)
             fila.addWidget(b)
             self.paneles.addWidget(panel)
+        fila.addStretch()
         self.pestanas.idClicked.connect(self._ir_pestana)
         self.titulo_pestana = etiqueta("", "sub")
-        lay.addLayout(fila)
         lay.addWidget(self.titulo_pestana)
         lay.addWidget(self.paneles, 1)
-        return caja
+        return barra, caja
 
     @staticmethod
     def _panel(*widgets, estirar=True):
@@ -270,6 +312,36 @@ class PaginaEdicion(QWidget):
         if estirar:
             lay.addStretch()
         return panel
+
+    @staticmethod
+    def _desplazable(panel):
+        """El panel con barra de desplazamiento: si la ventana es baja, lo de abajo no queda cortado."""
+        caja = QScrollArea()
+        caja.setObjectName("desplazable")
+        caja.setWidgetResizable(True)
+        caja.setFrameShape(QFrame.NoFrame)
+        caja.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        caja.setWidget(panel)
+        return caja
+
+    def _deslizador(self, campo, texto, minimo, maximo):
+        """«Nombre ··· valor» y su deslizador, que cambia ese campo del clip elegido (arrastrarlo es un solo
+        «deshacer»: _cambiar junta los cambios seguidos del mismo campo)."""
+        caja = QWidget()
+        lay = QVBoxLayout(caja)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(2)
+        arriba, valor = QHBoxLayout(), etiqueta("", "sub")
+        valor.setWordWrap(False)
+        arriba.addWidget(etiqueta(texto), 1)
+        arriba.addWidget(valor)
+        d = self.deslizadores[campo] = QSlider(Qt.Horizontal)
+        d.setRange(minimo, maximo)
+        d.valueChanged.connect(lambda v: (valor.setText(str(v)), self._cambiar(campo, **{campo: v})))
+        valor.setText(str(d.value()))
+        lay.addLayout(arriba)
+        lay.addWidget(d)
+        return caja
 
     def _panel_medios(self):
         importar, foto = boton(f"➕  {t('Importar')}"), boton(f"🖼️  {t('Foto encima del video')}")
@@ -319,26 +391,85 @@ class PaginaEdicion(QWidget):
         return self._panel(musica, etiqueta(t("Voz IA: se añade en el cursor."), "sub"), self.texto_voz, self.voz,
                            self.voz_btn)
 
-    def _panel_lista(self, opciones: dict, campo: str):
+    def _panel_lista(self, opciones: dict, campo: str, *debajo):
+        """Las opciones de un campo del clip (filtro, efecto o transición) que se aplican al clip elegido. Filtros y
+        efectos van en cuadrícula, como botones con su nombre; las transiciones, en lista. `debajo`: más controles."""
         lista = self.listas[campo] = QListWidget()
+        if campo != "transicion":
+            lista.setObjectName("rejilla")
+            lista.setViewMode(QListView.IconMode)
+            lista.setResizeMode(QListView.Adjust)
+            lista.setMovement(QListView.Static)
+            lista.setWordWrap(True)  # «Temblor de cámara» en dos líneas, no cortado
+            lista.setGridSize(QSize(118, 58))
         for clave, texto in opciones.items():
-            lista.addItem(pd._elemento(texto, clave))
+            item = pd._elemento(texto, clave)
+            if campo != "transicion":
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setSizeHint(QSize(110, 52))  # caben dos líneas
+            lista.addItem(item)
         lista.itemClicked.connect(lambda item: self._a_clip(campo, item.data(Qt.UserRole)))
-        ayuda = t("Elige un clip en la línea de tiempo y luego un filtro.") if campo == "filtro" else \
-            t("Elige un clip: la transición va de ese clip al siguiente.")
-        return self._panel(etiqueta(ayuda, "sub"), lista, estirar=False)
+        ayuda = {"filtro": t("Elige un clip en la línea de tiempo y luego un filtro."),
+                 "efecto": t("Elige un clip y luego un efecto. Los «al ritmo» siguen los golpes de la música (sin "
+                             "música, 120 por minuto)."),
+                 "transicion": t("Elige un clip: la transición va de ese clip al siguiente.")}[campo]
+        return self._panel(etiqueta(ayuda, "sub"), lista, *debajo, estirar=False)
 
     def _panel_subtitulos(self):
         self.subs_btn = boton(f"✨  {t('Subtítulos automáticos')}", "principal")
         self.subs_btn.clicked.connect(self.subtitulos_automaticos)
+        self.subs_estilo = QComboBox()
+        for clave, texto in edicion.ESTILOS_SUBTITULOS.items():
+            self.subs_estilo.addItem(texto, clave)
+        self.subs_estilo.currentIndexChanged.connect(lambda _: self._cargando or self._poner_subtitulos(
+            {**self.proyecto["subtitulos"], "estilo": self.subs_estilo.currentData()}))
         self.subs_activos = QCheckBox(t("Mostrar subtítulos en el video"))
         self.subs_activos.toggled.connect(lambda v: self._cargando or self._poner_subtitulos(
             {**self.proyecto["subtitulos"], "activos": v}))
-        quitar = boton(t("Quitar subtítulos"))
-        quitar.clicked.connect(lambda: self._poner_subtitulos({"activos": False, "palabras": []}))
+        quitar = boton(t("Quitar subtítulos"))  # el estilo elegido se queda para los siguientes
+        quitar.clicked.connect(lambda: self._poner_subtitulos({**self.proyecto["subtitulos"], "activos": False,
+                                                               "palabras": []}))
         return self._panel(etiqueta(t("Escucha la voz del video y pone cada palabra en su momento. Con una clave de "
                                       "Groq u OpenAI es rápido; si no, se hace en tu PC (gratis, más lento)."), "sub"),
-                           self.subs_btn, self.subs_activos, quitar)
+                           self.subs_btn, etiqueta(t("Estilo"), "sub"), self.subs_estilo, self.subs_activos, quitar)
+
+    def _panel_ajustes(self):
+        """Brillo, contraste, saturación, temperatura, viñeta y nitidez del clip elegido, y «Restablecer»."""
+        nombres = {"brillo": t("Brillo"), "contraste": t("Contraste"), "saturacion": t("Saturación"),
+                   "temperatura": t("Temperatura"), "vineta": t("Viñeta"), "nitidez": t("Nitidez")}
+        self.restablecer = boton(t("Restablecer"))
+        self.restablecer.setIcon(iconos.icono("rotate-ccw"))
+        self.restablecer.setToolTip(t("Pone los ajustes del clip a 0"))
+        self.restablecer.clicked.connect(lambda: self._cambiar("restablecer", **dict.fromkeys(AJUSTES, 0)))
+        return self._panel(etiqueta(t("Elige un clip en la línea de tiempo y mueve los ajustes."), "sub"),
+                           *(self._deslizador(campo, nombres[campo], *rango) for campo, rango in AJUSTES.items()),
+                           self.restablecer)
+
+    def _panel_plantillas(self):
+        """Una tarjeta por plantilla de motor/edicion: su nombre, para qué sirve y «Aplicar»."""
+        self.plantillas, tarjetas = {}, []
+        for clave, plantilla in edicion.PLANTILLAS.items():
+            caja = QFrame()
+            caja.setObjectName("plantilla")
+            lay = QVBoxLayout(caja)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(4)
+            aplicar = self.plantillas[clave] = boton(t("Aplicar"))
+            aplicar.clicked.connect(lambda _=False, c=clave: self.aplicar_plantilla(c))
+            for w in (etiqueta(plantilla["nombre"], "plantilla_nombre"), etiqueta(plantilla["descripcion"], "sub"),
+                      aplicar):
+                lay.addWidget(w)
+            tarjetas.append(caja)
+        return self._panel(etiqueta(t("Ponen en todo el video un filtro, un efecto, transiciones, el estilo de los "
+                                      "subtítulos y un título. Tus videos y fotos no se tocan."), "sub"), *tarjetas)
+
+    def _panel_avatar(self):
+        """«Avatar IA», dicho con honestidad: todavía no está, y por qué."""
+        crear = self.avatar_btn = boton(t("Crear mi avatar"))
+        crear.setIcon(iconos.icono("scan-face", "#5A5A66"))
+        crear.setEnabled(False)
+        return self._panel(etiqueta(t("Próximamente: una foto tuya que habla con tu voz. Necesita una GPU en la nube "
+                                      "(Modal o Hugging Face)."), "sub"), crear)
 
     def _centro(self):
         self.escena = QGraphicsScene(self)
@@ -513,7 +644,7 @@ class PaginaEdicion(QWidget):
         self.deshacer_btn.setEnabled(bool(self.deshacer_pila))
         self.rehacer_btn.setEnabled(bool(self.rehacer_pila))
         self._poner_reloj()
-        fuente = (p["clips"], p["formato"], p["ajuste"], p["fondo"], p["fps"])  # lo que cambia el fotograma
+        fuente = (p["clips"], p["formato"], p["ajuste"], p["fondo"], p["fps"], _musica(p))  # lo que cambia el fotograma
         if fuente != self._fuente_foto:
             self._fuente_foto = fuente
             self._espera.start()
@@ -584,8 +715,24 @@ class PaginaEdicion(QWidget):
                     w.setPlainText(v) if isinstance(w, QTextEdit) else w.setText(v)
             else:
                 pd._pintar_color(w, v)
-        self.subs_activos.setChecked(self.proyecto["subtitulos"]["activos"])
+        self._marcar_paneles(e if grupo == "clips" else None)
         self._cargando = False
+
+    def _marcar_paneles(self, clip):
+        """Los paneles de la izquierda enseñan lo del clip elegido (filtro, efecto, transición y ajustes) y los
+        subtítulos del proyecto. Sin clip, sus deslizadores se apagan. Va con _cargando puesto: no cambia nada."""
+        for campo, lista in self.listas.items():
+            claves = [lista.item(i).data(Qt.UserRole) for i in range(lista.count())]
+            lista.setCurrentRow(claves.index(clip[campo]) if clip else -1)
+            if not clip:
+                lista.clearSelection()
+        for campo, d in self.deslizadores.items():
+            d.setEnabled(clip is not None)
+            d.setValue(round((clip or edicion._CLIP)[campo]))
+        self.restablecer.setEnabled(clip is not None)
+        s = self.proyecto["subtitulos"]
+        self.subs_activos.setChecked(s["activos"])
+        self.subs_estilo.setCurrentIndex(self.subs_estilo.findData(s["estilo"]))
 
     # ---------- Elegir y cambiar ----------
 
@@ -642,13 +789,23 @@ class PaginaEdicion(QWidget):
                 self._cambiar(clave, alto=alto)
 
     def _a_clip(self, campo, valor):
-        """Un filtro o una transición de los paneles de la izquierda, al clip elegido."""
+        """Un filtro, un efecto o una transición de los paneles de la izquierda, al clip elegido."""
         grupo, e = self._seleccion()
         if grupo != "clips":
+            self._mostrar_propiedades()  # el panel no se queda marcando lo que no se aplicó
             return mensaje(self, t("Elige un clip"), t("Haz clic en un clip de la línea de tiempo y vuelve a elegir."))
         if campo == "transicion" and e is self.proyecto["clips"][-1] and valor != "ninguna":
+            self._mostrar_propiedades()
             return self.estado.setText(f"⚠️ {t('La transición va hacia el clip siguiente: el último no tiene.')}")
         self._cambiar(campo, **{campo: valor})
+
+    def aplicar_plantilla(self, clave):
+        """Una plantilla (motor/edicion.aplicar_plantilla) en todo el video, en un solo «deshacer»."""
+        try:
+            nuevo = edicion.aplicar_plantilla(self.proyecto, clave)
+        except ValueError as e:
+            return mensaje(self, t("No se pudo aplicar la plantilla"), e)
+        self._aplicar(nuevo)
 
     def guardar_posiciones(self):
         """Tras arrastrar capas en el lienzo: su posición nueva, en un solo «deshacer». Lo llama pd.Lienzo."""
@@ -749,8 +906,10 @@ class PaginaEdicion(QWidget):
             self._foto_pendiente = True
             return
         self._foto_en_curso = True
-        # Sin capas (las pinta el lienzo, editables), audios ni subtítulos: el fotograma no los necesita
-        solo_clips = {**self.proyecto, "capas": [], "audios": [], "subtitulos": {"activos": False, "palabras": []}}
+        # Sin capas (las pinta el lienzo, editables), voces ni subtítulos: el fotograma no los necesita. La música sí:
+        # marca el ritmo de los efectos «al ritmo» (sin ella irían a 120 por minuto y no saldría lo que se exporta)
+        solo_clips = {**self.proyecto, "capas": [], "audios": _musica(self.proyecto),
+                      "subtitulos": {"activos": False, "palabras": []}}
         self.hilo.pedir("foto", r.fotograma, solo_clips, self._carpeta(), self.cursor)
 
     def _foto_lista(self, _clave, imagen):
@@ -916,7 +1075,7 @@ class PaginaEdicion(QWidget):
     def _ir_pestana(self, i):
         self.pestanas.button(i).setChecked(True)
         self.paneles.setCurrentIndex(i)
-        self.titulo_pestana.setText(self.pestanas.button(i).toolTip())
+        self.titulo_pestana.setText(self.pestanas.button(i).text())
         if self.paneles.currentWidget().isAncestorOf(self.stickers) and not self.stickers.count():
             self._llenar_stickers()  # al abrirla y no al arrancar: dibujar 120 iconos tarda
 
@@ -940,7 +1099,8 @@ class PaginaEdicion(QWidget):
         if not self.proyecto["clips"] and not self.proyecto["audios"]:
             return mensaje(self, t("Falta la voz"), t("Añade un video o un audio con voz primero."))
         self._trabajo(lambda aviso, **k: {"palabras": r.subtitulos_automaticos(aviso=aviso, **k)},
-                      lambda res: self._poner_subtitulos({"activos": True, "palabras": res["palabras"]}),
+                      lambda res: self._poner_subtitulos({**self.proyecto["subtitulos"], "activos": True,
+                                                          "palabras": res["palabras"]}),  # con el estilo elegido
                       self.subs_btn, proyecto=self.proyecto, carpeta=self._carpeta())
 
     def _poner_subtitulos(self, subtitulos):

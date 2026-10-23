@@ -91,10 +91,44 @@ def _texto_ass(texto: str) -> str:
     return re.sub(r"[\r\n]+", " ", texto).replace("{", "(").replace("}", ")").replace("<", "‹")
 
 
-def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo: int = 3) -> Path:
-    """Subtítulos estilo CapCut: grupos de pocas palabras, grandes, con la palabra que suena en amarillo."""
+def _estilo_ass(fuente, tam, letra, antes, contorno, fondo, negrita, borde, grosor, sombra, alineacion, margen) -> str:
+    """La línea «Style: Base» de un .ass. Colores &HAABBGGRR (AA 00 = opaco); borde 1 = contorno, 3 = caja."""
+    return (f"Style: Base,{fuente},{tam},{letra},{antes},{contorno},{fondo},{negrita},0,0,0,100,100,0,0,{borde},"
+            f"{grosor},{sombra},{alineacion},60,60,{margen},1")
+
+
+def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo: int = 3,
+                   estilo: str = "clasico") -> Path:
+    """Subtítulos estilo CapCut: grupos de pocas palabras, grandes, con la palabra que suena resaltada. estilo: una
+    clave de edicion.ESTILOS_SUBTITULOS («clasico», la palabra en amarillo con un salto, es el de siempre)."""
     w, h = FORMATOS[formato]
     tam = int(min(w, h) * 0.085)
+    abajo, grosor = int(h * 0.22), max(tam // 12, 3)
+    # (estilo base, la palabra que suena, cómo vuelven las demás, en mayúsculas). «karaoke» y «minimal» van por grupo
+    estilos = {
+        "clasico": (_estilo_ass("Arial Black", tam, "&H00FFFFFF", "&H00FFFFFF", "&H00000000", "&H64000000", 1, 1,
+                                grosor, 2, 2, abajo),
+                    "{\\c&H00FFFF&\\fscx125\\fscy125\\t(0,120,\\fscx100\\fscy100)}", "{\\c&HFFFFFF&\\fscx100\\fscy100}",
+                    True),
+        # La caja es del color del contorno, un poco transparente
+        "caja": (_estilo_ass("Arial Black", int(tam * 0.85), "&H00FFFFFF", "&H00FFFFFF", "&H33000000", "&H00000000",
+                             1, 3, max(tam // 6, 4), 0, 2, abajo), "{\\c&H4DE1FF&}", "{\\c&HFFFFFF&}", True),
+        # Contorno rosa difuminado (\blur): brilla; la palabra que suena, cian con brillo violeta
+        "neon": (_estilo_ass("Arial Black", tam, "&H00FFFFFF", "&H00FFFFFF", "&H008D4DFF", "&H00000000", 1, 1,
+                             max(tam // 9, 4), 0, 2, abajo),
+                 "{\\c&HFFE500&\\3c&HFF5C7C&}", "{\\c&HFFFFFF&\\3c&H8D4DFF&}", True),
+        # \kf: cada palabra se va llenando de violeta (PrimaryColour) mientras suena; antes, blanca (SecondaryColour)
+        "karaoke": (_estilo_ass("Arial Black", tam, "&H00FF5C7C", "&H00FFFFFF", "&H00000000", "&H64000000", 1, 1,
+                                grosor, 2, 2, abajo), "", "", True),
+        "minimal": (_estilo_ass("Arial", int(tam * 0.6), "&H00FFFFFF", "&H00FFFFFF", "&H00000000", "&H80000000", 0, 1,
+                                max(tam // 30, 1), 1, 2, int(h * 0.1)), "", "", False),
+        # Una palabra cada vez, enorme y en el centro, con un «pop» (entra pequeña, se pasa un poco y se asienta)
+        "impacto": (_estilo_ass("Arial Black", int(min(w, h) * 0.16), "&H00FFFFFF", "&H00FFFFFF", "&H00000000",
+                                "&H64000000", 1, 1, max(tam // 6, 4), 3, 5, 0),
+                    "{\\fscx60\\fscy60\\t(0,90,\\fscx112\\fscy112)\\t(90,160,\\fscx100\\fscy100)}", "", True),
+    }
+    base, activa, normal, mayusculas = estilos[estilo]
+    por_grupo = 1 if estilo == "impacto" else por_grupo
     lineas = [
         # ScaledBorderAndShadow: el borde y la sombra encogen con el video (vista previa a 640) como las letras
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {w}", f"PlayResY: {h}", "WrapStyle: 0",
@@ -103,19 +137,25 @@ def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo:
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
         "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
         "MarginL, MarginR, MarginV, Encoding",
-        f"Style: Base,Arial Black,{tam},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,"
-        f"{max(tam // 12, 3)},2,2,60,60,{int(h * 0.22)},1",
+        base,
         "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
+    brillo = "{\\blur5}" if estilo == "neon" else ""
     for i in range(0, len(palabras), por_grupo):
         grupo = palabras[i:i + por_grupo]
+        letras = [_texto_ass(p["palabra"].upper() if mayusculas else p["palabra"]) for p in grupo]
+        if estilo in ("karaoke", "minimal"):  # una sola línea por grupo
+            if estilo == "karaoke":  # cada palabra se llena hasta que empieza la siguiente (\kf va en centésimas)
+                hasta = [p["inicio"] for p in grupo[1:]] + [grupo[-1]["fin"]]
+                letras = [f"{{\\kf{round((fin - p['inicio']) * 100)}}}{palabra}"
+                          for p, palabra, fin in zip(grupo, letras, hasta)]
+            lineas.append(f"Dialogue: 0,{_t(grupo[0]['inicio'])},{_t(grupo[-1]['fin'])},Base,,0,0,0,,"
+                          f"{' '.join(letras)}")
+            continue
         for j, actual in enumerate(grupo):
             fin = grupo[j + 1]["inicio"] if j + 1 < len(grupo) else actual["fin"]
-            # La palabra que suena: amarilla y con un salto (crece al 125% y vuelve en 0.12 s).
-            activa = "{\\c&H00FFFF&\\fscx125\\fscy125\\t(0,120,\\fscx100\\fscy100)}"
-            texto = " ".join((activa + _texto_ass(p["palabra"].upper()) + "{\\c&HFFFFFF&\\fscx100\\fscy100}")
-                             if k == j else _texto_ass(p["palabra"].upper()) for k, p in enumerate(grupo))
-            lineas.append(f"Dialogue: 0,{_t(actual['inicio'])},{_t(fin)},Base,,0,0,0,,{texto}")
+            texto = " ".join(activa + palabra + normal if k == j else palabra for k, palabra in enumerate(letras))
+            lineas.append(f"Dialogue: 0,{_t(actual['inicio'])},{_t(fin)},Base,,0,0,0,,{brillo}{texto}")
     destino.write_text("\n".join(lineas) + "\n", encoding="utf-8")
     return destino
 
@@ -199,7 +239,10 @@ def ritmo(cancion: Path) -> tuple[float, float]:
                                       "-f", "f32le", "-ac", "1", "-ar", str(sr), "-"],
                                      capture_output=True, check=True).stdout, np.float32)
     tempo, golpes = librosa.beat.beat_track(y=y, sr=sr, units="time")
-    bpm = float(np.atleast_1d(tempo)[0]) or 100.0
+    # Del primer al último golpe: el tempo de librosa va a escalones (~5 BPM) y, con él, los golpes se iban corriendo
+    # (120 BPM salía 117,45: a los 10 s, un cuarto de golpe tarde)
+    bpm = (60 * (len(golpes) - 1) / float(golpes[-1] - golpes[0]) if len(golpes) > 1 and golpes[-1] > golpes[0]
+           else float(np.atleast_1d(tempo)[0]) or 100.0)
     return bpm, float(golpes[0]) if len(golpes) else 0.0
 
 

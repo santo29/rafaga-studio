@@ -413,8 +413,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     ventana = aplicacion.Ventana()
     i = next(i for i, pagina in enumerate(ventana.orden) if isinstance(pagina, pd.PaginaDiseno))
     assert isinstance(ventana.orden[i - 1], PaginaMusica) and "Diseño" in ventana.grupo.buttons()[i].text()
-    # Sin claves abre el Director (funciona con la IA gratis), que aconseja conectar una y lleva a «Claves de IA»
-    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.director) == 0
+    # Abre en Inicio y el Director va después; sin claves, el Director (funciona con la IA gratis) aconseja conectar
+    # una y lleva a «Claves de IA»
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.inicio) == 0
+    assert ventana.orden.index(ventana.director) == 1 and ventana.grupo.buttons()[0].text() == "Inicio"
     assert "Conecta Groq o Gemini" in ventana.director.chat.toPlainText()
     next(b for b in ventana.director.findChildren(QPushButton) if b.text() == "Ir a Claves de IA").click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)

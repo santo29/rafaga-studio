@@ -142,7 +142,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     pedidos, minis, previas, exportados, cancelados = [], [], [], [], []
 
     def fotograma(proyecto, carpeta, t, alto_max=640):
-        pedidos.append((t, len(proyecto["capas"])))
+        pedidos.append((t, len(proyecto["capas"]), [a["tipo"] for a in proyecto["audios"]]))
         time.sleep(0.05)
         return imagen(36, 64, "#00FF00")
 
@@ -185,7 +185,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     raton(L, QEvent.MouseButtonRelease, QPointF(L.x_de(1.45), 10))
     assert abs(p.cursor - 1.45) < 0.03 and L.cursor == p.cursor and p.reloj_txt.text().startswith("0:01.4")
     esperar(lambda: p.foto.isVisible() and not p._foto_en_curso and not p._espera.isActive())
-    assert 1 <= len(pedidos) <= 2 and pedidos[-1] == (p.cursor, 0), pedidos  # sin capas: las pinta el lienzo
+    # sin capas (las pinta el lienzo); con la música, que marca el ritmo de los efectos «al ritmo»
+    assert 1 <= len(pedidos) <= 2 and pedidos[-1] == (p.cursor, 0, ["musica"]), pedidos
     assert p.foto.sceneBoundingRect() == p.escena.sceneRect()  # en baja resolución, estirado a 1080×1920
     clic(L, QPointF(L.x_de(4), 10))  # el cursor, lejos de lo que se va a arrastrar (el imán lo usa)
 
@@ -222,7 +223,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert elemento(audio)["inicio"] == 0
     # Una capa de texto en el cursor, y el imán: soltada a 4 px del final del video, se pega a él
     clic(L, QPointF(L.x_de(0), 10))
-    p._ir_pestana(1)
+    p.herramientas["texto"].click()
     p.textos.itemClicked.emit(p.textos.item(1))
     texto = p.proyecto["capas"][-1]
     assert texto["tipo"] == "texto" and (texto["inicio"], texto["duracion"]) == (0, 3) and p.sel == texto["id"]
@@ -272,7 +273,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert p.sel == "" and "Proyecto" in p.titulo_props.text()
 
     # ---------- Stickers, capas y su tiempo ----------
-    p._ir_pestana(2)
+    assert p.stickers.count() == 0  # dibujar 120 iconos tarda: no al arrancar
+    p.herramientas["stickers"].click()
     assert p.stickers.count() > 100  # se llena al abrir la pestaña
     p.buscar_sticker.setText("fire")
     fuego = next(p.stickers.item(i) for i in range(p.stickers.count()) if p.stickers.item(i).data(Qt.UserRole) == "🔥")
@@ -365,11 +367,92 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.deshacer()
     assert p.proyecto["fondo"] == "#000000" and p.proyecto["formato"] == "16:9"
 
+    # ---------- Barra de herramientas (como en CapCut) y sus paneles ----------
+    assert [b.text() for b in p.pestanas.buttons()] == [
+        "Medios", "Audio", "Texto", "Stickers", "Efectos", "Transiciones", "Subtítulos", "Filtros", "Ajustes",
+        "Plantillas", "Avatar IA"]
+    for b in p.pestanas.buttons():
+        b.click()
+        assert b.isChecked() and p.paneles.currentIndex() == p.pestanas.id(b) and p.titulo_pestana.text() == b.text()
+        assert b.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
+    assert p.listas["transicion"].count() == len(edicion.TRANSICIONES)  # la lista completa, también las nuevas
+    assert not p.avatar_btn.isEnabled()  # «Próximamente»: no promete lo que aún no hace
+    efectos, filtros, desl = p.listas["efecto"], p.listas["filtro"], p.deslizadores
+
+    def opcion(lista, clave):
+        return next(lista.item(i) for i in range(lista.count()) if lista.item(i).data(Qt.UserRole) == clave)
+
+    # Sin clip elegido: los ajustes se apagan y un efecto pide elegir uno (y no se queda marcado)
+    assert p.sel == "" and not desl["brillo"].isEnabled() and not p.restablecer.isEnabled()
+    n = len(avisos)
+    efectos.itemClicked.emit(opcion(efectos, "glitch"))
+    assert len(avisos) == n + 1 and "clip" in avisos[-1] and not efectos.selectedItems()
+    clic(L, L.caja(a).center())
+    assert desl["brillo"].isEnabled() and desl["intensidad"].value() == 60
+    assert filtros.currentItem().data(Qt.UserRole) == "byn" and efectos.currentItem().data(Qt.UserRole) == "ninguno"
+    # Efecto e intensidad; arrastrar el deslizador es un solo «deshacer»
+    pila = len(p.deshacer_pila)
+    efectos.itemClicked.emit(opcion(efectos, "brillo_rafaga"))
+    for v in (70, 80, 90):
+        desl["intensidad"].setValue(v)
+    assert (elemento(a)["efecto"], elemento(a)["intensidad"]) == ("brillo_rafaga", 90)
+    assert len(p.deshacer_pila) == pila + 2
+    p.deshacer()
+    assert elemento(a)["intensidad"] == 60 and desl["intensidad"].value() == 60
+    p.deshacer()
+    assert elemento(a)["efecto"] == "ninguno" and efectos.currentItem().data(Qt.UserRole) == "ninguno"
+    # Un filtro de la cuadrícula: también lo enseña Propiedades
+    filtros.itemClicked.emit(opcion(filtros, "cine"))
+    assert elemento(a)["filtro"] == "cine" == w[("clips", "filtro")].currentData()
+    p.deshacer()
+    assert elemento(a)["filtro"] == "byn" and filtros.currentItem().data(Qt.UserRole) == "byn"
+    # Ajustes y «Restablecer» (un solo «deshacer» para los seis)
+    nuevos = {"brillo": 20, "contraste": -10, "saturacion": 30, "temperatura": -40, "vineta": 50, "nitidez": 70}
+    for campo, v in nuevos.items():
+        desl[campo].setValue(v)
+    assert {k: elemento(a)[k] for k in nuevos} == nuevos and w[("clips", "brillo")].value() == 20
+    pila = len(p.deshacer_pila)
+    p.restablecer.click()
+    assert all(elemento(a)[k] == 0 for k in nuevos) and desl["nitidez"].value() == 0 and len(p.deshacer_pila) == pila + 1
+    p.deshacer()
+    assert {k: elemento(a)[k] for k in nuevos} == nuevos and desl["temperatura"].value() == -40
+    for _ in nuevos:
+        p.deshacer()
+    assert all(elemento(a)[k] == 0 for k in nuevos)
+    # Estilo de los subtítulos
+    p.subs_estilo.setCurrentIndex(p.subs_estilo.findData("neon"))
+    assert p.proyecto["subtitulos"]["estilo"] == "neon"
+    p.deshacer()
+    assert p.proyecto["subtitulos"]["estilo"] == "clasico" == p.subs_estilo.currentData()
+    # Plantillas: todo de una vez, sin tocar los medios; aplicar otra no duplica sus textos
+    antes = p.proyecto
+    p.plantillas["anuncio"].click()
+    q = p.proyecto
+    assert [c["id"] for c in q["capas"] if c["id"].startswith("plantilla-")] == ["plantilla-titulo", "plantilla-cierre"]
+    assert all((c["filtro"], c["efecto"]) == ("caribe", "brillo_rafaga") for c in q["clips"])
+    assert [c["archivo"] for c in q["clips"]] == [c["archivo"] for c in antes["clips"]] and q["audios"] == antes["audios"]
+    assert q["subtitulos"]["estilo"] == "caja" == p.subs_estilo.currentData() and p.subs_activos.isChecked()
+    assert efectos.currentItem().data(Qt.UserRole) == "brillo_rafaga"  # el panel sigue al clip elegido
+    p.plantillas["vlog"].click()
+    assert [c["id"] for c in p.proyecto["capas"] if c["id"].startswith("plantilla-")] == ["plantilla-titulo"]
+    p.deshacer()
+    p.deshacer()
+    assert p.proyecto == antes
+    # Sin clips: lo dice claro y no cambia nada
+    vacia = pe.PaginaEdicion()
+    n = len(avisos)
+    vacia.plantillas["short_viral"].click()
+    assert len(avisos) == n + 1 and "clip" in avisos[-1] and vacia.proyecto == edicion.nuevo() and not vacia.deshacer_pila
+    vacia.deleteLater()
+    p._elegir("")
+
     # ---------- Subtítulos y voz IA (simulados) ----------
+    p.subs_estilo.setCurrentIndex(p.subs_estilo.findData("karaoke"))
     p.subtitulos_automaticos()
     esperar(lambda: not p.tareas)
     assert p.proyecto["subtitulos"]["activos"] and [x["palabra"] for x in p.proyecto["subtitulos"]["palabras"]] == \
         ["Hola", "<b>mundo</b>"] and p.subs_activos.isChecked()
+    assert p.proyecto["subtitulos"]["estilo"] == "karaoke"  # hacerlos no quita el estilo elegido
     L.grab()  # se pintan (texto plano)
     p.subs_activos.setChecked(False)
     assert not p.proyecto["subtitulos"]["activos"] and len(p.proyecto["subtitulos"]["palabras"]) == 2

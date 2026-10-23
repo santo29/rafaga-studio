@@ -15,7 +15,7 @@ MAPA = {"📄": "file-plus", "📂": "folder-open", "💾": "save", "↶": "undo
         "🎵": "music", "🎨": "palette", "🔀": "blend", "💬": "captions", "🎚️": "sliders-horizontal",
         "🎬": "clapperboard", "📷": "camera", "🔎": "search", "🔍": "zoom-in", "🔴": "circle-dot", "🚀": "megaphone",
         "⚡": "zap", "🔑": "key-round", "🔌": "plug", "⬛": "square",
-        "▲": "arrow-up", "▼": "arrow-down", "🤖": "bot", "📎": "paperclip", "🎞️": "film"}
+        "▲": "arrow-up", "▼": "arrow-down", "🤖": "bot", "📎": "paperclip", "🎞️": "film", "🏠": "house"}
 
 
 @cache

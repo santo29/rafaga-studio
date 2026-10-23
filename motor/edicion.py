@@ -33,11 +33,43 @@ from .idioma import t
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "ediciones"
 FILTROS = {"ninguno": t("Ninguno"), "byn": t("Blanco y negro"), "sepia": t("Sepia"), "calido": t("Cálido"),
            "frio": t("Frío"), "vintage": t("Vintage"), "vivo": t("Vivo"), "vineta": t("Viñeta"),
-           "desenfoque": t("Desenfoque")}
+           "desenfoque": t("Desenfoque"), "cine": t("Cine"), "caribe": t("Caribe"), "noir": t("Noir"),
+           "dorado": t("Hora dorada"), "neon": t("Neón"), "pastel": t("Pastel"), "retro": t("Retro 70"),
+           "nocturno": t("Noche azul")}
 TRANSICIONES = {"ninguna": t("Ninguna"), "fundido": t("Fundido"), "disolver": t("Disolver"),
                 "deslizar_izq": t("Deslizar a la izquierda"), "deslizar_der": t("Deslizar a la derecha"),
                 "deslizar_arriba": t("Deslizar hacia arriba"), "barrido": t("Barrido"), "circulo": t("Círculo"),
-                "zoom": t("Zoom"), "pixelado": t("Pixelado")}
+                "zoom": t("Zoom"), "pixelado": t("Pixelado"), "desvanecer_negro": t("Desvanecer a negro"),
+                "desvanecer_blanco": t("Desvanecer a blanco"), "radial": t("Radial"),
+                "abrir_vertical": t("Abrir en vertical"), "deslizar_abajo": t("Deslizar hacia abajo"),
+                "difuminar": t("Difuminar"), "cortes": t("Cortes"), "aplastar": t("Aplastar")}
+# Los de «al ritmo» siguen los golpes de la primera pista de música (sin música, 120 BPM); ver render_edicion._efecto
+EFECTOS = {"ninguno": t("Ninguno"), "zoom_ritmo": t("Zoom al ritmo"), "flash_ritmo": t("Destello al ritmo"),
+           "rayos": t("Rayos de energía"), "pulso": t("Latido"), "temblor": t("Temblor de cámara"),
+           "glitch": t("Glitch"), "vhs": t("VHS"), "espejo": t("Espejo"),
+           "desenfoque_entrada": t("Entrada desenfocada"), "brillo_rafaga": t("Brillo Ráfaga")}
+ESTILOS_SUBTITULOS = {"clasico": t("Clásico (amarillo)"), "caja": t("Caja negra"), "neon": t("Neón"),
+                      "karaoke": t("Karaoke Ráfaga"), "minimal": t("Minimal"),
+                      "impacto": t("Impacto (grande al centro)")}
+# Lo que pone cada plantilla (ver aplicar_plantilla). La interfaz usa «nombre» y «descripcion»
+PLANTILLAS = {
+    "short_viral": {"nombre": t("Short viral"), "descripcion": t("Colores vivos, zoom al ritmo y subtítulos grandes."),
+                    "filtro": "vivo", "efecto": "zoom_ritmo", "intensidad": 70, "transicion": "zoom",
+                    "duracion_transicion": 0.3, "color": "#FFE14D", "estilo": "impacto"},
+    "anuncio": {"nombre": t("Anuncio"), "descripcion": t("Brillo Ráfaga, título y cierre con llamada a la acción."),
+                "filtro": "caribe", "efecto": "brillo_rafaga", "intensidad": 60, "transicion": "deslizar_izq",
+                "duracion_transicion": 0.4, "color": "#FFFFFF", "estilo": "caja"},
+    "video_musical": {"nombre": t("Video musical"), "descripcion": t("Neón, destellos al ritmo y letra en karaoke."),
+                      "filtro": "neon", "efecto": "flash_ritmo", "intensidad": 70, "transicion": "desvanecer_blanco",
+                      "duracion_transicion": 0.3, "color": "#FF4D8D", "estilo": "karaoke"},
+    "cinematico": {"nombre": t("Cinemático"), "descripcion": t("Tonos de cine, entradas suaves y fundidos a negro."),
+                   "filtro": "cine", "efecto": "desenfoque_entrada", "intensidad": 50,
+                   "transicion": "desvanecer_negro", "duracion_transicion": 0.8, "color": "#F5F0E6",
+                   "estilo": "minimal"},
+    "vlog": {"nombre": t("Vlog"), "descripcion": t("Luz de hora dorada, un latido suave y transiciones limpias."),
+             "filtro": "dorado", "efecto": "pulso", "intensidad": 35, "transicion": "disolver",
+             "duracion_transicion": 0.5, "color": "#FFD089", "estilo": "clasico"},
+}
 ENTRADAS = {"ninguna": t("Ninguna"), "fundido": t("Fundido"), "deslizar": t("Deslizar"), "aparecer": t("Aparecer")}
 SALIDAS = {"ninguna": t("Ninguna"), "fundido": t("Fundido")}
 MOVIMIENTOS = {"ninguno": t("Ninguno"), "acercar": t("Acercar"), "alejar": t("Alejar")}
@@ -91,12 +123,14 @@ def _id(v, ids: set) -> str:
 
 _CLIP = {"desde": 0, "velocidad": 1, "volumen": 1, "silencio": False, "filtro": "ninguno", "brillo": 0,
          "contraste": 0, "saturacion": 0, "movimiento": "ninguno", "transicion": "ninguna",
-         "duracion_transicion": 0.5}
+         "duracion_transicion": 0.5, "temperatura": 0, "vineta": 0, "nitidez": 0, "efecto": "ninguno",
+         "intensidad": 60}
 _REGLAS_CLIP = {"desde": _num(0, _T), "hasta": _num(0, _T), "velocidad": _num(0.25, 4, 2),
                 "volumen": _num(0, 2, 2), "silencio": diseno._si_no, "filtro": diseno._una(*FILTROS),
                 "brillo": _num(-100, 100, 0), "contraste": _num(-100, 100, 0), "saturacion": _num(-100, 100, 0),
                 "movimiento": diseno._una(*MOVIMIENTOS), "transicion": diseno._una(*TRANSICIONES),
-                "duracion_transicion": _num(0.2, 2)}
+                "duracion_transicion": _num(0.2, 2), "temperatura": _num(-100, 100, 0), "vineta": _num(0, 100, 0),
+                "nitidez": _num(0, 100, 0), "efecto": diseno._una(*EFECTOS), "intensidad": _num(0, 100, 0)}
 _CAPA = {"inicio": 0, "duracion": 3, "entrada": "ninguna", "salida": "ninguna"}
 _REGLAS_CAPA = {"inicio": _num(0, MAX_DURACION), "duracion": _num(MIN_CLIP, MAX_DURACION),
                 "entrada": diseno._una(*ENTRADAS), "salida": diseno._una(*SALIDAS)}
@@ -179,6 +213,8 @@ def _subtitulos(s) -> dict:
         except ValueError as e:
             raise ValueError(t("Subtítulos, palabra {n}: {error}.", n=n, error=e)) from None
     return {"activos": diseno._campo(diseno._si_no, s.get("activos", False), t("Subtítulos, «activos»")),
+            "estilo": diseno._campo(diseno._una(*ESTILOS_SUBTITULOS), s.get("estilo", "clasico"),
+                                    t("Subtítulos, «estilo»")),
             "palabras": palabras}
 
 
@@ -428,6 +464,39 @@ def borrar(proyecto: dict, id_elemento: str) -> dict:
     return validar(p)
 
 
+def aplicar_plantilla(proyecto: dict, clave: str) -> dict:
+    """Aplica la plantilla `clave` de PLANTILLAS: filtro, efecto y transición en todos los clips, el estilo de los
+    subtítulos (y los activa) y sus textos: un título al empezar y, en «anuncio», un cierre con llamada a la acción al
+    final. Sus capas llevan un id «plantilla-…»: al aplicar otra se quitan antes. Los medios del usuario no se tocan."""
+    p = validar(proyecto)
+    if not isinstance(clave, str) or clave not in PLANTILLAS:
+        raise ValueError(t("Esa plantilla no existe ({clave!r:.40}).", clave=clave))
+    if not p["clips"]:
+        raise ValueError(t("Añade al menos un clip (video o foto) antes de aplicar una plantilla."))
+    plantilla = PLANTILLAS[clave]
+    for c in p["clips"]:
+        c.update({k: plantilla[k] for k in ("filtro", "efecto", "intensidad", "transicion", "duracion_transicion")})
+    p["subtitulos"].update(estilo=plantilla["estilo"], activos=True)
+    p["capas"] = [c for c in p["capas"] if not c["id"].startswith("plantilla-")]
+    p = validar(p)  # con las transiciones ya recortadas: así se sabe dónde acaban los clips
+    fin = math.floor(tiempos(p)[-1][1] * 1000) / 1000  # al ms por abajo: sus textos (redondeados) nunca alargan el video
+    ancho, alto = video.FORMATOS[p["formato"]]
+    tam = round(min(ancho, alto) * 0.09)
+
+    def texto(id_capa, letras, y, inicio, duracion, color):
+        return {"id": id_capa, "tipo": "texto", "texto": letras, "x": round(ancho * 0.06), "y": round(y),
+                "ancho": round(ancho * 0.88), "alto": tam * 3, "tamano": tam, "color": color, "negrita": True,
+                "alineacion": "centro", "contorno": "#000000", "grosor_contorno": max(2, tam // 12),
+                "inicio": round(inicio, 3), "duracion": round(duracion, 3), "entrada": "aparecer", "salida": "fundido"}
+    p["capas"].append(texto("plantilla-titulo", p["nombre"].strip() or t("Tu título"), alto * 0.1, 0, min(2.5, fin),
+                            plantilla["color"]))
+    if clave == "anuncio":
+        cierre = min(3, fin)
+        p["capas"].append(texto("plantilla-cierre", t("¡Pídelo ya! Enlace en la bio"), alto * 0.42, fin - cierre,
+                                cierre, "#FFFFFF"))
+    return validar(p)
+
+
 # ---------- Carpetas y archivos ----------
 
 def nueva_carpeta(nombre: str) -> Path:
@@ -489,13 +558,22 @@ def abrir(carpeta: Path) -> dict:
     return validar(p)
 
 
-def listar() -> list[dict]:
+def listar(maximo: int | None = None) -> list[dict]:
     """Proyectos guardados, del último que se tocó al más viejo: {"nombre", "carpeta", "miniatura" ("" si no hay)}.
-    No comprueba los archivos de los clips (eso lo hace abrir): la lista sale rápido aunque falte alguno."""
+    No comprueba los archivos de los clips (eso lo hace abrir): la lista sale rápido aunque falte alguno.
+    maximo: solo los más nuevos (se validan solo esos: con decenas de proyectos grandes, validarlos todos tarda)."""
     proyectos = []
+    archivos = []
     for archivo in CARPETA.glob("*/proyecto.json"):
         try:
-            nombre, fecha = _leer(archivo.parent)["nombre"], archivo.stat().st_mtime
+            archivos.append((archivo.stat().st_mtime, archivo))
+        except OSError:
+            continue
+    for fecha, archivo in sorted(archivos, key=lambda a: a[0], reverse=True):
+        if maximo is not None and len(proyectos) >= maximo:
+            break
+        try:
+            nombre = _leer(archivo.parent)["nombre"]
         except (OSError, ValueError):
             continue  # uno roto no impide ver los demás
         try:  # Qt la abriría como SVG si lo fuera, y un SVG puede pedir \\servidor\...: solo una imagen de verdad

@@ -291,7 +291,8 @@ assert brillo.geometry() == pagina.rect()  # sigue el tamaño de la ventana
 import app as aplicacion  # noqa: E402
 
 ventana = aplicacion.Ventana()
-assert ventana.orden[0] is ventana.director and ventana.director.brillo is not None
+assert ventana.orden[0] is ventana.inicio and ventana.orden[1] is ventana.director  # Inicio va primero
+assert ventana.director.brillo is not None
 ventana._iluminar("editar_video")
 assert [b.text() for b in ventana.grupo.buttons() if b.graphicsEffect()] == ["Editor de video"]
 ventana._iluminar(None)

@@ -23,6 +23,7 @@ from ui.paginas.crear import PaginaCrear
 from ui.paginas.director import PAGINA, PaginaDirector
 from ui.paginas.diseno import PaginaDiseno
 from ui.paginas.edicion import PaginaEdicion
+from ui.paginas.inicio import PaginaInicio
 from ui.paginas.mcp import PaginaMCP
 from ui.paginas.musica import PaginaMusica
 from ui.paginas.nichos import PaginaNichos
@@ -63,12 +64,14 @@ class Ventana(QMainWindow):
         self.grupo = QButtonGroup(self)
         Reproductor.al_editar = self._editar_video  # antes de crear las páginas: así sale su botón «✂️ Editar»
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
-        self.director = PaginaDirector()
-        paginas = [(f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
+        self.director, self.serie = PaginaDirector(), PaginaSerie()
+        self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie)
+        paginas = [(f"🏠  {t('Inicio')}", self.inicio),
+                   (f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
                    (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()),
                    (f"🎵  {t('Música')}", PaginaMusica()),
                    (f"🎨  {t('Diseño')}", self.diseno), (f"✂️  {t('Editor de video')}", self.edicion),
-                   (f"🎞️  {t('Serie animada')}", PaginaSerie()),
+                   (f"🎞️  {t('Serie animada')}", self.serie),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
                    (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"🔑  {t('Claves de IA')}", self.claves),
@@ -117,6 +120,21 @@ class Ventana(QMainWindow):
     def ir_a(self, i):
         self.paginas.setCurrentIndex(i)
         self.grupo.buttons()[i].setChecked(True)
+
+    def _ir_pagina(self, nombre):
+        """Va a la página del menú con ese nombre (sin traducir, como en PAGINA del Director)."""
+        self.ir_a(next(i for i, b in enumerate(self.grupo.buttons()) if b.text() == t(nombre)))
+
+    def _abrir_edicion(self, carpeta):
+        """Abre en el editor un video guardado (desde Inicio), si no se pierden cambios sin guardar."""
+        if self.edicion._descartar_ok():
+            self.edicion.abrir(carpeta)
+            self.ir_a(self.orden.index(self.edicion))
+
+    def _abrir_serie(self, nombre):
+        """Abre la página de la serie con esa serie elegida (desde Inicio)."""
+        self.serie.recargar(nombre)
+        self.ir_a(self.orden.index(self.serie))
 
     def _iluminar(self, herramienta):
         """Brilla el botón del menú de la página que está usando el Director (None: se apagan todos)."""

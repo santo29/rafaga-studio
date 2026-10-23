@@ -3,17 +3,19 @@ línea de tiempo, la vista previa reproducible y el MP4 final. Sin ventanas: lo 
 trabajo (ui.comun.Tarea); nada de esto debe correr en el hilo de la ventana.
 
 Cómo sale un video (vista_previa y exportar van por el mismo camino; solo cambian el tamaño y la calidad):
-1. Cada clip se normaliza a un «tramo» A/V (tamaño, fps, encaje, movimiento, filtro, ajustes, velocidad, volumen) que se
-   guarda en cache/ con el hash de lo que lo define: cambiar un texto, una transición o un audio no lo rehace. Cada
-   transición se hace aparte como un «paso» (xfade + acrossfade de la cola de un tramo y la cabeza del siguiente).
+1. Cada clip se normaliza a un «tramo» A/V (tamaño, fps, encaje, movimiento, filtro, ajustes, efecto, velocidad,
+   volumen) que se guarda en cache/ con el hash de lo que lo define: cambiar un texto, una transición o un audio no lo
+   rehace (salvo la música, en un clip con un efecto al ritmo: ver _efecto). Cada transición se hace aparte como un
+   «paso» (xfade + acrossfade de la cola de un tramo y la cabeza del siguiente).
 2. Un solo ffmpeg corta y pega tramos y pasos, pone las capas (cada una, un PNG transparente pintado con
    diseno.ItemCapa), los subtítulos (video.subtitulos_ass) y mezcla los audios (adelay, afade, volume y amix sin
    normalizar). Sale con progreso real (-progress de ffmpeg).
 Los tiempos se pasan a fotogramas desde la línea de tiempo (edicion.tiempos), no clip a clip: 300 clips no acumulan
 desfase. Entradas de capa: «fundido» (aparece poco a poco), «deslizar» (entra desde la izquierda), «aparecer» (crece
 desde la mitad con un fundido rápido); salida «fundido», se apaga. Cada una dura _ANIMACION s (o la mitad de la capa).
-En cache/ solo quedan los tramos, pasos, capas y vista previa del último render de cada tamaño (los tramos y pasos de
-exportar, casi sin pérdida, se borran al acabar) y los proxies de sus clips: lo demás se borra.
+En cache/ solo quedan los tramos, pasos, capas, PNG del Brillo Ráfaga y vista previa del último render de cada tamaño
+(los tramos y pasos de exportar, casi sin pérdida, se borran al acabar) y los proxies de sus clips: lo demás se borra.
+El ritmo de cada canción (ritmo2-*.json, unos bytes) se queda: analizarla otra vez tardaría.
 Un clip o audio con «falta» (su archivo no estaba al abrir el proyecto) no hace fallar nada: el clip se ve del color de
 fondo y en silencio durante su tramo, y el audio no suena.
 Proxies: miniatura() encarga, para los videos más grandes que la vista previa, una copia ligera (_proxy) que se hace en
@@ -36,25 +38,43 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QImageReader, QPainter
+from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QImage, QImageReader, QPainter, QPainterPath,
+                           QPainterPathStroker, QPen, QRegion)
 from PySide6.QtWidgets import QGraphicsScene
 
 from . import diseno, edicion, seguro, video
 from .idioma import t
 
-VERSION = 3  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
+VERSION = 4  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
 _R = 48000  # Hz del audio de trabajo: a 24, 25, 30 y 60 fps cada fotograma son muestras enteras
 _ANIMACION = 0.4
 _ZOOM = 0.15  # acercar/alejar de las fotos: del 100 % al 115 % a lo largo del clip
 _XFADE = {"fundido": "fade", "disolver": "dissolve", "deslizar_izq": "slideleft", "deslizar_der": "slideright",
           "deslizar_arriba": "slideup", "barrido": "wipeleft", "circulo": "circleopen", "zoom": "zoomin",
-          "pixelado": "pixelize"}
+          "pixelado": "pixelize", "desvanecer_negro": "fadeblack", "desvanecer_blanco": "fadewhite",
+          "radial": "radial", "abrir_vertical": "vertopen", "deslizar_abajo": "slidedown", "difuminar": "hblur",
+          "cortes": "hlslice", "aplastar": "squeezev"}
 _FILTROS = {"byn": "hue=s=0", "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
             # Sombras, medios y luces: con solo rs/gs/bs (las sombras) casi no se notaba
             "calido": "colorbalance=rs=.12:gs=.04:bs=-.12:rm=.12:gm=.04:bm=-.12:rh=.06:bh=-.06",
             "frio": "colorbalance=rs=-.12:bs=.12:rm=-.12:bm=.12:rh=-.06:bh=.06",
             "vintage": "curves=preset=vintage", "vivo": "eq=saturation=1.5:contrast=1.1", "vineta": "vignette=PI/4",
-            "desenfoque": "boxblur={r}:2"}
+            "desenfoque": "boxblur={r}:2",
+            # Teal & orange: sombras verdeazuladas y luces naranjas
+            "cine": "colorbalance=rs=-.12:gs=.02:bs=.14:rh=.14:gh=.04:bh=-.14,eq=contrast=1.1:saturation=1.15",
+            "caribe": "colorbalance=gs=.04:bs=.1:rh=.08:gh=.05:bh=-.04,eq=saturation=1.4:contrast=1.05:brightness=.03",
+            "noir": "hue=s=0,eq=contrast=1.5:brightness=-.04,vignette=PI/4",
+            "dorado": "colorbalance=rs=.08:gs=.04:bs=-.1:rm=.14:gm=.07:bm=-.12:rh=.1:gh=.06:bh=-.1,"
+                      "eq=saturation=1.15:brightness=.02",
+            "neon": "eq=saturation=1.8:contrast=1.2,colorbalance=rs=.1:gs=-.06:bs=.16:rh=-.04:bh=.1",
+            "pastel": "eq=saturation=.6:contrast=.82:brightness=.07,colorbalance=rh=.04:bh=.06",
+            # Negros levantados y luces amarillentas: una foto vieja
+            "retro": "curves=r='0/.1 1/.95':g='0/.06 1/.9':b='0/.14 1/.75',eq=saturation=.8",
+            "nocturno": "eq=brightness=-.12:saturation=.55:contrast=1.1,"
+                        "colorbalance=rs=-.1:bs=.2:rm=-.1:bm=.15:rh=-.05:bh=.1"}
+_GOLPE = ("zoom_ritmo", "flash_ritmo", "rayos")  # los efectos al ritmo de la música (ver _ritmo y _golpe)
+_VUELTA = 2  # segundos que tarda el Brillo Ráfaga en dar la vuelta al cuadro
+_LATIDO = 0.8  # segundos entre latido y latido del efecto «pulso»
 # (preset, crf) del tramo y del video final. Los tramos de exportar casi sin pérdida: luego se codifican otra vez
 _CALIDAD = {False: (("ultrafast", 26), ("ultrafast", 28)), True: (("ultrafast", 16), ("veryfast", 20))}
 
@@ -299,7 +319,169 @@ def _aspecto(c: dict, w: int, h: int, fps: int, ajuste: str, d: int, j0: int = 0
     if c["brillo"] or c["contraste"] or c["saturacion"]:
         partes.append(f"eq=brightness={c['brillo'] / 300:.4f}:contrast={1 + c['contraste'] / 200:.4f}:"
                       f"saturation={1 + c['saturacion'] / 100:.4f}")
+    if c["temperatura"]:  # positiva, más roja (cálida); negativa, más azul. Con eq: colorbalance, a 1080p, tarda 60 ms
+        a = c["temperatura"] * 0.006
+        partes.append(f"eq=gamma_r={1 + a:.4f}:gamma_b={1 - a:.4f}")
+    if c["vineta"]:
+        partes.append(f"vignette=angle={c['vineta'] * 0.012:.4f}")
+    if c["nitidez"]:  # la matriz, a escala: la vista previa y el video final se ven igual de nítidos
+        m = 2 * max(1, round(min(w, h) / 360)) + 1
+        partes.append(f"unsharp={m}:{m}:{c['nitidez'] * 0.015:.4f}")
     return ",".join(partes)
+
+
+def _golpe(ritmo: tuple, inicio: float) -> tuple[float, float]:
+    """(periodo, desfase) de los golpes de la música para un clip que empieza en el segundo `inicio` de la línea de
+    tiempo: en el segundo t del clip hay golpe cuando t + desfase es múltiplo del periodo. ritmo: el de _ritmo."""
+    periodo, golpe = ritmo
+    return round(periodo, 6), round((inicio - golpe) % periodo, 6)
+
+
+def _ritmo(p: dict, cache: Path) -> tuple[float, float]:
+    """(periodo, un golpe) en segundos de la línea de tiempo: los de la primera pista de música (video.ritmo, guardado
+    en cache/ según su archivo: analizarla tarda) o, si no hay, 120 BPM con un golpe en 0."""
+    musica = next((a for a in p["audios"] if a["tipo"] == "musica"), None)
+    if musica is None or musica.get("falta"):
+        return 0.5, 0.0
+    real = seguro.archivo_medio(musica["archivo"], seguro.AUDIOS, t("Audio {n}", n=p["audios"].index(musica) + 1))
+    guardado = cache / f"ritmo2-{_hash(VERSION, _huella(real))}.json"  # 2: el tempo ya no va a escalones
+    try:  # cache/ viene con el proyecto (puede ser ajeno): solo números con sentido, que van dentro de un filtro
+        bpm, golpe = json.loads(guardado.read_text(encoding="utf-8"))
+        bpm, golpe = edicion._num(30, 300, 6)(bpm), edicion._num(0, 300, 6)(golpe)
+    except (OSError, ValueError, TypeError):
+        try:
+            bpm, golpe = video.ritmo(real)
+        except Exception:  # noqa: BLE001  sin librosa o con un audio raro, el efecto sigue a 120 BPM
+            return 0.5, 0.0
+        bpm = round(min(max(bpm, 30.0), 300.0), 6) if math.isfinite(bpm) else 120.0
+        # redondeado como al leerlo del JSON: si no, el segundo render daba otro hash y rehacía tramos
+        golpe = round(min(max(golpe, 0.0), 300.0), 6) if math.isfinite(golpe) else 0.0
+        _a_disco(guardado, lambda temporal: temporal.write_text(json.dumps([bpm, golpe]), encoding="utf-8"))
+    return 60 / bpm, musica["inicio"] + golpe - musica["desde"]
+
+
+def _brillo(cache: Path, formato: str, alto: int, fps: int) -> tuple[str, int]:
+    """El Brillo Ráfaga, el sello de la app: un borde de luz neón (cian → violeta → rosa → naranja) con un destello
+    blanco que da la vuelta al cuadro cada _VUELTA s; el centro, transparente. Pintado con Qt en un PNG por fotograma de
+    la vuelta, en cache/, como mucho al tamaño de la vista previa (es luz difusa: _efecto lo escala; así el video final
+    usa los mismos PNG y cuesta lo mismo). La intensidad no entra aquí (_efecto la aplica como transparencia): mover
+    su deslizador no vuelve a pintar nada. Devuelve (el nombre de sus PNG, con «%04d» en el número; cuántos son)."""
+    w, h = _tamano(formato, min(alto, _PROXY))
+    k, f = _VUELTA * fps, 1.0
+    patron = f"brillo-{h}-{_hash(VERSION, w, h, fps)}-%04d.png"
+    # Todos, no solo el último: un render que termina a la vez limpia la caché y podía dejar el juego a medias
+    if all((cache / (patron % i)).is_file() for i in range(k)):
+        return patron, k
+    diseno.asegurar_qt()
+    grosor, radio = min(w, h) * (0.006 + 0.01 * f), min(w, h) * 0.05
+    marco = QPainterPath()
+    marco.addRoundedRect(QRectF(2 * grosor, 2 * grosor, w - 4 * grosor, h - 4 * grosor), radio, radio)
+    # La forma (el resplandor: el marco varias veces, cada vez más estrecho y más fuerte) se pinta una vez, en blanco;
+    # en cada fotograma solo giran los colores, que se recortan con ella
+    forma = QImage(w, h, QImage.Format_ARGB32_Premultiplied)
+    forma.fill(Qt.transparent)
+    pintor = QPainter(forma)
+    pintor.setRenderHint(QPainter.Antialiasing)
+    for ancho, opacidad in ((9, 0.06), (6, 0.1), (4, 0.16), (2.5, 0.3), (1, 1)):
+        pintor.setOpacity(opacidad * (0.5 + 0.5 * f))
+        pintor.strokePath(marco, QPen(Qt.white, grosor * ancho))
+    pintor.end()
+    nucleo = QPainterPathStroker(QPen(Qt.white, grosor * 0.6)).createStroke(marco)  # la línea del destello
+    dentro = math.ceil(6.5 * grosor + 0.3 * radio) + 2  # más adentro, todo transparente: ni se pinta
+    banda = QRegion(0, 0, w, h).subtracted(QRegion(dentro, dentro, w - 2 * dentro, h - 2 * dentro))
+    for i in range(k):
+        if (cache / (patron % i)).is_file():  # un juego a medias se completa
+            continue
+
+        def hacer(temporal, angulo=-360 * i / k):  # gira en el sentido del reloj
+            colores, destello = QConicalGradient(w / 2, h / 2, angulo), QConicalGradient(w / 2, h / 2, angulo)
+            # De naranja vuelve a cian por violeta: directo pasaría por un verde oliva
+            for donde, color in ((0, "#00E5FF"), (0.25, "#7C5CFF"), (0.5, "#FF4D8D"), (0.7, "#FF9F1C"),
+                                 (0.85, "#7C5CFF"), (1, "#00E5FF")):
+                colores.setColorAt(donde, QColor(color))
+            for donde, alfa in ((0, 240), (0.08, 0), (0.92, 0), (1, 240)):
+                destello.setColorAt(donde, QColor(255, 255, 255, round(alfa * (0.5 + 0.5 * f))))
+            imagen = QImage(w, h, QImage.Format_ARGB32_Premultiplied)
+            imagen.fill(Qt.transparent)
+            pintor = QPainter(imagen)
+            pintor.setRenderHint(QPainter.Antialiasing)
+            pintor.setClipRegion(banda)
+            pintor.fillRect(0, 0, w, h, QBrush(colores))
+            pintor.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+            pintor.drawImage(0, 0, forma)
+            pintor.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            pintor.fillPath(nucleo, QBrush(destello))
+            pintor.end()
+            # Sin premultiplicar (como va en el PNG) y comprimido a la ligera: guardarlo es lo que más tarda
+            if not imagen.convertToFormat(QImage.Format_ARGB32).save(str(temporal), "PNG", 80):
+                raise RuntimeError(t("No se pudo preparar el Brillo Ráfaga."))
+        _a_disco(cache / (patron % i), hacer)
+    return patron, k
+
+
+def _efecto(c: dict, w: int, h: int, fps: int, golpe: tuple | None, j0: int = 0, brillo: str = "") -> str:
+    """El efecto del clip, para pegarlo justo detrás del último filtro de su cadena ("" si no tiene): el mismo en el
+    tramo y en el fotograma. Solo depende del segundo dentro del clip (nada aleatorio: la vista previa, el video final y
+    la caché coinciden) y no cambia el tamaño, los fps ni lo que dura. golpe: (periodo, desfase) de _golpe, para los
+    de _GOLPE; j0: el fotograma del clip por el que empieza; brillo: la entrada con los PNG de _brillo."""
+    f, efecto, corto = c["intensidad"] / 100, c["efecto"], min(w, h)
+    if efecto == "ninguno" or not f:
+        return ""
+    # El tiempo (t, o «it» en zoompan): segundos dentro del clip. En el tramo ya empieza en 0; ahí setpts sobra y además
+    # deja sin duración el último fotograma (el .mov lo perdía). En yuv420p de principio a fin (ver el final)
+    # settb: una foto leída sin -framerate trae base 1/25 y el instante salía redondeado (un fotograma de desfase)
+    cadena = f",settb=1/{fps},setpts=(N+{j0})/({fps}*TB),format=yuv420p," if j0 else ",format=yuv420p,"
+
+    def pulso(tiempo, caida):  # 1 en cada golpe; se apaga antes cuanto mayor es la caída
+        return f"exp(-{caida}*mod({tiempo}+{golpe[1]:.6f},{golpe[0]:.6f}))"
+
+    def zoom(z):  # al doble de tamaño: zoompan corta en píxeles enteros y, a tamaño final, la imagen tiembla
+        return f"scale={2 * w}:{2 * h},zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={w}x{h}:fps={fps}"
+    if efecto == "zoom_ritmo":
+        filtros = zoom(f"1+{0.15 * f:.4f}*{pulso('it', 8)}")
+    elif efecto == "pulso":
+        filtros = zoom(f"1+{0.07 * f:.4f}*pow(sin(PI*it/{_LATIDO}),4)")
+    elif efecto == "flash_ritmo":
+        filtros = f"eq=brightness='{0.45 * f:.4f}*{pulso('t', 12)}':eval=frame"
+    elif efecto == "rayos":  # morado (más rojo y azul, menos verde): un tinte suave siempre y un destello en cada golpe
+        fuerza = f"(0.15+0.85*{pulso('t', 10)})"
+        filtros = (f"eq=gamma_r='1+{0.8 * f:.4f}*{fuerza}':gamma_g='1-{0.3 * f:.4f}*{fuerza}':"
+                   f"gamma_b='1+{1.2 * f:.4f}*{fuerza}':brightness='{0.1 * f:.4f}*{fuerza}':eval=frame")
+    elif efecto == "temblor":  # un poco más grande y movido por senos que no se repiten a la vista
+        mx, my = max(1, round(w * 0.03 * f)), max(1, round(h * 0.03 * f))
+        filtros = (f"scale={w + 2 * mx}:{h + 2 * my},crop={w}:{h}:x='{mx}*(1+0.9*sin(19*t)*sin(5.3*t+1))':"
+                   f"y='{my}*(1+0.9*sin(23*t+2)*sin(4.1*t))'")
+    elif efecto == "glitch":  # a ratos (cuando varios senos coinciden en lo alto): canales separados y saltos de lado
+        s = max(1, round(corto * 0.03 * f))
+        rato = "gt(sin(7.1*t)*sin(3.3*t+1.7)+0.35*sin(31*t),0.62)"
+        filtros = (f"rgbashift=rh={s}:bh=-{s}:gv={max(1, s // 2)}:enable='{rato}',"
+                   f"scale={w + 2 * s}:{h},crop={w}:{h}:x='{s}*(1+{rato}*sin(57*t))':y=0,"
+                   f"eq=contrast=1.3:saturation=1.6:enable='{rato}'")
+    elif efecto == "vhs":  # color corrido, apagado y algo borroso, con las líneas de la tele
+        s, b, linea = max(1, round(corto * 0.006 * (1 + 2 * f))), max(1, round(corto / 360)), max(3, round(h / 180))
+        # El color corrido con chromashift (rgbashift dejaba una franja negra en el borde), el tinte cálido con eq
+        # (gamma por canal) y el borroso, de lado: colorbalance y boxblur, a 1080p, tardaban 60 y 20 ms por fotograma
+        filtros = (f"chromashift=cbh=-{s}:crh={s},eq=saturation={1 - 0.35 * f:.4f}:contrast={1 - 0.12 * f:.4f}:"
+                   f"brightness={0.03 * f:.4f}:gamma_r={1 + 0.08 * f:.4f}:gamma_b={1 - 0.06 * f:.4f},"
+                   f"avgblur=sizeX={b}:sizeY=1,"
+                   # w=iw+1 y x=iw: la línea vertical de la rejilla cae fuera del cuadro
+                   f"drawgrid=w=iw+1:h={linea}:x=iw:y=0:t={max(1, linea // 3)}:c=black@{0.35 * f:.4f}")
+    elif efecto == "espejo":  # la mitad izquierda, reflejada a la derecha (con menos intensidad, a medias)
+        mitad = w // 2
+        filtros = (f"split[ea][eb];[eb]format=rgba,crop={mitad}:{h}:0:0,hflip,colorchannelmixer=aa={f:.4f}[ec];"
+                   f"[ea][ec]overlay={w - mitad}:0")
+    elif efecto == "desenfoque_entrada":  # una copia borrosa encima que se va apagando (y después ya no se calcula)
+        dura = 0.4 + 0.8 * f
+        filtros = (f"split[ea][eb];[eb]trim=end={dura:.4f},gblur=sigma={corto * 0.04 * f:.2f},"
+                   f"format=yuva420p,fade=t=out:st=0:d={dura:.4f}:alpha=1[ec];[ea][ec]overlay=eof_action=pass")
+    else:  # brillo_rafaga: sus PNG encima, con los mismos tiempos que el clip
+        # yuva420p antes de escalar: escalar el RGBA a 1080p costaba 45 ms por fotograma; así, 7
+        filtros = (f"null[ea];[{brillo}]setpts=(N+{j0})/({fps}*TB),format=yuva420p,lut=a='val*{f:.4f}',"
+                   f"scale={w}:{h}[eb];"
+                   "[ea][eb]overlay=shortest=1")
+    # yuv420p también al final: entre dos formatos fijos, ffmpeg elige los mismos dentro en el tramo y en el
+    # fotograma (si no, en el fotograma lo hacía en RGB y, p. ej., crop cortaba un píxel más allá)
+    return f"{cadena}{filtros},format=yuv420p"
 
 
 def _atempo(v: float) -> str:
@@ -328,17 +510,16 @@ def _salida_tramo(final: bool) -> list:
 
 
 def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: bool, avance,
-           fondo: str = "#000000") -> Path:
+           fondo: str = "#000000", golpe: tuple | None = None, brillo: str = "") -> Path:
     """El clip normalizado (H.264 + PCM en .mov), del caché si ya estaba hecho con estos mismos parámetros. Si su
-    archivo falta, el color de fondo y silencio."""
+    archivo falta, el color de fondo y silencio. golpe y brillo: los de su efecto (ver _efecto)."""
     falta = c.get("falta", False)
     entrada = None if falta else _entrada(c, cache)
     n = _cuadros_tramo(c, fps)
     preset, crf = _CALIDAD[final][0]
     datos = {k: v for k, v in c.items() if k not in _SIN_TRAMO}
-    destino = cache / (f"tramo-{'exp' if final else 'vista'}{h}-"
-                       f"{_hash(VERSION, fondo if falta else _huella(entrada), datos, w, h, fps, ajuste, preset, crf)}"
-                       ".mov")
+    clave = _hash(VERSION, fondo if falta else _huella(entrada), datos, w, h, fps, ajuste, preset, crf, golpe)
+    destino = cache / f"tramo-{'exp' if final else 'vista'}{h}-{clave}.mov"
     if destino.is_file():
         return destino
     muestras = n * _R // fps
@@ -357,7 +538,7 @@ def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: b
         imagen = _aspecto(c, w, h, fps, ajuste, n)
         if c["movimiento"] == "ninguno":  # la foto se filtra una vez y se repite
             imagen += f",loop=loop={n - 1}:size=1,setpts=N/({fps}*TB)"
-    grafo = [f"[0:v]{imagen},fps={fps},trim=end_frame={n},{_COLOR}[v]"]
+    grafo = []
     sonido = (not falta and c["tipo"] == "video" and not c["silencio"] and c["volumen"]
               and _tiene_audio(str(entrada), _huella(entrada)))
     if sonido:
@@ -369,6 +550,10 @@ def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: b
     else:
         entradas += ["-f", "lavfi", "-i", f"anullsrc=r={_R}:cl=stereo"]
         grafo.append(f"[1:a]atrim=end_sample={muestras}[a]")
+    if brillo:  # los PNG del Brillo Ráfaga, en bucle (la última entrada)
+        entradas += ["-loop", "1", "-framerate", fps, "-i", brillo]
+    efecto = "" if falta else _efecto(c, w, h, fps, golpe, 0, f"{entradas.count('-i') - 1}:v")
+    grafo.insert(0, f"[0:v]{imagen},fps={fps},trim=end_frame={n}{efecto},{_COLOR}[v]")
     _a_disco(destino, lambda temporal: _correr(
         [*entradas, "-filter_complex", ";".join(grafo), *_salida_tramo(final), temporal.name], cache, n / fps, avance))
     return destino
@@ -434,10 +619,11 @@ def _capa_png(capa: dict, carpeta: Path, cache: Path, w: int, h: int, escala: fl
     return destino, x0, y0, x1 - x0, y1 - y0
 
 
-def _subtitulos(palabras: list, formato: str, cache: Path) -> Path:
-    destino = cache / f"subs-{_hash(VERSION, palabras, formato)}.ass"  # solo hex: va tal cual dentro del filtro
+def _subtitulos(palabras: list, formato: str, cache: Path, estilo: str = "clasico") -> Path:
+    """El .ass de los subtítulos (video.subtitulos_ass) en cache/, con el estilo en su nombre."""
+    destino = cache / f"subs-{_hash(VERSION, palabras, formato, estilo)}.ass"  # solo hex: va tal cual dentro del filtro
     if not destino.is_file():
-        _a_disco(destino, lambda temporal: video.subtitulos_ass(palabras, formato, temporal))
+        _a_disco(destino, lambda temporal: video.subtitulos_ass(palabras, formato, temporal, estilo=estilo))
     return destino
 
 
@@ -470,15 +656,22 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
     # parte va de 0 a 0.5, repartido por lo que dura cada clip.
     hechos, por_hacer, tramos = 0.0, sum(edicion.duracion_clip(c) for c in p["clips"]) or 1, []
     piezas = []  # (archivo, fotogramas que trae, desde, hasta): lo que se ve de cada tramo y paso, en orden
+    # Los golpes de la música, solo si algún clip va al ritmo (analizar la canción tarda)
+    ritmo = _ritmo(p, cache) if any(c["efecto"] in _GOLPE and c["intensidad"] for c in p["clips"]) else None
     for i, c in enumerate(p["clips"]):
         aviso(t("Preparando clip {n} de {total}…", n=i + 1, total=len(p["clips"])), 0.5 * hechos / por_hacer)
         base = 0.5 * hechos / por_hacer
         parte = 0.5 * edicion.duracion_clip(c) / por_hacer
+        golpe = _golpe(ritmo, marcos[i][0] / fps) if ritmo and c["efecto"] in _GOLPE else None
+        brillo = ""
+        if c["efecto"] == "brillo_rafaga" and c["intensidad"] and not c.get("falta"):
+            brillo, k = _brillo(cache, p["formato"], h, fps)
+            usados.update(brillo % j for j in range(k))
         tramos.append(_tramo(c, cache, w, h, fps, p["ajuste"], final,
                              lambda f, base=base, parte=parte, i=i: aviso(
                                  f"{t('Preparando clip {n} de {total}…', n=i + 1, total=len(p['clips']))} {f:.0%}",
                                  base + parte * f),
-                             p["fondo"]))
+                             p["fondo"], golpe, brillo))
         if c["tipo"] == "video" and not c.get("falta"):
             usados.add(_proxy(_entrada(c, cache), cache).name)
         hechos += edicion.duracion_clip(c)
@@ -495,6 +688,7 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
     for tipo in ("tramo", "paso"):
         _limpiar(cache, f"{tipo}-{'exp' if final else 'vista'}{h}-*.mov", usados)
     _limpiar(cache, "proxy-*.mp4", usados)
+    _limpiar(cache, f"brillo-{_tamano(p['formato'], min(h, _PROXY))[1]}-*.png", usados)  # ver _brillo
 
     # 2. La pista principal: todo seguido en UNA entrada (el concat de ffmpeg, que les pasa la lista MEDIOS: 300
     # entradas sueltas pasarían del largo de orden que deja Windows y abrirían 300 decodificadores), cortada en trozos
@@ -589,7 +783,8 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
         palabras = [{**pal, "inicio": max(0, pal["inicio"] - corrido), "fin": pal["fin"] - corrido}
                     for pal in p["subtitulos"]["palabras"] if pal["fin"] > corrido]
         if p["subtitulos"]["activos"] and palabras:
-            grafo.append(f"[{ultimo}]subtitles={_subtitulos(palabras, p['formato'], cache).name}[s]")
+            subs = _subtitulos(palabras, p["formato"], cache, p["subtitulos"]["estilo"])
+            grafo.append(f"[{ultimo}]subtitles={subs.name}[s]")
             ultimo = "s"
         grafo.append(f"[{ultimo}]format=yuv420p[vfin]")
         _limpiar(cache, f"capa-{h}-*.png", usados)
@@ -658,8 +853,9 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
 # ---------- Lo que usa la interfaz ----------
 
 def fotograma(proyecto: dict, carpeta: Path, momento: float, alto_max: int = 640) -> QImage:
-    """El fondo del video en `momento` (el clip bajo él con su encaje, movimiento, filtro y ajustes; en una transición,
-    el clip que entra) SIN capas ni subtítulos: los pinta la interfaz encima. Un solo fotograma con ffmpeg, en caché."""
+    """El fondo del video en `momento` (el clip bajo él con su encaje, movimiento, filtro, ajustes y efecto; en una
+    transición, el clip que entra) SIN capas ni subtítulos: los pinta la interfaz encima. Un solo fotograma con ffmpeg,
+    en caché."""
     p = edicion.validar(proyecto)
     momento = diseno._campo(edicion._num(0, edicion.MAX_DURACION, 6), momento, t("El momento del video"))
     alto_max = int(diseno._campo(edicion._num(16, 4320, 0), alto_max, t("El alto de la imagen")))
@@ -675,24 +871,34 @@ def fotograma(proyecto: dict, carpeta: Path, momento: float, alto_max: int = 640
             proxy = _proxy(entrada, cache) if c["tipo"] == "video" and h <= _PROXY else None
             entrada = proxy if proxy and proxy.is_file() else entrada
             datos = json.dumps({k: v for k, v in c.items() if k not in _SIN_TRAMO}, sort_keys=True)
-            imagen = _cuadro(str(entrada), _huella(entrada), datos, p["ajuste"], fps, w, h, cuadro - a)
+            j, brillo = cuadro - a, ""
+            golpe = _golpe(_ritmo(p, cache), a / fps) if c["efecto"] in _GOLPE and c["intensidad"] else None
+            if c["efecto"] == "brillo_rafaga" and c["intensidad"]:  # el PNG de este fotograma de la vuelta
+                patron, k = _brillo(cache, p["formato"], h, fps)
+                brillo = str(cache / (patron % (j % k)))
+            imagen = _cuadro(str(entrada), _huella(entrada), datos, p["ajuste"], fps, w, h, j,
+                             _efecto(c, w, h, fps, golpe, j, "1:v"), brillo)
             return imagen if imagen is not None else _liso(w, h, p["fondo"])
     return _liso(w, h, p["fondo"])
 
 
 @lru_cache(maxsize=32)
 def _cuadro(entrada: str, _huella_archivo: tuple, datos: str, ajuste: str, fps: int, w: int, h: int,
-            j: int) -> QImage | None:
-    """El fotograma j del clip (de 0), con la misma cadena que su tramo. None si el archivo se acaba antes."""
+            j: int, efecto: str = "", brillo: str = "") -> QImage | None:
+    """El fotograma j del clip (de 0), con la misma cadena que su tramo (efecto: la de _efecto; brillo: el PNG de ese
+    fotograma del Brillo Ráfaga). None si el archivo se acaba antes."""
     c = json.loads(datos)
     if c["tipo"] == "video":
         # La misma cadena que el tramo, saltando a j: fps:start_time=0 da el que se ve ahí aunque empezara mucho antes.
         # Los 2e-4: que los empates de redondeo caigan como en el tramo
         salto, m = _salto(entrada, max(0.0, c["desde"] + (j / fps - 2e-4) * c["velocidad"]))
-        args = [*salto, "-i", entrada, "-vf", f"setpts=(PTS-{m:.6f}/TB)/{c['velocidad']},fps={fps}:start_time=0,"
-                f"{_aspecto(c, w, h, fps, ajuste, 1)}", "-frames:v", "1"]
+        entradas = [*salto, "-i", entrada]
+        cadena = f"setpts=(PTS-{m:.6f}/TB)/{c['velocidad']},fps={fps}:start_time=0,{_aspecto(c, w, h, fps, ajuste, 1)}"
     else:
-        args = ["-i", entrada, "-vf", _aspecto(c, w, h, fps, ajuste, 1, j), "-frames:v", "1"]
+        entradas, cadena = ["-i", entrada], _aspecto(c, w, h, fps, ajuste, 1, j)
+    if brillo:
+        entradas += ["-loop", "1", "-i", brillo]
+    args = [*entradas, "-filter_complex", f"[0:v]{cadena}{efecto}[v]", "-map", "[v]", "-frames:v", "1"]
     r = subprocess.run([video.FFMPEG, "-hide_banner", "-loglevel", "error",
                         *video.solo_medios([*args, "-an", "-sn", "-f", "rawvideo", "-pix_fmt", "bgr0", "-"])],
                        capture_output=True)

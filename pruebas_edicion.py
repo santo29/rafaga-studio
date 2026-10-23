@@ -1,6 +1,7 @@
 """Pruebas del modelo del editor de video (motor/edicion.py) y de los videos en motor/seguro.py, sin red ni claves:
 python pruebas_edicion.py"""
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -114,6 +115,59 @@ with tempfile.TemporaryDirectory() as d:
     assert p["capas"][0]["texto"] == "Hola"  # son copias: no tocan el proyecto (ni la pila de deshacer)
     con_audio = edicion.validar({**base, "audios": [{**base["audios"][0], "inicio": 9, "hasta": 3}]})
     assert cerca(edicion.duracion_total(con_audio), 12)  # lo que acaba más tarde de las tres pistas
+    # Ajustes y efecto nuevos: con su valor por defecto (los proyectos de antes se abren igual) y redondeados
+    assert {k: p["clips"][0][k] for k in ("temperatura", "vineta", "nitidez", "efecto", "intensidad")} == {
+        "temperatura": 0, "vineta": 0, "nitidez": 0, "efecto": "ninguno", "intensidad": 60}
+    assert p["subtitulos"]["estilo"] == "clasico"
+    nuevo_clip = edicion.validar({"clips": [clip(filtro="nocturno", transicion="radial", efecto="brillo_rafaga",
+                                                 intensidad=33.4, temperatura=-100, vineta=100, nitidez=12.6), clip()],
+                                  "subtitulos": {"estilo": "karaoke"}})
+    assert {k: nuevo_clip["clips"][0][k] for k in ("filtro", "transicion", "efecto", "intensidad", "temperatura",
+                                                   "vineta", "nitidez")} == {
+        "filtro": "nocturno", "transicion": "radial", "efecto": "brillo_rafaga", "intensidad": 33, "temperatura": -100,
+        "vineta": 100, "nitidez": 13}
+    assert nuevo_clip["subtitulos"]["estilo"] == "karaoke"
+
+    # ---------- Plantillas: filtro, efecto, transición, subtítulos y sus textos, sin tocar los medios ----------
+    antes = copy.deepcopy(p)
+    fin = edicion.tiempos(p)[-1][1]
+    for clave, plantilla in edicion.PLANTILLAS.items():
+        assert plantilla["nombre"] and plantilla["descripcion"], clave
+        q = edicion.aplicar_plantilla(p, clave)
+        assert p == antes and edicion.validar(q) == q
+        assert all((c["filtro"], c["efecto"], c["intensidad"]) == (plantilla["filtro"], plantilla["efecto"],
+                                                                   plantilla["intensidad"]) for c in q["clips"])
+        assert [c["transicion"] for c in q["clips"]] == [plantilla["transicion"]] * 3 + ["ninguna"], clave
+        assert q["subtitulos"]["estilo"] == plantilla["estilo"] and q["subtitulos"]["activos"]
+        assert q["subtitulos"]["palabras"] == p["subtitulos"]["palabras"] and q["audios"] == p["audios"]
+        assert [(c["id"], c["archivo"], c["desde"], c["hasta"]) for c in q["clips"]] == [
+            (c["id"], c["archivo"], c["desde"], c["hasta"]) for c in p["clips"]]
+        assert [c["id"] for c in q["capas"]] == ["t1", "e1", "plantilla-titulo"] + (
+            ["plantilla-cierre"] if clave == "anuncio" else []), q["capas"]
+        titulo = q["capas"][2]
+        assert titulo["texto"] == "Prueba" and titulo["inicio"] == 0 and titulo["tipo"] == "texto"
+        assert edicion.aplicar_plantilla(q, clave) == q  # dos veces: no duplica sus capas
+        assert edicion.duracion_total(q) == edicion.duracion_total(edicion.validar(
+            {**q, "capas": p["capas"]}))  # sus textos no alargan el video
+    cierre = edicion.aplicar_plantilla(p, "anuncio")["capas"][-1]
+    assert cerca(cierre["inicio"] + cierre["duracion"], edicion.tiempos(edicion.aplicar_plantilla(p, "anuncio"))[-1][1])
+    otra = edicion.aplicar_plantilla(edicion.aplicar_plantilla(p, "anuncio"), "vlog")  # cambia de plantilla: sin cierre
+    assert [c["id"] for c in otra["capas"]] == ["t1", "e1", "plantilla-titulo"]
+    assert otra["clips"][0]["filtro"] == "dorado"
+    assert fin == edicion.tiempos(p)[-1][1]
+    for malo in ("no_existe", None, ["vlog"], "VLOG"):
+        falla(edicion.aplicar_plantilla, p, malo)
+    falla(edicion.aplicar_plantilla, edicion.nuevo(), "vlog")  # sin clips: un error claro
+    # Un clip que acaba a mitad de milésima (2.414 s a 2.3x = 1.049565 s): sus textos no pasan del final
+    raro = edicion.validar({"clips": [{"tipo": "video", "archivo": "C:\\x\\a.mp4", "hasta": 2.414, "velocidad": 2.3,
+                                       "duracion_archivo": 10}]})
+    for clave in edicion.PLANTILLAS:
+        q = edicion.aplicar_plantilla(raro, clave)
+        assert edicion.duracion_total(q) == edicion.duracion_total(raro), clave
+    try:
+        edicion.aplicar_plantilla(edicion.nuevo(), "vlog")
+    except ValueError as e:
+        assert "clip" in str(e), e
 
     # Transiciones más largas que el clip: se recortan a la mitad del más corto, o se quitan si no caben
     t = edicion.validar({"clips": [clip(transicion="barrido", duracion_transicion=2, hasta=3), clip(hasta=8),
@@ -181,7 +235,11 @@ with tempfile.TemporaryDirectory() as d:
                         ("volumen", -0.1), ("brillo", 101), ("saturacion", float("-inf")), ("silencio", 1),
                         ("filtro", "colorchannelmixer=1"), ("transicion", "xfade;rm"), ("duracion_transicion", 5),
                         ("duracion_transicion", 0.1), ("movimiento", "girar"), ("tipo", "audio"), ("tipo", []),
-                        ("desde", -1), ("hasta", float("inf")), ("hasta", None), ("duracion_archivo", 3)):
+                        ("desde", -1), ("hasta", float("inf")), ("hasta", None), ("duracion_archivo", 3),
+                        ("temperatura", 101), ("temperatura", -100.6), ("temperatura", "5"), ("vineta", -1),
+                        ("vineta", 100.6), ("nitidez", float("nan")), ("nitidez", True), ("efecto", "glitch;movie=x"),
+                        ("efecto", None), ("efecto", "GLITCH"), ("intensidad", 101), ("intensidad", -1),
+                        ("intensidad", [60]), ("filtro", "nocturno2"), ("transicion", "fadeblack")):
         falla(edicion.validar, {"clips": [clip(**{campo: malo})]})
     for malo in ({"hasta": 0}, {"desde": 4, "hasta": 4}, {"desde": 5}, {"hasta": 0.05}):  # sin tramo o casi nada
         falla(edicion.validar, {"clips": [clip(**malo)]})
@@ -190,7 +248,9 @@ with tempfile.TemporaryDirectory() as d:
     falla(edicion.validar, {"clips": [clip(hasta=2000, duracion_archivo=4000)] * 2})
     for campo, malo in (("formato", "21:9"), ("fps", 29.97), ("fps", True), ("fps", "30"), ("ajuste", "estirar"),
                         ("fondo", "red"), ("nombre", "x" * 121), ("nombre", 5), ("clips", {}), ("capas", "x"),
-                        ("subtitulos", []), ("subtitulos", {"palabras": {}}), ("subtitulos", {"activos": "sí"})):
+                        ("subtitulos", []), ("subtitulos", {"palabras": {}}), ("subtitulos", {"activos": "sí"}),
+                        ("subtitulos", {"estilo": "comic"}), ("subtitulos", {"estilo": 3}),
+                        ("subtitulos", {"estilo": None})):
         falla(edicion.validar, {campo: malo})
     for capa in ({"tipo": "forma"}, {"tipo": "texto", "inicio": float("nan")}, {"tipo": "texto", "duracion": 0},
                  {"tipo": "texto", "entrada": "explotar"}, {"tipo": "texto", "salida": "deslizar"},
@@ -280,6 +340,27 @@ with tempfile.TemporaryDirectory() as d:
                      "-frames:v", "1", "-f", "rawvideo", "s.gray", cwd=d)
         oscuros.append(sum(b < 128 for b in (d / "s.gray").read_bytes()))  # borde y sombra sobre blanco
     assert 0.8 < oscuros[0] / oscuros[1] < 1.25, oscuros
+    # Estilos: «clasico» sale byte a byte como antes de que hubiera estilos (huellas del .ass de entonces); cada estilo
+    # da un .ass que ffmpeg dibuja, con lo del usuario escapado
+    pal = [{"palabra": "hola", "inicio": 0.0, "fin": 0.4}, {"palabra": "a {x}", "inicio": 0.5, "fin": 0.6},
+           {"palabra": "todos.", "inicio": 0.7, "fin": 1.2}, {"palabra": "Ñandú", "inicio": 1.5, "fin": 1.9}]
+    for formato, huella in (("9:16", "352c37d48f50bd728fc731e97dd818d0987f15468d9d1f504a81aa3bb01a19fe"),
+                            ("16:9", "24030d88eedac7329f3f9bf9de322551fd3af12f4498f7e86c9a715ca0173bdb")):
+        for estilo in ({}, {"estilo": "clasico"}):
+            hecho = video.subtitulos_ass(pal, formato, d / "c.ass", **estilo).read_bytes()
+            assert hashlib.sha256(hecho).hexdigest() == huella, (formato, estilo)
+    assert set(edicion.ESTILOS_SUBTITULOS) == {"clasico", "caja", "neon", "karaoke", "minimal", "impacto"}
+    textos = set()
+    for estilo in edicion.ESTILOS_SUBTITULOS:
+        texto = video.subtitulos_ass(pal, "9:16", d / "e.ass", estilo=estilo).read_text(encoding="utf-8")
+        assert texto.startswith("[Script Info]") and texto.count("\nStyle: Base,") == 1, estilo
+        assert texto.count("\nDialogue: ") >= 2 and "{x}" not in texto and "(X)" in texto.upper(), estilo
+        textos.add(texto)
+        video.ffmpeg("-f", "lavfi", "-i", "color=c=white:s=360x640:r=10:d=1", "-vf", "subtitles=e.ass,format=gray",
+                     "-ss", "0.25", "-frames:v", "1", "-f", "rawvideo", "e.gray", cwd=d)
+        assert sum(b < 200 for b in (d / "e.gray").read_bytes()) > 200, estilo  # se ve algo escrito
+    assert len(textos) == len(edicion.ESTILOS_SUBTITULOS)
+    assert "\\kf50}HOLA" in video.subtitulos_ass(pal, "9:16", d / "k.ass", estilo="karaoke").read_text(encoding="utf-8")
 
     archivo = edicion.guardar(real, carpeta)
     assert archivo == carpeta / "proyecto.json" and edicion.abrir(carpeta) == real

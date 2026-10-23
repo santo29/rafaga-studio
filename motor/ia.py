@@ -88,6 +88,8 @@ def _normalizar(datos, esquema: dict):
             return datos
     if tipo == "string" and isinstance(datos, (int, float)) and not isinstance(datos, bool):
         return str(datos)
+    if tipo == "string" and isinstance(datos, (dict, list)):  # p. ej. los argumentos del Director como objeto
+        return json.dumps(datos, ensure_ascii=False)
     if tipo == "array" and isinstance(datos, str) and esquema.get("items", {}).get("type") == "string":
         import re
         return [p for p in re.split(r"[\s,]+", datos) if p]
@@ -148,12 +150,51 @@ def _podar(datos, esquema: dict) -> tuple:
     return datos, True
 
 
+def de_fuera(datos, esquema: dict, que: str) -> dict:
+    """Un guion (o una biblia) que escribió el agente que maneja el estudio (p. ej. Claude por el MCP) en vez de la IA
+    de texto conectada: se comprueba igual que lo que devuelve la IA. Vale como objeto o como texto JSON."""
+    if isinstance(datos, str):
+        try:
+            datos = json.loads(datos)
+        except ValueError:
+            raise ValueError(t("{que} no es un JSON válido.", que=que)) from None
+    valido = _validar(datos, esquema) if isinstance(datos, dict) else None
+    if valido is None:
+        faltan = ", ".join(_faltan(_normalizar(datos, esquema), esquema)[:8]) if isinstance(datos, dict) else t("raíz")
+        raise ValueError(t("{que} no tiene la forma pedida: faltan o están mal {campos}.", que=que, campos=faltan))
+    return valido
+
+
+def _ejemplo(esquema: dict):
+    """La forma de la respuesta con valores de muestra. A la IA gratis se le enseña esto y no el esquema técnico:
+    con el esquema, a veces lo copia tal cual en vez de rellenarlo."""
+    tipo = esquema.get("type")
+    if tipo == "object":
+        return {k: _ejemplo(v) for k, v in esquema.get("properties", {}).items()}
+    if tipo == "array":
+        return [_ejemplo(esquema.get("items", {}))]
+    if esquema.get("enum"):
+        return " | ".join(map(str, esquema["enum"]))  # una de estas opciones
+    return {"integer": 0, "number": 0, "boolean": False}.get(tipo, "...")
+
+
+def _sin_rellenar(datos) -> bool:
+    """Si la respuesta conserva algún valor de muestra de _ejemplo (copió la forma en vez de responder)."""
+    if isinstance(datos, dict):
+        return any(map(_sin_rellenar, datos.values()))
+    if isinstance(datos, list):
+        return any(map(_sin_rellenar, datos))
+    return datos == "..."
+
+
 def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
     """IA de texto gratis y sin clave (GPT-OSS 20B en Pollinations).
     ponytail: límite de 1 respuesta cada 30 s por conexión y menos calidad; con Groq/Gemini (gratis) va mejor."""
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con un objeto JSON válido, sin "
-                                              f"texto antes ni después, que cumpla este esquema:\n"
-                                              f"{json.dumps(esquema, ensure_ascii=False)}\n"
+                                              f"texto antes ni después, con esta forma (cambia cada valor de muestra "
+                                              f"por el de verdad; donde hay opciones con «|», elige una; las listas "
+                                              f"llevan los elementos que hagan falta):\n"
+                                              f"{json.dumps(_ejemplo(esquema), ensure_ascii=False)}\n"
                                               "Tu respuesta tiene un límite corto de longitud: escribe textos breves "
                                               "para que el JSON quede completo."},
                 {"role": "user", "content": pedido}]
@@ -184,10 +225,11 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
                 continue
             datos = _json_de(contenido, esquema)
             valido = _validar(datos, esquema)  # se queda con los elementos completos, si queda alguno
-            if valido is not None:
+            if valido is not None and not _sin_rellenar(valido):
                 return valido
-            problema = t("faltan o están mal: {campos}",
-                         campos=", ".join(_faltan(_normalizar(datos, esquema), esquema)[:5]))
+            faltan = ", ".join(_faltan(_normalizar(datos, esquema), esquema)[:5])
+            problema = (t("devolvió el ejemplo sin rellenar") if valido is not None
+                        else t("faltan o están mal: {campos}", campos=faltan))
         except (ValueError, KeyError, IndexError, TypeError) as e:
             problema = t("respuesta no válida: {error}", error=e)
     raise RuntimeError(t("La IA gratis sin clave no dio una respuesta válida ({problema}). Conecta Groq o Gemini "
@@ -234,16 +276,22 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict) -> dict:
                          "elige otra IA de texto en «Claves de IA».", proveedor=c["proveedor"]))
 
 
-def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path) -> Path:
-    """Escena realista con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
-    si no, crea el fondo y coloca encima la foto del producto."""
+def puede_referencia() -> bool:
+    """Si la IA de imágenes conectada sabe editar a partir de una imagen de referencia (mantener a alguien igual)."""
+    c = claves.para("imagen")
+    return bool(c and c.get("clave") and c["proveedor"] in ("openai", "pollinations"))
+
+
+def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True) -> Path:
+    """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
+    si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto)."""
     c = claves.para("imagen")
     vertical, horizontal = alto > ancho, ancho > alto
     size = "1024x1536" if vertical else "1536x1024" if horizontal else "1024x1024"
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
-              "label and logo). Photorealistic.")
-    if c and c.get("clave") and c["proveedor"] in ("openai", "pollinations"):
+              "label and logo)." + (" Photorealistic." if realista else ""))
+    if puede_referencia():
         base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
         modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
         with open(foto, "rb") as f:
@@ -431,10 +479,11 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
 
 
 def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None, cancion: bool = False,
-                progreso=lambda f: None) -> list[dict]:
+                progreso=lambda f: None, en_pc: bool = False) -> list[dict]:
     """Devuelve las palabras con tiempos: [{'palabra', 'inicio', 'fin'}].
-    Usa Groq/OpenAI si hay clave (rápido); si no, Whisper local en el PC (lento pero gratis)."""
-    c = claves.para("transcripcion")
+    Usa Groq/OpenAI si hay clave (rápido); si no, Whisper local en el PC (lento pero gratis).
+    en_pc: siempre en el PC, aunque haya clave (la voz del usuario para el Director no sale de aquí)."""
+    c = None if en_pc else claves.para("transcripcion")
     limite_api = 24 * 1024 * 1024  # Groq y OpenAI rechazan archivos de más de 25 MB
     if c and c.get("clave") and audio.stat().st_size > limite_api:
         from .video import ffmpeg

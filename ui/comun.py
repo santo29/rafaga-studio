@@ -314,7 +314,11 @@ class PaginaTrabajo(QWidget):
         self.lay.addStretch()
         self.tarea = None
 
-    def lanzar(self, boton_iniciar, funcion, **datos):
+    def lanzar(self, boton_iniciar, funcion, **datos) -> bool:
+        """False si ya hay un trabajo en marcha: soltar un hilo que corre tumba la app cuando termina."""
+        if self.tarea and self.tarea.isRunning():
+            mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
+            return False
         boton_iniciar.setEnabled(False)
         self.progreso.show()
         self.progreso.setValue(0)
@@ -326,6 +330,7 @@ class PaginaTrabajo(QWidget):
         self.tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("No se pudo terminar"), e)))
         self.tarea.finished.connect(lambda: (boton_iniciar.setEnabled(True), self.progreso.hide()))
         self.tarea.start()
+        return True
 
 
 def campo_archivo(texto, filtro, al_elegir=None):

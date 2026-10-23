@@ -73,9 +73,9 @@ class PaginaMusica(PaginaTrabajo):
         idea = self.idea.toPlainText().strip()
         if not idea:
             return mensaje(self, t("Falta la idea"), t("Describe la canción que quieres."))
-        self.lanzar(self.iniciar, musica.crear, idea=idea, genero=self._genero(),
-                    con_voz=self.voz.currentIndex() == 0, segundos=self.segundos.value())
-        self.tarea.listo.connect(self._cancion_lista)
+        if self.lanzar(self.iniciar, musica.crear, idea=idea, genero=self._genero(),
+                       con_voz=self.voz.currentIndex() == 0, segundos=self.segundos.value()):
+            self.tarea.listo.connect(self._cancion_lista)
 
     def _cancion_lista(self, proyecto):
         r = proyecto["resultados"][0]

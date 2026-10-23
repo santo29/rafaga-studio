@@ -22,7 +22,8 @@ EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
 PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "crear_anuncios": "Anuncios",
           "crear_cancion": "Música", "crear_video_musical": "Música", "producir_cancion": "Cabina de grabación",
           "separar_voz_y_pista": "Cabina de grabación", "crear_diseno": "Diseño", "editar_video": "Editor de video",
-          "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA"}
+          "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA",
+          "crear_serie": "Serie animada", "crear_episodio": "Serie animada", "listar_series": "Serie animada"}
 
 
 def ejemplos() -> list[dict]:
@@ -45,10 +46,13 @@ class Escucha(QThread):
     def __init__(self):
         super().__init__()
         self.detener = threading.Event()
+        self.cerrando = False  # la app se cierra: lo grabado no se transcribe ni se manda
 
     def run(self):
         try:
             audio = voz.escuchar(self.detener, self.nivel.emit)
+            if self.cerrando:
+                return
             self.entendiendo.emit()
             self.texto.emit(voz.entender(audio))
         except Exception as e:  # sin micrófono, sin permiso…: se avisa, no se cae la app
@@ -64,6 +68,7 @@ class PaginaDirector(QWidget):
         super().__init__()
         self.brillo, self.historial, self.adjuntos = brillo, [], []
         self.tarea = self.escucha = self.lectura = None
+        self._viejas = []  # lecturas en voz que ya no interesan pero siguen corriendo (soltarlas tumbaría la app)
         self.por_voz = False  # el pedido llegó hablando: la luz sigue mientras trabaja y contesta
         lay = QVBoxLayout(self)
         lay.setContentsMargins(32, 28, 32, 28)
@@ -205,7 +210,9 @@ class PaginaDirector(QWidget):
 
     def _listo(self, r: dict):
         self._decir("Director", r["mensaje"])
-        self.historial.append({"rol": "director", "texto": r["mensaje"]})
+        # con lo hecho y sus archivos: «sigue» o «cámbiale la música» se refieren a eso
+        self.historial.append({"rol": "director", "texto": r["mensaje"],
+                               **({"hecho": r["resumen"]} if r.get("resumen") else {})})
         if r["resultados"]:
             self.reproductor.show()
             self.reproductor.mostrar(r)
@@ -237,6 +244,7 @@ class PaginaDirector(QWidget):
             return
         if self.ocupado():
             return mensaje_error(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
+        self._soltar_lectura()  # la respuesta hablada que se estaba preparando ya no suena: ahora hablas tú
         self.escucha = Escucha()
         self.escucha.nivel.connect(lambda v: self.brillo and self.brillo.oir(v))
         self.escucha.entendiendo.connect(lambda: (self.estado.setText(t("Entendiendo lo que dijiste…")),
@@ -264,7 +272,16 @@ class PaginaDirector(QWidget):
         self.pedido.setText(texto)
         self.enviar(por_voz=True)
 
+    def _soltar_lectura(self):
+        """Deja terminar la lectura en voz que esté en marcha sin que su audio suene después."""
+        hilo, self.lectura = self.lectura, None
+        if hilo and hilo.isRunning():
+            hilo.listo.disconnect()
+            self._viejas.append(hilo)
+            hilo.finished.connect(lambda: hilo in self._viejas and self._viejas.remove(hilo))
+
     def _leer_en_voz(self, texto: str):
+        self._soltar_lectura()
         self.lectura = Tarea(lambda texto, aviso: {"archivo": str(voz.hablar(texto))}, texto=texto)
         self.lectura.listo.connect(lambda r: (self.altavoz.setSource(QUrl.fromLocalFile(r["archivo"])),
                                               self.altavoz.play()))
@@ -274,11 +291,17 @@ class PaginaDirector(QWidget):
     def _fin_de_voz(self, estado):
         if self.brillo:
             self.brillo.poner("hablando" if estado == QMediaPlayer.PlayingState else
+                              "escuchando" if self.escucha and self.escucha.isRunning() else
                               "pensando" if self.ocupado() and self.por_voz else None)
 
     def cerrar(self):
-        """Al cerrar la app: deja de escuchar y de hablar."""
+        """Al cerrar la app: deja de escuchar y de hablar, y nada de lo que termine después hace nada."""
         self.altavoz.stop()
+        hilos = [h for h in (self.escucha, self.lectura, self.tarea, *self._viejas) if h]
+        for hilo in hilos:
+            hilo.blockSignals(True)
         if self.escucha and self.escucha.isRunning():
+            self.escucha.cerrando = True
             self.escucha.detener.set()
-            self.escucha.wait(15_000)  # puede estar entendiendo lo último que dijiste
+        for hilo in hilos:
+            hilo.wait(10_000)  # ponytail: una herramienta del Director a medias no se puede parar; pasado esto se cierra

@@ -236,7 +236,7 @@ print("Pruebas de seguridad pasadas.")
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for archivo in ("pruebas_diseno_recursos.py", "pruebas_diseno.py", "pruebas_diseno_ia.py", "pruebas_diseno_ui.py",
                 "pruebas_edicion.py", "pruebas_render_edicion.py", "pruebas_edicion_ui.py", "pruebas_director.py",
-                "pruebas_idioma.py"):
+                "pruebas_serie.py", "pruebas_idioma.py"):
     subprocess.run([sys.executable, str(Path(__file__).with_name(archivo))], check=True,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

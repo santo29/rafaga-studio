@@ -86,24 +86,29 @@ async def _voz(texto: str, voz: str, destino: Path) -> list[dict]:
 
 
 def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
-            imagen: str = "", aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
-    """Video completo desde un pedido. Con `imagen`, la primera escena es esa foto y las demás mantienen su sujeto."""
+            imagen: str = "", aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None) -> dict:
+    """Video completo desde un pedido. Con `imagen`, la primera escena es esa foto y las demás mantienen su sujeto.
+    guion: el guion ya escrito (con la forma de ESQUEMA) por quien maneja el estudio; entonces no se usa la IA de texto."""
     if imagen:
         imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
-    carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-video")
-    carpeta.mkdir(parents=True)
-
-    aviso(t("La IA está escribiendo el guion…"), 0.03)
     escenas_aprox = max(3, round(segundos / 6))
-    con_foto = ("\nEl usuario dio una imagen de referencia: la primera escena ES esa imagen. En las demás, cuando "
-                "aparezca su protagonista (persona, producto, lugar o personaje) escribe «the subject from the "
-                "reference image» en la descripción.") if imagen else ""
-    guion = ia.texto_json(INSTRUCCIONES, (
-        f"Pedido: {prompt}\nDuración: unos {segundos} segundos (~{int(segundos * 2.5)} palabras de narración), "
-        f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}"), ESQUEMA)
+    if guion is not None:  # se comprueba antes de crear nada
+        guion = ia.de_fuera(guion, ESQUEMA, t("El guion"))
+    if guion is None:
+        aviso(t("La IA está escribiendo el guion…"), 0.03)
+        con_foto = ("\nEl usuario dio una imagen de referencia: la primera escena ES esa imagen. En las demás, cuando "
+                    "aparezca su protagonista (persona, producto, lugar o personaje) escribe «the subject from the "
+                    "reference image» en la descripción.") if imagen else ""
+        guion = ia.texto_json(INSTRUCCIONES, (
+            f"Pedido: {prompt}\nDuración: unos {segundos} segundos (~{int(segundos * 2.5)} palabras de narración), "
+            f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}"), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»).
     guion["escenas"] = guion["escenas"][:escenas_aprox + 2]
+    if not guion["escenas"]:
+        raise ValueError(t("El guion no tiene ninguna escena."))
+    carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-video")
+    carpeta.mkdir(parents=True)
     for e in guion["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
         e["narracion"] = e["narracion"][:400]
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -167,7 +172,7 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         paso = desde + (hasta - desde) * i / n
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
-        palabras = narrar(e["narracion"], voz, audio)
+        palabras = narrar(e["narracion"], e.get("voz") or voz, audio)  # una serie: cada personaje con su voz
         paso_imagen = paso + 0.3 * (hasta - desde) / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
         # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería

@@ -7,7 +7,8 @@ import json
 import threading
 from pathlib import Path
 
-from . import anuncios, cabina, claves, desde_prompt, diseno_ia, musica, nichos, shorts, video, video_musical
+from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, musica, nichos, seguro, serie, shorts, video,
+               video_musical)
 from .idioma import t
 
 _hilo = threading.local()
@@ -26,8 +27,12 @@ def _json(datos) -> str:
 
 
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
-                imagen: str = "", solo_animar: bool = False) -> str:
+                imagen: str = "", solo_animar: bool = False, guion: dict | None = None) -> str:
     """Crea un video completo desde un pedido: guion con IA, imágenes, voz, subtítulos y montaje.
+    guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
+    {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
+    "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
+    Unas segundos/6 escenas (sobran las de más).
     formato: 9:16, 16:9, 1:1 o 4:5. voz: una de las voces de la lista (ver listar_opciones).
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube
@@ -37,7 +42,7 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
     if imagen and solo_animar:
         return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
-    return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso()))
+    return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion))
 
 
 def sacar_shorts(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: int = 5,
@@ -130,6 +135,34 @@ def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:
                   "resultados": [{"archivo": str(archivo), "titulo": p["nombre"], "descripcion": "", "hashtags": []}]})
 
 
+def crear_serie(titulo: str, idea: str, estilo: str = "Anime 90s (estilo samurái)", personajes: int = 3,
+                formato: str = "16:9", biblia: dict | None = None) -> str:
+    """Serie animada: crea la serie (título, sinopsis) y sus personajes ORIGINALES, cada uno con su apariencia fija,
+    su voz y su lámina dibujada. estilo: uno de la lista (Anime 90s (estilo samurái), Anime moderno, Cartoon 2D,
+    Animación 3D (tipo Pixar), Cine realista, Cómic) o una descripción propia en inglés. personajes: de 1 a 6.
+    biblia (opcional): si tú la escribes, no se usa la IA de texto de la app. Forma: {"titulo", "sinopsis",
+    "personajes": [{"nombre", "descripcion": apariencia FIJA y concreta en inglés (50-80 palabras), "personalidad",
+    "genero": hombre o mujer}]}. Después se hacen los capítulos con crear_episodio."""
+    return _json(serie.crear_serie(titulo, idea, estilo, personajes, formato, aviso=_aviso(), biblia=biblia))
+
+
+def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: int = 0,
+                   guion: dict | None = None) -> str:
+    """Serie animada: escribe y hace en video el capítulo siguiente de una serie (su título o nombre, ver
+    listar_series), con los mismos personajes y siguiendo la historia. idea: qué pasa en este capítulo (vacío: la IA
+    sigue la historia). planos: de 3 a 40 (unos 5 s cada uno). numero: para rehacer un capítulo que ya existe con su
+    mismo guion (p. ej. si se acabó la cuota de imágenes a mitad). guion (opcional): si tú lo escribes, no se usa la
+    IA de texto de la app. Forma: {"titulo", "resumen", "planos": [{"descripcion": lo que se ve en inglés (lugar,
+    acción, cámara; sin texto), "personajes": [nombres que salen], "habla": nombre de quien habla o "Narrador",
+    "texto": lo que dice, 1-2 frases}]}. Tarda varios minutos."""
+    return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
+
+
+def listar_series() -> str:
+    """Las series animadas creadas, con sus personajes y capítulos."""
+    return _json(serie.listar())
+
+
 def listar_proyectos() -> str:
     """Lista los proyectos ya creados, del más nuevo al más viejo."""
     return _json(shorts.proyectos())
@@ -145,7 +178,8 @@ def listar_opciones() -> str:
 
 TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, crear_anuncios, crear_cancion,
                                  crear_video_musical, producir_cancion, separar_voz_y_pista, crear_diseno,
-                                 editar_video, listar_proyectos, listar_opciones)}
+                                 editar_video, crear_serie, crear_episodio, listar_series, listar_proyectos,
+                                 listar_opciones)}
 
 
 def resultados(respuesta: str) -> list[dict]:
@@ -158,7 +192,9 @@ def resultados(respuesta: str) -> list[dict]:
     while pendientes:
         d = pendientes.pop()
         if isinstance(d, dict):
-            if isinstance(d.get("archivo"), str) and isinstance(d.get("titulo"), str) and Path(d["archivo"]).suffix:
+            # nunca una ruta de red: el reproductor la abriría y Windows mandaría tu usuario a ese servidor
+            if (isinstance(d.get("archivo"), str) and isinstance(d.get("titulo"), str) and Path(d["archivo"]).suffix
+                    and not seguro.es_ruta_de_red(d["archivo"])):
                 hallados.append({"archivo": d["archivo"], "titulo": d["titulo"],
                                  "descripcion": str(d.get("descripcion") or ""),
                                  "hashtags": [str(h) for h in d.get("hashtags") or [] if isinstance(h, str)]})

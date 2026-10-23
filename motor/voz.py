@@ -1,6 +1,6 @@
 """Asistente de voz del Director: escucha SOLO mientras lo activas (botón del micro o Ctrl+Espacio) y se para solo
-cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, salvo que hayas elegido
-Groq u OpenAI para transcribir) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
+cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, aunque tengas Groq u
+OpenAI conectados) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
 import tempfile
 import threading
 import time
@@ -19,23 +19,32 @@ SIN_VOZ = 8  # si en este rato no dijo nada, se deja de escuchar
 CARPETA = Path(tempfile.gettempdir()) / "rafaga-voz"
 
 
+def _con_voz(niveles: list[float]) -> list[int]:
+    """Los trozos que suenan a voz. El umbral sale del ruido de la sala (los momentos más callados), así funciona
+    igual con ventilador que sin él."""
+    umbral = max(0.012, 3 * float(np.percentile(niveles, 10)))
+    return [i for i, v in enumerate(niveles) if v > umbral]
+
+
+def hubo_voz(niveles: list[float]) -> bool:
+    return len(niveles) * BLOQUE >= 0.5 and len(_con_voz(niveles)) * BLOQUE >= 0.25
+
+
 def hay_que_parar(niveles: list[float]) -> bool:
-    """Con el volumen de cada trozo: ¿ya terminó de hablar? El umbral sale del ruido de la sala (los momentos más
-    callados), así funciona igual con ventilador que sin él."""
+    """Con el volumen de cada trozo: ¿ya terminó de hablar?"""
     segundos = len(niveles) * BLOQUE
     if segundos >= MAXIMO:
         return True
     if segundos < 0.5:
         return False
-    umbral = max(0.012, 3 * float(np.percentile(niveles, 10)))
-    voz = [i for i, v in enumerate(niveles) if v > umbral]
-    if len(voz) * BLOQUE < 0.25:  # todavía nada que parezca voz
+    if not hubo_voz(niveles):  # todavía nada que parezca voz
         return segundos >= SIN_VOZ
-    return (len(niveles) - 1 - voz[-1]) * BLOQUE >= SILENCIO
+    return (len(niveles) - 1 - _con_voz(niveles)[-1]) * BLOQUE >= SILENCIO
 
 
 def escuchar(detener: threading.Event, nivel=lambda v: None, dispositivo=None) -> np.ndarray:
-    """Graba el micrófono hasta que terminas de hablar (o hasta `detener`). nivel(0..1) es el volumen, para la luz."""
+    """Graba el micrófono hasta que terminas de hablar (o hasta `detener`). nivel(0..1) es el volumen, para la luz.
+    Si no se oyó ninguna voz, devuelve audio vacío: Whisper se inventa frases con el silencio."""
     import sounddevice as sd
     trozos, niveles, tamano = [], [], int(SR * BLOQUE)
     with sd.InputStream(samplerate=SR, channels=1, dtype="float32", blocksize=tamano, device=dispositivo) as micro:
@@ -46,18 +55,18 @@ def escuchar(detener: threading.Event, nivel=lambda v: None, dispositivo=None) -
             nivel(min(niveles[-1] * 8, 1.0))
             if hay_que_parar(niveles):
                 break
-    return np.concatenate(trozos) if trozos else np.zeros(0, np.float32)
+    return np.concatenate(trozos) if trozos and hubo_voz(niveles) else np.zeros(0, np.float32)
 
 
 def entender(audio: np.ndarray) -> str:
-    """Lo que dijo, en texto («» si no se entendió nada)."""
+    """Lo que dijo, en texto («» si no se entendió nada). Siempre en este PC."""
     if len(audio) < SR * 0.3:
         return ""
     import soundfile as sf
     with tempfile.TemporaryDirectory() as d:
         wav = Path(d) / "voz.wav"
         sf.write(str(wav), audio, SR)
-        palabras = ia.transcribir(wav, idioma=actual())
+        palabras = ia.transcribir(wav, idioma=actual(), en_pc=True)
     return " ".join(p["palabra"] for p in palabras).strip()
 
 

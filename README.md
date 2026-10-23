@@ -21,6 +21,7 @@ está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia aba
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |
 | 🎨 Diseño | Editor por capas tipo Canva (texto, formas, fotos, 2.100+ iconos, emojis, 8 fuentes) y una IA que diseña anuncios, posts, miniaturas, flyers y logos **en capas editables** con tu marca; exporta PNG, JPG, PDF y SVG |
 | ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 |
+| 🎞️ Serie animada | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Los cuadros se exportan para retocarlos en OpenToonz, Pencil2D o Krita |
 | 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y master |
 | 🔎 Nichos virales | Vistas por día reales de YouTube + investigación web en vivo → nichos con ideas listas |
 | 🔌 MCP | Claude (u otro agente) puede usar todo el estudio desde el chat |
@@ -72,7 +73,7 @@ Python 3.13+ y Node.js (para descargar de YouTube).
 - **El servidor MCP solo acepta imágenes y audios de tu disco** y enlaces de sitios conocidos, así una web
   maliciosa no puede pedirle a Claude que saque archivos privados ni que ataque tu red.
 - **Qué sale de tu PC:** la cabina (voz, mezcla, master), la separación de voz y lo que le dices al Director con el
-  micrófono se procesan en tu PC (tu voz solo sale si eliges Groq u OpenAI para transcribir). Los guiones, las
+  micrófono se procesan siempre en tu PC (tu voz no sale de él). Los guiones, las
   imágenes y la animación usan los servicios que conectes; en el modo gratis sin clave, Pollinations (pedido como
   privado) y Spaces públicos de Hugging Face, que reciben lo que se les manda.
 - ¿Encontraste un problema de seguridad? Escríbelo en privado a los responsables en lugar de abrir un *issue* público.

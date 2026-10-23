@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QSlider
 
 from motor import cabina, seguro
 from motor.idioma import t
-from ui.comun import archivo_valido, boton, campo_archivo, etiqueta, mensaje_error, PaginaTrabajo, Tarea, tarjeta
+from ui.comun import archivo_valido, boton, campo_archivo, etiqueta, mensaje, mensaje_error, PaginaTrabajo, Tarea, tarjeta
 
 
 AUDIO = t("Audio ({tipos})", tipos="*.mp3 *.wav *.m4a *.ogg *.flac")
@@ -99,6 +99,8 @@ class PaginaCabina(PaginaTrabajo):
         tomas.mkdir(parents=True, exist_ok=True)
         destino = tomas / time.strftime("toma_%Y%m%d-%H%M%S.wav")
         pista_wav = tomas / "pista_para_grabar.wav"
+        if self.tarea and self.tarea.isRunning():  # soltar un hilo que corre tumba la app (ver PaginaTrabajo.lanzar)
+            return mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
         self.detener.clear()
         self.parar_btn.setEnabled(True)
 

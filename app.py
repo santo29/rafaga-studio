@@ -27,6 +27,7 @@ from ui.paginas.mcp import PaginaMCP
 from ui.paginas.musica import PaginaMusica
 from ui.paginas.nichos import PaginaNichos
 from ui.paginas.proyectos import PaginaProyectos
+from ui.paginas.serie import PaginaSerie
 from ui.paginas.shorts import PaginaShorts
 
 # Siempre desde la carpeta de la app, la arranque quien la arranque: yt-dlp busca node/deno primero en la carpeta de
@@ -64,27 +65,40 @@ class Ventana(QMainWindow):
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
         self.director = PaginaDirector()
         paginas = [(f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
-                   (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()), (f"🎵  {t('Música')}", PaginaMusica()),
+                   (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()),
+                   (f"🎵  {t('Música')}", PaginaMusica()),
                    (f"🎨  {t('Diseño')}", self.diseno), (f"✂️  {t('Editor de video')}", self.edicion),
+                   (f"🎞️  {t('Serie animada')}", PaginaSerie()),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
                    (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"🔑  {t('Claves de IA')}", self.claves),
                    (f"🔌  {t('Conexión MCP')}", PaginaMCP())]
         self.orden = [p for _, p in paginas]  # para ir a una página sin contar posiciones
+        # El menú se desplaza solo si no cabe: así la ventana entra en pantallas de portátil (768 px de alto)
+        menu = QWidget()
+        botones = QVBoxLayout(menu)
+        botones.setContentsMargins(0, 0, 0, 0)
+        desplaza_menu = QScrollArea()
+        desplaza_menu.setWidgetResizable(True)
+        desplaza_menu.setFrameShape(QFrame.NoFrame)
+        desplaza_menu.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        desplaza_menu.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        desplaza_menu.setWidget(menu)
+        nav.addWidget(desplaza_menu, 1)
         for i, (nombre, pagina) in enumerate(paginas):
             b = boton(nombre, "nav")
             b.setCheckable(True)
             b.setChecked(i == 0)
             b.clicked.connect(lambda _, i=i: self.ir_a(i))
             self.grupo.addButton(b)
-            nav.addWidget(b)
+            botones.addWidget(b)
             # Cada página con su barra de desplazamiento, para pantallas pequeñas.
             desplazable = QScrollArea()
             desplazable.setWidgetResizable(True)
             desplazable.setFrameShape(QFrame.NoFrame)
             desplazable.setWidget(pagina)
             self.paginas.addWidget(desplazable)
-        nav.addStretch()
+        botones.addStretch()
         nav.addWidget(self._selector_idioma())
         lay.addWidget(barra)
         lay.addWidget(self.paginas, 1)
@@ -142,6 +156,8 @@ class Ventana(QMainWindow):
                 self, t("Está trabajando"), t("El Director está haciendo un trabajo. Si cierras, se pierde lo que "
                                               "lleva. ¿Cerrar igual?")) != QMessageBox.Yes:
             return e.ignore()
+        if self.director.ocupado() and hasattr(r := render(), "cancelar"):
+            r.cancelar()  # el ffmpeg del editor que esté usando el Director: así su trabajo termina enseguida
         self.director.cerrar()
         if self.edicion.tareas:  # cerrar a medias dejaría ffmpeg exportando solo y un «tmp-…mp4» en Videos
             if QMessageBox.question(self, t("Está trabajando"), t("El editor de video está exportando o preparando "

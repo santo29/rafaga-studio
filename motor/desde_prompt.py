@@ -52,9 +52,7 @@ ESQUEMA = {
 }
 
 # Regla común (la misma en Diseño, Director, Dibujos animados y aquí): el pedido puede traer faltas de ortografía.
-FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
-          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
-          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.py)
 
 INSTRUCCIONES = """Eres guionista de videos virales para YouTube, TikTok, Instagram y Facebook.
 Con el pedido del usuario escribe un guion narrado dividido en escenas.

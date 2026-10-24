@@ -413,6 +413,8 @@ class Lienzo(QGraphicsView):
         if self.con_zoom and e.modifiers() & Qt.ControlModifier:
             e.accept()
             return self.zoom(self.transform().m11() * 1.2 ** (e.angleDelta().y() / 120))
+        if self.ajustar:  # en «Ajustar» la mesa se queda entera a la vista: la rueda no la saca
+            return e.accept()
         super().wheelEvent(e)
 
     def _esquinas(self) -> list[QPointF]:
@@ -522,6 +524,9 @@ class PaginaDiseno(QWidget):
         self.vista = Lienzo(self)
         self.vista.setBackgroundBrush(QColor("#2A2A30"))  # el tablero alrededor de la mesa, distinto de ella
         self.vista.con_zoom = True
+        # Sin barras: la vista tiene margen alrededor de la mesa (para el zoom y la mano) y se verían siempre
+        self.vista.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.vista.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         cuerpo = QHBoxLayout()
         cuerpo.setSpacing(0)
         cuerpo.addWidget(self._herramientas())
@@ -1252,4 +1257,6 @@ class PaginaDiseno(QWidget):
             ruta.unlink(missing_ok=True)
             self.estado.setText(f"✨ {t('Ilustración añadida como capa nueva.')}")
         else:  # mientras dibujaba se llenó el diseño (ya avisado): la ilustración no se pierde
-            mensaje(self, t("Generar con IA"), t("La ilustración no se añadió; quedó guardada en {ruta}", ruta=ruta))
+            aviso = t("La ilustración no se añadió; quedó guardada en {ruta}", ruta=ruta)
+            self.estado.setText(f"⚠️ {aviso}")
+            mensaje(self, t("Generar con IA"), aviso)

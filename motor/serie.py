@@ -57,9 +57,7 @@ ESQUEMA_EPISODIO = {"type": "object", "properties": {
     "required": ["titulo", "resumen", "planos"], "additionalProperties": False}
 
 # La misma regla en todas las instrucciones de la app (contrato D del plan)
-FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
-          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
-          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.py)
 ESTADOS = ("listo", "incompleto", "sin_dibujos")  # de un capítulo, según cuántos planos tienen su dibujo
 
 INSTRUCCIONES_SERIE = """Eres creador de series animadas. Con la idea del usuario crea la biblia de una serie ORIGINAL.
@@ -181,6 +179,8 @@ def _capitulo(episodio: str) -> Path:
 def _estado(ep: Path, planos: int) -> str:
     """Uno de ESTADOS, contando los dibujos que hay de verdad (también en los capítulos de antes de guardarlo)."""
     dibujos = sum(_imagen(ep, i).is_file() for i in range(planos))
+    if not planos:  # guion ilegible: sin planos no hay nada que dé el capítulo por bueno
+        return "sin_dibujos"
     return "listo" if dibujos == planos else "incompleto" if dibujos else "sin_dibujos"
 
 

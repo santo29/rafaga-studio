@@ -18,14 +18,15 @@ USO = Path(__file__).resolve().parent.parent / "datos" / "uso_nubes.json"
 
 # Del más barato al más caro. "pc" = este ordenador (gratis, más lento).
 ORDEN = {
-    "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai", "gratis_sin_clave"],
+    "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai", "gemini", "gratis_sin_clave"],
     "video": ["huggingface", "modal", "pollinations"],
     # Privacidad: tus canciones y tu voz no salen de tu PC (Demucs local; ver _separar_pc).
     "separacion": ["pc"],
 }
 NOMBRES = {"huggingface": t("Hugging Face (cuota gratis)"), "modal": t("tu nube Modal"), "pollinations": "Pollinations",
            "pc": t("este PC"), "cloudflare": t("Cloudflare (gratis diario)"), "openai": "OpenAI",
-           "replicate": "Replicate", "gratis_sin_clave": t("Pollinations sin clave")}
+           "replicate": "Replicate", "gratis_sin_clave": t("Pollinations sin clave"),
+           "gemini": t("Gemini (de pago)")}
 # Opciones que funcionan sin clave. Los Spaces de Hugging Face se usan sin token (cuota anónima: ~2 min de GPU al día).
 SIEMPRE = {"pc", "gratis_sin_clave", "huggingface"}
 ESPERA_HF = 300  # segundos máximos en la cola gratis antes de pasar a la siguiente opción
@@ -119,6 +120,8 @@ def orden(uso: str) -> list[str]:
         # Eligió «Pollinations (gratis)»: solo opciones gratis y nunca una de pago, aunque fallen todas.
         # Hugging Face (con token) también es gratis; Pollinations sin clave va al final por su baja calidad.
         return [p for p in ("pollinations", "cloudflare", "huggingface", "gratis_sin_clave") if p in lista]
+    # De pago con una clave que muchos conectan por otra cosa: solo si el usuario lo eligió (claves.SOLO_ELIGIENDO)
+    lista = [p for p in lista if p not in claves.SOLO_ELIGIENDO.get(uso, []) or p == elegido]
     if uso == "video" and elegido in ("modal", "pollinations"):
         # Eligió dónde animar sus fotos: si esa nube falla, nunca se suben por detrás a un Space público de terceros.
         lista = [p for p in lista if p != "huggingface"]

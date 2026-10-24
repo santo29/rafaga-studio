@@ -24,9 +24,7 @@ ESQUEMA = {"type": "object", "properties": {"mensaje": {"type": "string"}, "herr
            "required": ["mensaje", "herramienta", "argumentos"], "additionalProperties": False}
 
 # La regla común de faltas: el mismo texto en todos los especialistas (diseno_ia, desde_prompt, serie)
-FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
-          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
-          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.py)
 # Los textos largos los escribe el especialista de cada herramienta, con sus reglas: el Director no los ve ni los
 # manda (un agente de fuera, por el MCP, sí puede pasarlos)
 OCULTOS = {"guion", "biblia", "propuesta"}

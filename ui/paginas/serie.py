@@ -172,7 +172,7 @@ class PaginaSerie(PaginaTrabajo):
     def _indicadores(self):
         iguales = ia.puede_referencia()
         self.iguales.setText(t("Personajes iguales: {valor}", valor=t("Sí") if iguales
-                               else t("Aproximado (conecta Pollinations)")))
+                               else t("Aproximado (elige Gemini o conecta Pollinations)")))
         self.iguales.setToolTip("" if iguales else t(
             "Tu IA de imágenes no parte de la lámina: cada plano vuelve a dibujar a los personajes con su descripción, "
             "y pueden cambiar un poco. Con Pollinations (gratis) u OpenAI salen iguales."))

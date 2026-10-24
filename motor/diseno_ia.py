@@ -7,7 +7,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtGui import QColor, QFont, QTextDocument, QTextOption
+from PySide6.QtGui import QColor, QFont, QImage, QTextDocument, QTextOption
 
 from . import diseno, ia, marca, recursos
 from .idioma import actual, IDIOMAS, t
@@ -37,10 +37,8 @@ _PRECIO = re.compile(r"(?:RD\$|US\$|[$€£])\s?\d[\d.,]*|\d[\d.,]*\s?(?:[€$£
                      r"|\b\d{1,2}(?:[.,]\d+)?\s?%", re.I)
 # Al menos 8 cifras; un horario («10.00 - 22.00») o unos miles («15.000.000») no son un teléfono
 _TELEFONO = re.compile(r"\+?\(?\d(?:[\s().-]*\d){7,}")
-_NO_TELEFONO = re.compile(r"\d{1,2}\.\d{2}(?:\s*-\s*\d{1,2}\.\d{2})+|\d{1,3}(?:\.\d{3})+")
-FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
-          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
-          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+_NO_TELEFONO = re.compile(r"\d{1,2}\.\d{2}(?:\s*-\s*\d{1,2}\.\d{2})+|\d{1,3}(?:\.\d{3})*\.000")  # «600.123.456» sí es
+FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.py)
 
 # tipo: (tamaño de diseno.TAMANOS, pistas de diseño)
 TIPOS = {
@@ -260,13 +258,18 @@ def _sin_inventos(texto: str, permitido: str) -> str:
     «RD$500» por el «500 pesos» del pedido, o «+1 809 555 1234» por su «809-555-1234»."""
     def limpio(s):
         return re.sub(r"https?://|www\.|[\s().-]", "", s.lower())
-    numeros = {_cifras(n) for n in re.findall(r"\d[\d.,]*", permitido)}
+    # Solo los números del pedido que son precios («500 pesos», «15€», «a 500»): una fecha («30 de octubre») no
+    # deja pasar un «30% OFF» inventado
+    numeros = {_cifras(m[0]) for m in _PRECIO.finditer(permitido)} | {
+        _cifras(n) for n in re.findall(r"(?:\ba|\bpor|precio|cuesta|vale)\s*:?\s*(\d[\d.,]*)", permitido, re.I)}
     telefonos = [_cifras(n) for n in re.findall(r"\d(?:[\s().-]*\d){6,}", permitido)]
 
-    def telefono(m):  # con o sin el prefijo del país: cuentan las últimas cifras (hasta 10)
+    def telefono(m):  # el del pedido, con o sin el prefijo del país; nunca con un código de área que no dio
         n = _cifras(m[0])
         return m[0] if _NO_TELEFONO.fullmatch(m[0]) or any(
-            n[-(k := min(len(n), len(p), 10)):] == p[-k:] for p in telefonos) else t("[Teléfono]")
+            p.endswith(n) or n.endswith(p) and (len(n) == len(p) or m[0].lstrip().startswith("+")
+                                                and len(n) - len(p) <= 3)
+            for p in telefonos) else t("[Teléfono]")
     for patron, hueco in _DATOS:
         texto = patron.sub(lambda m: m[0] if limpio(m[0]) in limpio(permitido) else hueco, texto)
     texto = _PRECIO.sub(lambda m: m[0] if _cifras(m[0]) in numeros else t("[Precio]"), texto)
@@ -276,7 +279,9 @@ def _sin_inventos(texto: str, permitido: str) -> str:
 def _causa(error: Exception) -> str:
     """El porqué de una imagen que no salió, corto y sin la URL ni el ID de la cuenta del servicio."""
     causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-    if re.search(r"\b429\b|quota|cuota|neurons", causa, re.I):  # nubes ya lo resume como «se acabó la cuota…»
+    # Se mira lo que dijo cada servicio, sin su nombre: «Hugging Face (cuota gratis): sin internet» no es cuota
+    motivos = [re.sub(r"^[^:]+: ", "", linea) for linea in causa.split(" · ")]
+    if any(re.search(r"\b429\b|quota|cuota|neurons", m, re.I) for m in motivos):  # nubes ya lo resume así
         return t("se acabó la cuota gratis de imágenes de hoy")
     return _PRIVADO.sub("…", causa)
 
@@ -529,9 +534,16 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
         detras = _detras(d["capas"][:d["capas"].index(foto)], foto, d["fondo"], alto) if es_dibujo else ""
         try:
             # Al tamaño de su caja; los servicios no hacen imágenes de menos de 64 px
-            ia.imagen(_prompt(foto["prompt_imagen"], estilo, es_dibujo, detras),
-                      max(64, ancho if es_fondo else foto["ancho"]), max(64, alto if es_fondo else foto["alto"]),
-                      carpeta / "imagenes" / (foto["imagen"] if es_fondo else foto["archivo"]))
+            hecha = ia.imagen(_prompt(foto["prompt_imagen"], estilo, es_dibujo, detras),
+                              max(64, ancho if es_fondo else foto["ancho"]), max(64, alto if es_fondo else foto["alto"]),
+                              carpeta / "imagenes" / (foto["imagen"] if es_fondo else foto["archivo"]))
+            # La IA no clava el color pedido: si la ilustración va sobre el fondo liso, el fondo toma el de su borde y
+            # no se ve el recuadro
+            if es_dibujo and d["fondo"]["tipo"] == "color" and not any(
+                    c["tipo"] == "forma" and _cubierta(foto, c) >= 0.8 for c in d["capas"][:d["capas"].index(foto)]):
+                dibujo = QImage(str(hecha))
+                if not dibujo.isNull():
+                    d["fondo"]["colores"] = [dibujo.pixelColor(2, 2).name()]
         except Exception as error:  # cuota agotada o servicio caído: el diseño sale igual, sin esa foto
             causa = _causa(error)
             if es_fondo:

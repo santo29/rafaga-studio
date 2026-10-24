@@ -49,8 +49,8 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 |---|---|
 | 🤖 Director IA | Le pides el trabajo por escrito **o con tu voz**, como a tu equipo («hazme un anuncio de mi barbería y un post»), y la IA usa todo el estudio: guion, imágenes, video, diseño, música y edición |
 | ✨ Crear con IA | Guion con IA → imágenes → voz → animación → subtítulos tipo CapCut |
-| 🎨 Diseño | Editor por capas tipo Canva (texto, formas, fotos, 2.100+ iconos, emojis, 8 fuentes) y una IA que diseña anuncios, posts, miniaturas, flyers y logos **en capas editables** con tu marca; exporta PNG, JPG, PDF y SVG |
-| 🐰 Dibujos animados | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Los cuadros se exportan para retocarlos en OpenToonz, Pencil2D o Krita |
+| 🎨 Diseño | Espacio de trabajo tipo Illustrator (herramientas en columna, zoom, alinear, propiedades y capas; texto, formas, fotos, 2.100+ iconos, emojis y 14 fuentes, también góticas) y una IA que primero entiende tu pedido (pregunta si duda, también con faltas), dibuja ilustraciones en vez de fotos de banco y hace anuncios, posts, miniaturas, flyers, logos y estampados para camisetas **en capas editables**, sin inventar precios ni contactos; exporta PNG, JPG, PDF y SVG |
+| 🐰 Dibujos animados | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Guion gráfico con cada plano, rehacer un solo plano y cuadros para retocar en OpenToonz, Pencil2D o Krita |
 | ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 |
 | ⚡ Shorts mágicos | Pega un enlace; la IA elige los mejores momentos y los recorta en vertical con subtítulos |
 | 🚀 Anuncios | Foto del producto → varias versiones de anuncio (pruebas A/B) con tu producto real |
@@ -80,7 +80,7 @@ gastar. Para el texto y la transcripción eliges tú el proveedor.
 | Tarea | Gratis | Con crédito o de pago |
 |---|---|---|
 | Texto / guiones | Groq, Gemini, Pollinations (sin clave) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
-| Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate |
+| Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate, Gemini Nano Banana (solo si lo eliges: ~US$0,07 por imagen; mantiene iguales personajes y productos) |
 | Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal ($30 gratis/mes), Pollinations |
 | Video animado con voz (los personajes hablan, labios sincronizados) | — | Gemini Omni (~US$0,10 por segundo; la app usa el modelo más nuevo de precio conocido de tu clave, Crear te dice el costo antes y el Director te pregunta antes de usarlo) |
 | Voz | Voces de Edge | ElevenLabs |

@@ -651,4 +651,85 @@ with tempfile.TemporaryDirectory() as d:
                                                                             "estilo"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción
 assert "crear_diseno" in conexion_mcp.probar()  # el servidor arranca y la lista
+
+# ---------- Integración: la guarda de datos inventados y la causa de una imagen que no sale ----------
+for texto, pedido, queda in (
+        ("30% OFF en todo", "flyer fiesta del 30 de octubre", "[Precio] OFF en todo"),  # una fecha no es un precio
+        ("Entrada 20 €", "flyer fiesta el sábado 20 de octubre", "Entrada [Precio]"),
+        ("Combo RD$2", "pizza 2x1 los martes", "Combo [Precio]"),
+        ("Pizza RD$500", "pizza a 500", "Pizza RD$500"),  # «a 500» sí es un precio
+        ("Tel. 600.123.456", "tienda de ropa", "Tel. [Teléfono]"),  # un móvil con puntos no son miles
+        ("Llama al 809 555 1234", "llama al 555 1234", "Llama al [Teléfono]"),  # código de área que no dio
+        ("Llama al 809 555 1234", "llama al +1 809-555-1234", "Llama al 809 555 1234"),
+        ("Más de 15.000.000 de vistas", "canal de youtube", "Más de 15.000.000 de vistas")):
+    assert diseno_ia._sin_inventos(texto, pedido) == queda, (texto, diseno_ia._sin_inventos(texto, pedido))
+sin_red = RuntimeError(f"{ia.t('Ninguna opción pudo hacerlo.')}\n{nubes.NOMBRES['huggingface']}: getaddrinfo failed")
+assert "getaddrinfo" in diseno_ia._causa(sin_red)  # sin internet no es «se acabó la cuota»
+
+# ---------- Imágenes con Gemini (de pago): solo si el usuario lo elige ----------
+import base64  # noqa: E402
+
+tmp = Path(tempfile.mkdtemp(prefix="rafaga-gemini-"))
+diseno.CARPETA = tmp / "disenos"
+assert claves.elegir_modelo_imagen_gemini(["models/gemini-2.5-flash-image", "models/gemini-3.1-flash-image",
+                                           "models/gemini-3-pro-image", "models/gemini-3.1-flash-lite-image",
+                                           "models/gemini-3.2-flash-image-preview"]) == "gemini-3.1-flash-image"
+cargar_real, ajustes_real, post_real = claves.cargar, claves.ajustes, ia.httpx.post
+claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"},
+                         "cloudflare": {"proveedor": "cloudflare", "clave": "x"}}
+try:
+    claves.ajustes = lambda: {}
+    assert "gemini" not in nubes.orden("imagen") and "gemini" in claves.opciones("imagen")  # se ofrece, no se usa solo
+    assert not ia.puede_referencia()
+    claves.ajustes = lambda: {"imagen": "gemini"}
+    assert nubes.orden("imagen")[0] == "gemini" and ia.puede_referencia()
+    png = QImage(8, 8, QImage.Format_RGB32)
+    png.fill(QColor("#123456"))
+    hecho = tmp / "gemini.png"
+    png.save(str(hecho))
+    pedidos_gemini = []
+
+    class Contesta:
+        def __init__(self, cuerpo):
+            self.status_code, self.is_error, self.cuerpo, self.text = 200, False, cuerpo, ""
+
+        def json(self):
+            return self.cuerpo
+
+    def post_gemini(url, **k):
+        pedidos_gemini.append((url, k["json"]))
+        datos = base64.b64encode(hecho.read_bytes()).decode()
+        return Contesta({"candidates": [{"content": {"parts": [{"text": "aquí va"},
+                                                               {"inlineData": {"mimeType": "image/png", "data": datos}}]}}]})
+    ia.httpx.post = post_gemini
+    ia._elegidos[("AIzaPrueba", claves.elegir_modelo_imagen_gemini)] = "gemini-3.1-flash-image"  # sin preguntar a la red
+    salida = ia._imagen_gemini(claves.cargar()["gemini"], "gothic skull", 1080, 1920, hecho)
+    assert salida == hecho.read_bytes()
+    url, cuerpo = pedidos_gemini[-1]
+    assert url.endswith("/models/gemini-3.1-flash-image:generateContent")
+    assert cuerpo["generationConfig"]["imageConfig"]["aspectRatio"] == "9:16"
+    assert cuerpo["contents"][0]["parts"][0]["inline_data"]["mime_type"] == "image/png"  # la referencia va primero
+finally:
+    claves.cargar, claves.ajustes, ia.httpx.post = cargar_real, ajustes_real, post_real
+
+# La ilustración sobre el fondo liso: el fondo toma el color de su borde y no se ve el recuadro
+def dibujo_morado(prompt, ancho, alto, destino):
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    imagen = QImage(64, 64, QImage.Format_RGB32)
+    imagen.fill(QColor("#2a1b3d"))
+    imagen.save(str(destino))
+    return destino
+
+
+imagen_real, texto_real = ia.imagen, ia.texto_json
+ia.imagen = dibujo_morado
+ia.texto_json = lambda *a, **k: {"titulo": "Calavera", "descripcion": "d", "fondo_colores": ["#000000"],
+                                 "fondo_prompt_imagen": "", "capas": [
+                                     {"tipo": "imagen", "x": 20, "y": 20, "ancho": 60, "alto": 60,
+                                      "prompt_imagen": "gothic skull"}]}
+try:
+    r = diseno_ia.crear("calavera gótica", "ilustracion", False, estilo="tatuaje")
+    assert r["diseno"]["fondo"]["colores"] == ["#2A1B3D"], r["diseno"]["fondo"]
+finally:
+    ia.imagen, ia.texto_json = imagen_real, texto_real
 print("Pruebas de la IA diseñadora pasadas.")

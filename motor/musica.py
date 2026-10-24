@@ -53,7 +53,8 @@ INSTRUCCIONES = """Eres compositor y productor musical de éxitos. Escribe canci
   dominicana real y coros de calle de llamada y respuesta. Nada de contenido de odio ni nombres de artistas reales.
 - Letra en el idioma de la idea o en el que pida el usuario.
 - estilo: descripción de producción en inglés (instrumentos, BPM, ambiente, voz) basada en el estilo dado.
-- titulo, descripcion y hashtags para publicar la canción."""
+- titulo, descripcion y hashtags para publicar la canción.
+- """ + ia.FALTAS
 
 
 def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:

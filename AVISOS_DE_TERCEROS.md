@@ -43,6 +43,7 @@ licencia.
 | Z-Image Turbo (Alibaba Tongyi) | Imágenes con tu cuenta gratis de Pollinations | Apache 2.0 |
 | FLUX.1 Kontext [pro] (Black Forest Labs) | Anuncios con tu producto real, con Pollinations | Modelo cerrado: se aplican las condiciones de Pollinations y Black Forest Labs |
 | Wan 2.2 (Alibaba) | Animar imágenes: TI2V-5B en tu nube Modal; en Hugging Face, un Space público de terceros (zerogpu-aoti) con Wan 2.2; y Pollinations (wan-2.2-fast) | Apache 2.0 |
+| Gemini Flash Image «Nano Banana» (Google) | Imágenes, solo si eliges Gemini para las imágenes (de pago); la app usa el más nuevo de precio conocido de tu clave | Modelo cerrado: condiciones de la API de Gemini |
 | Gemini Omni (Google) | Video animado con voz, con tu clave de Gemini (de pago); la app usa el más capaz que ofrezca tu clave | Modelo cerrado: condiciones de la API de Gemini |
 | GPT-OSS 20B (OpenAI), vía Pollinations | Texto gratis sin clave (el modelo exacto lo decide Pollinations) | Apache 2.0 |
 | Whisper (OpenAI), con faster-whisper | Entender lo que le dices al Director: siempre en tu PC. Subtítulos, shorts y video musical: en tu PC, salvo que conectes Groq u OpenAI para transcribir (entonces se hace en su nube con Whisper) | MIT |

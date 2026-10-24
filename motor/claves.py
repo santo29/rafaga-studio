@@ -48,6 +48,10 @@ PREFERENCIA = {
     "musica": ["elevenlabs", "gemini"],
 }
 
+# De pago y con una clave que muchos conectan por otra cosa (Gemini, por su texto gratis): se ofrecen para elegir,
+# pero el modo automático nunca los usa (ver también nubes.orden).
+SOLO_ELIGIENDO = {"imagen": ["gemini"]}
+
 # Opciones gratis que funcionan sin clave. "pc" = se hace en este ordenador.
 GRATIS = {"imagen": "pollinations", "transcripcion": "pc", "video": "ninguno"}
 
@@ -192,6 +196,16 @@ def elegir_modelo_video_voz(ids: list[str]) -> str | None:
     def version(i):
         m = re.fullmatch(r"gemini-omni-(\d+(?:\.\d+)*)-flash", i)
         return m and tuple(int(n) for n in m[1].split("."))  # 1.10 es más nuevo que 1.9
+    validos = [i for i in (i.removeprefix("models/") for i in ids) if version(i)]
+    return max(validos, key=version) if validos else None
+
+
+def elegir_modelo_imagen_gemini(ids: list[str]) -> str | None:
+    """El modelo de imágenes más nuevo de la clave de Gemini entre los de precio conocido (Flash Image estable, «Nano
+    Banana»: ia.PRECIO_IMAGEN_GEMINI). ponytail: Pro, Lite y preview no entran hasta conocer y anunciar su precio."""
+    def version(i):
+        m = re.fullmatch(r"gemini-(\d+(?:\.\d+)*)-flash-image", i)
+        return m and tuple(int(n) for n in m[1].split("."))
     validos = [i for i in (i.removeprefix("models/") for i in ids) if version(i)]
     return max(validos, key=version) if validos else None
 
@@ -447,7 +461,7 @@ def elegir_por_defecto(uso: str, proveedor: str) -> None:
 
 def opciones(uso: str) -> list[str]:
     """Lo que se puede elegir para un uso: automático, lo conectado y lo gratis sin clave."""
-    conectados = [p for p in PREFERENCIA[uso] if p in cargar()]
+    conectados = [p for p in PREFERENCIA[uso] + SOLO_ELIGIENDO.get(uso, []) if p in cargar()]
     gratis = [GRATIS[uso]] if uso in GRATIS and GRATIS[uso] not in conectados else []
     return ["auto", *conectados, *gratis]
 

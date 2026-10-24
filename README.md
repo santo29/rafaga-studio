@@ -64,8 +64,8 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 |---|---|
 | 🤖 **AI Director** | Ask for the job in writing or with your voice; it plans and runs the right tools, step by step |
 | ✨ **Create with AI** | Prompt → script → images → voice → animation → subtitles. Optional talking characters with lip sync |
-| 🎨 **Design** | Canva-style layer editor (2,100+ icons, 8 fonts) and an AI that designs posts, thumbnails, flyers and logos **as editable layers** with your brand |
-| 🐰 **Cartoons** | Your cartoon series, episode by episode: original characters with a fixed look, a model sheet and their own voice |
+| 🎨 **Design** | Illustrator-style workspace (tool column, zoom, align, properties and layers; 2,100+ icons, 14 fonts including gothic ones) and an AI that first understands your request (it asks when unsure, typos included), draws illustrations instead of stock photos and builds posts, thumbnails, flyers, logos and t-shirt prints **as editable layers**, without inventing prices or contacts |
+| 🐰 **Cartoons** | Your cartoon series, episode by episode: original characters with a fixed look, a model sheet and their own voice; a storyboard of every shot, redo a single shot, and export frames to OpenToonz, Pencil2D or Krita |
 | ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles |
 | ⚡ **Magic Shorts** | Paste a long video link; the AI picks the best moments and crops them vertically with subtitles |
 | 🚀 **Ads** | Product photo → several ad versions (A/B tests) that keep your real product |
@@ -119,7 +119,7 @@ yourself: `ISCC instalador\rafaga.iss` ([Inno Setup](https://jrsoftware.org/isin
 | Task | Free | With credits or paid |
 |---|---|---|
 | Text / scripts | Groq, Gemini, Pollinations (no key) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
-| Images | Cloudflare Workers AI (~100/day), Pollinations, FLUX on Hugging Face | OpenAI, Replicate |
+| Images | Cloudflare Workers AI (~100/day), Pollinations, FLUX on Hugging Face | OpenAI, Replicate, Gemini Nano Banana (only if you choose it: ~US$0.07 per image, keeps characters and products identical) |
 | Image → video | Hugging Face ZeroGPU (Wan 2.2) | Your own Modal cloud ($30 free/month), Pollinations |
 | Talking video with lip sync | — | Gemini Omni (~US$0.10 per second; Create shows the cost first and the Director asks before using it) |
 | Voice | Microsoft Edge voices | ElevenLabs |

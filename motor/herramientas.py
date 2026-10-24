@@ -135,6 +135,8 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     qué entendió. El diseño lo piensa la IA de texto conectada y los dibujos se generan con la IA de imágenes
     conectada (primero lo gratis). Devuelve la carpeta del diseño (se abre y se edita en la página «Diseño» de la
     app), la vista previa PNG y los avisos.
+    Los datos reales (precios, webs, teléfonos, @) tienen que venir en pedido: los que no estén ahí ni en la marca se
+    cambian por huecos ([Precio], [Web]…) aunque los traiga el diseño, porque las IA se los inventan.
 
     propuesta (opcional): si tú diseñas, pásalo y no se usa la IA de texto de la app. Medidas en % del lienzo (0-100):
     {"titulo", "descripcion", "fondo_colores": ["#RRGGBB", ...], "fondo_prompt_imagen": foto de fondo en inglés o "",

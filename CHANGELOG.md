@@ -15,4 +15,14 @@ First public version · Primera versión.
 - Free-first cloud rotation for images and video, and bring-your-own-keys for 13 AI providers.
 - Interface in Spanish, English, Portuguese and French.
 - Privacy notice, terms and third-party notices; Hugging Face and Gradio telemetry turned off.
+- **Design that understands you:** the AI first works out what you meant (typos included, it asks when unsure),
+  draws real illustrations (vector, sticker, tattoo, poster, engraving) instead of stock photos, never invents prices
+  or contacts, and has new types for illustrations and t-shirt prints. **Illustrator-style workspace** with tool
+  column, zoom and hand, align, properties and layers, and «Generate with AI» as a new layer. Six gothic and
+  decorative OFL fonts.
+- **Cartoons studio:** storyboard with every shot, redo a single shot, draw a missing character sheet, and no more
+  episodes made of plain colour when the free image quota runs out.
+- **Coherent AI:** the Director picks the right tool, passes your words through and lets each specialist write; every
+  AI that reads your request understands typos the same way; clear quota errors without account IDs.
+- **Gemini Nano Banana images** as an opt-in provider (paid), auto-detecting the newest model of your key.
 - **Windows installer** (Inno Setup): official portable Python and hash-verified libraries, per-user, no admin rights.

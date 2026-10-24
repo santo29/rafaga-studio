@@ -47,7 +47,7 @@ producir con videos hechos por IA (narración, imágenes, animación, subtítulo
 Basa cada nicho en pruebas de los datos (cita vistas, vistas por día o tendencias concretas) y dilo en "pruebas".
 Puntúa el potencial de 0 a 100. En monetizacion: RPM aproximado, afiliados o productos posibles.
 Para cada nicho da 5 ideas de video (o las que se pidan) listas para producir: título, gancho de los primeros 3 segundos y un
-"prompt" completo para que el generador de videos lo cree. Responde en este idioma: """ + IDIOMAS[actual()] + "."
+"prompt" completo para que el generador de videos lo cree. Responde en este idioma: """ + IDIOMAS[actual()] + ".\n" + ia.FALTAS
 
 
 def _fecha(video_id: str) -> str | None:

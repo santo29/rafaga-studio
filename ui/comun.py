@@ -43,6 +43,7 @@ QScrollBar::handle:vertical { background: #2C2C36; border-radius: 5px; min-heigh
 QScrollBar:horizontal { background: transparent; height: 10px; }
 QScrollBar::handle:horizontal { background: #2C2C36; border-radius: 5px; min-width: 30px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QAbstractScrollArea::corner { background: transparent; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QToolTip { background: #17171D; color: #ECECF1; border: 1px solid #2C2C36; }
 QMenu { background: #17171D; border: 1px solid #2C2C36; padding: 4px; }

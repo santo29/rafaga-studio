@@ -25,3 +25,6 @@ Thumbs.db
 
 # El instalador compilado (va en las versiones publicadas de GitHub, no en el repositorio)
 dist/
+
+# Copias de trabajo temporales de los agentes (git worktree)
+.claude/

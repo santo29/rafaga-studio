@@ -4,6 +4,7 @@ import json
 import re
 import time
 import urllib.parse
+from typing import Callable
 from pathlib import Path
 
 import httpx
@@ -37,6 +38,12 @@ def _clip_real(datos: bytes, destino: Path) -> Path:
 
 class SinClave(Exception):
     pass
+
+
+# La regla común de faltas de ortografía: va igual en las instrucciones de todas las IA que leen pedidos
+FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
+          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
+          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
 
 
 def _json_de(texto: str, esquema: dict | None = None) -> dict:
@@ -282,7 +289,7 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict) -> dict:
 def puede_referencia() -> bool:
     """Si la IA de imágenes conectada sabe editar a partir de una imagen de referencia (mantener a alguien igual)."""
     c = claves.para("imagen")
-    return bool(c and c.get("clave") and c["proveedor"] in ("openai", "pollinations"))
+    return bool(c and c.get("clave") and c["proveedor"] in ("openai", "pollinations", "gemini"))
 
 
 def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True) -> Path:
@@ -294,6 +301,9 @@ def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino:
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
               "label and logo)." + (" Photorealistic." if realista else ""))
+    if puede_referencia() and c["proveedor"] == "gemini":
+        destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto))
+        return destino
     if puede_referencia():
         base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
         modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
@@ -409,7 +419,8 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
         return base64.b64decode(d["b64_json"]) if d.get("b64_json") else seguro.descargar(d["url"])
 
     tareas = {"cloudflare": cloudflare, "pollinations": pollinations, "huggingface": huggingface, "replicate": replicate,
-              "openai": openai, "gratis_sin_clave": lambda: pollinations(con_clave=False)}
+              "openai": openai, "gemini": lambda: _imagen_gemini(todas["gemini"], prompt, ancho, alto),
+              "gratis_sin_clave": lambda: pollinations(con_clave=False)}
     tareas ={p: (lambda f=f: _imagen_real(f())) for p, f in tareas.items()}
     datos, _ = nubes.rotar("imagen", tareas)
     destino.write_bytes(datos)
@@ -460,20 +471,52 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
-_omni = {}  # modelo elegido por clave, una vez por sesión
+IMAGEN_GEMINI = "gemini-3.1-flash-image"  # Nano Banana 2, si la API no dice cuál hay
+PRECIO_IMAGEN_GEMINI = 0.067  # US$ por imagen de 1024 px según Google (sin cuota gratis)
+_elegidos = {}  # modelo elegido por clave y por uso, una vez por sesión
 
 
-def modelo_video_voz(clave: str) -> str:
-    """Pregunta a la API qué modelos de video con voz tiene la clave y elige el más capaz."""
-    if clave not in _omni:
+def _modelo_de_la_clave(clave: str, elegir: Callable[[list[str]], str | None], defecto: str) -> str:
+    """Pregunta a la API qué modelos tiene la clave de Gemini y se queda con el que elige `elegir`."""
+    if (clave, elegir) not in _elegidos:
         try:
             r = httpx.get(f"{API_GEMINI}/models", params={"pageSize": 1000}, headers={"x-goog-api-key": clave},
                           timeout=30)
             r.raise_for_status()
-            _omni[clave] = claves.elegir_modelo_video_voz([m["name"] for m in r.json().get("models", [])]) or OMNI
+            _elegidos[clave, elegir] = elegir([m["name"] for m in r.json().get("models", [])]) or defecto
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            return OMNI  # sin red ahora: no se guarda, se pregunta otra vez la próxima
-    return _omni[clave]
+            return defecto  # sin red ahora: no se guarda, se pregunta otra vez la próxima
+    return _elegidos[clave, elegir]
+
+
+def modelo_video_voz(clave: str) -> str:
+    return _modelo_de_la_clave(clave, claves.elegir_modelo_video_voz, OMNI)
+
+
+def modelo_imagen_gemini(clave: str) -> str:
+    return _modelo_de_la_clave(clave, claves.elegir_modelo_imagen_gemini, IMAGEN_GEMINI)
+
+
+def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path | None = None) -> bytes:
+    """Una imagen con Gemini (Nano Banana, de pago): solo si el usuario lo eligió para las imágenes. Con
+    `referencia`, la edita manteniendo igual a quien sale en ella."""
+    partes = [{"text": prompt}]
+    if referencia:
+        tipo = {".png": "image/png", ".webp": "image/webp"}.get(referencia.suffix.lower(), "image/jpeg")
+        partes.insert(0, {"inline_data": {"mime_type": tipo, "data": base64.b64encode(referencia.read_bytes()).decode()}})
+    relacion = "9:16" if alto > ancho else "16:9" if ancho > alto else "1:1"
+    r = httpx.post(f"{API_GEMINI}/models/{modelo_imagen_gemini(c['clave'])}:generateContent", timeout=300,
+                   headers={"x-goog-api-key": c["clave"]}, json={
+                       "contents": [{"parts": partes}],
+                       "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": relacion}}})
+    if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave
+        raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
+                             detalle=" ".join(r.text.split())[:300]))
+    for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
+        datos = parte.get("inlineData") or parte.get("inline_data") or {}
+        if datos.get("data"):
+            return _imagen_real(base64.b64decode(datos["data"]))
+    raise RuntimeError(t("Gemini no devolvió ninguna imagen"))
 
 
 def _bloque_video(nodo):

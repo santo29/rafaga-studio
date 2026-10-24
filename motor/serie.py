@@ -17,7 +17,7 @@ import unicodedata
 from pathlib import Path
 from typing import Callable
 
-from . import desde_prompt, diseno, edicion, ia, seguro, video
+from . import desde_prompt, diseno, edicion, ia, memoria, seguro, video
 from .idioma import IDIOMAS, actual, t
 
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
@@ -267,7 +267,8 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         # con el estilo, la apariencia que escribe encaja con el dibujo (un gato de caricatura no es uno de cine)
         biblia = ia.texto_json(INSTRUCCIONES_SERIE.replace("{idioma}", IDIOMAS[actual()]),
                                f"Título: {titulo or '(elígelo tú)'}\nIdea: {idea or titulo}\nPersonajes: {cuantos}"
-                               + (f"\nEstilo de dibujo: {estilo}" if estilo else ""), ESQUEMA_SERIE)
+                               + (f"\nEstilo de dibujo: {estilo}" if estilo else "") + memoria.para("dibujos"),
+                               ESQUEMA_SERIE)
     else:
         cuantos = MAX_PERSONAJES  # los que escribió el agente, con el tope de siempre
     crudos = [p for p in biblia["personajes"] if _texto(p.get("nombre"), 60)][:cuantos]
@@ -404,7 +405,7 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
                                  ("{estilo}", datos["estilo"])):
                 instrucciones = instrucciones.replace(clave, valor)
             guion = ia.texto_json(instrucciones, f"Idea para este capítulo: {_texto(idea, 2000) or 'sigue la historia'}"
-                                                 f"\nPlanos: unos {planos}.", ESQUEMA_EPISODIO)
+                                                 f"\nPlanos: unos {planos}." + memoria.para("dibujos"), ESQUEMA_EPISODIO)
         guion["planos"] = guion["planos"][:planos]  # nadie decide por su cuenta cuánto se gasta en imágenes y voces
         if not guion["planos"]:
             raise RuntimeError(t("La IA no escribió ningún plano. Inténtalo de nuevo."))

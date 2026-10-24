@@ -7,7 +7,7 @@ from typing import Callable
 
 import yt_dlp
 
-from . import claves, ia, seguro, video
+from . import claves, ia, memoria, seguro, video
 from .idioma import t
 
 PROYECTOS = Path(__file__).resolve().parent.parent / "datos" / "proyectos"
@@ -198,7 +198,7 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
               f"Quiero {cantidad} clips de entre {dur_min} y {dur_max} segundos, del mejor al peor.\n"
               + (f"El usuario busca: {enfoque.strip()[:300]}. Elige SOLO momentos de eso.\n" if enfoque.strip() else "")
               + f"\nTranscripción:\n{_lineas(palabras)}")
-    clips = ia.texto_json(INSTRUCCIONES, pedido, ESQUEMA)["clips"]
+    clips = ia.texto_json(INSTRUCCIONES, pedido + memoria.para("edicion"), ESQUEMA)["clips"]
     clips = [_ajustar(c, palabras, total) for c in clips if 0 <= c["inicio"] < c["fin"] <= total + 1]
     clips = _elegir(clips, cantidad, dur_min, dur_max)
     avisos = [] if not clips or _a_medida(clips[0], dur_min, dur_max) else [

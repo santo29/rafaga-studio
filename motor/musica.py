@@ -6,11 +6,12 @@ from typing import Callable
 
 import httpx
 
-from . import claves, ia
+from . import claves, ia, memoria
 from .idioma import t
 from .shorts import PROYECTOS
 
 # Descripción musical en inglés: los modelos de música la entienden mejor. Nada de samples: composición original.
+PRECIO = {"gemini": 0.08, "elevenlabs": 0.45}  # US$ por canción, aprox. y por lo alto (ElevenLabs: ~0,30-0,45)
 GENEROS = {
     "Dembow clásico (riddim jamaiquino 90s)": (
         "classic old-school Dominican dembow built like the 1990s Jamaican dancehall riddims from before the "
@@ -118,7 +119,8 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
                                        "properties": {k: v for k, v in ESQUEMA["properties"].items() if k != "letra"}}
     cancion = ia.texto_json(INSTRUCCIONES, (
         f"Idea: {idea}\nGénero y producción: {estilo_base or 'elígelo tú según la idea'}\nDuración: unos {segundos} segundos.\n"
-        + ("Con voz y letra." if con_voz else "Solo pista instrumental, sin letra.")), esquema)
+        + ("Con voz y letra." if con_voz else "Solo pista instrumental, sin letra.") + memoria.para("musica_voz")),
+        esquema)
     letra = (cancion.get("letra") or "") if con_voz else ""
     # Antes de producir: si el audio falla (plan, cuota, red), la letra que ya escribió la IA no se pierde.
     archivo_letra = carpeta / "letra.txt"

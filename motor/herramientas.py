@@ -8,8 +8,8 @@ import re
 import threading
 from pathlib import Path
 
-from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, musica, nichos, publicar, seguro, serie, shorts,
-               video, video_musical)
+from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, ia, memoria, musica, nichos, publicar, roles,
+               seguro, serie, shorts, video, video_musical)
 from .idioma import t
 
 _hilo = threading.local()
@@ -123,7 +123,7 @@ def separar_voz_y_pista(cancion: str) -> str:
 
 
 def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propuesta: dict | None = None,
-                 estilo: str = "auto") -> str:
+                 estilo: str = "auto", calidad: str = "1K") -> str:
     """Diseña una pieza gráfica en capas editables: textos, formas, iconos, emojis e ilustraciones o fotos.
     tipo: auto (la IA lo elige según el pedido), anuncio, post, historia, miniatura, flyer, logo, tarjeta,
     marca_personal, presentacion (diapositiva 16:9), ilustracion (un dibujo grande, sin textos salvo que los pida) o
@@ -132,6 +132,7 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     digital oscuro con neón y humo, p. ej. portadas de álbum), animado3d (personaje 3D de película animada), urbano
     (calle, gorras, grafiti, humo) o foto (foto solo para un producto, lugar o persona real).
     usar_marca: usa el nombre, los colores, las fuentes y el logo guardados en «Mi marca» de la app.
+    calidad de las fotos: 1K, 2K o 4K (2K y 4K solo con Gemini elegido para imágenes, y cuestan más).
     Primero la IA entiende el pedido (también con faltas). Si tiene dos lecturas igual de probables, no gasta nada y
     devuelve {"pregunta", "opciones"}: házsela al usuario y vuelve a llamar con lo que elija. Si no, "entendido" dice
     qué entendió. El diseño lo piensa la IA de texto conectada y los dibujos se generan con la IA de imágenes
@@ -154,6 +155,8 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     if hasattr(diseno_ia, "ESTILOS") and (not isinstance(estilo, str) or estilo not in diseno_ia.ESTILOS):
         raise ValueError(t("Estilo desconocido ({estilo!r:.30}); valen {estilos}.", estilo=estilo,
                            estilos=", ".join(diseno_ia.ESTILOS)))
+    if not isinstance(calidad, str) or calidad not in ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]:
+        raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 1K, 2K o 4K.", calidad=calidad))
     delante = {}
     entender = getattr(diseno_ia, "entender", None)  # ponytail: respaldo mientras diseno_ia no tenga entender (P1)
     if propuesta is None and entender and str(pedido or "").strip():
@@ -167,7 +170,7 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     tipo = "post" if tipo == "auto" else tipo
     con_estilo = {"estilo": estilo} if hasattr(diseno_ia, "ESTILOS") else {}  # ponytail: igual, hasta P1
     return _json({**delante, **diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso(), propuesta=propuesta,
-                                               **con_estilo)})
+                                               calidad=calidad, **con_estilo)})
 
 
 def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:16", musica: str = "",
@@ -232,6 +235,18 @@ def programar_publicacion(archivo: str, titulo: str, descripcion: str, fecha_hor
     return _json(publicar.programar(ruta(archivo), titulo, descripcion, etiquetas, fecha_hora, red, aviso=_aviso()))
 
 
+def recordar_preferencia(departamento: str, preferencia: str) -> str:
+    """Memoria del estudio: guarda una preferencia duradera del usuario («títulos cortos», «sin Montserrat», «mi
+    marca es X») para que su departamento la siga en todos los trabajos. Úsala cuando corrige algo o dice cómo lo
+    quiere siempre. departamento: general (todo el estudio) o uno de {departamentos}. Nunca claves, contraseñas,
+    tarjetas ni números de cuenta (se rechazan). El usuario las ve y las borra en «Memoria del estudio»."""
+    return _json({"guardada": " ".join(str(preferencia).split()),
+                  "memoria": memoria.recordar(departamento, preferencia).get(departamento, [])})
+
+
+recordar_preferencia.__doc__ = recordar_preferencia.__doc__.replace("{departamentos}", ", ".join(roles.DEPARTAMENTOS))
+
+
 def listar_series() -> str:
     """Las series de dibujos animados creadas, con sus personajes y capítulos."""
     return _json(serie.listar())
@@ -255,7 +270,7 @@ def listar_opciones() -> str:
 TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, crear_anuncios, crear_cancion,
                                  crear_video_musical, producir_cancion, separar_voz_y_pista, crear_diseno,
                                  editar_video, crear_serie, crear_episodio, listar_series, listar_proyectos,
-                                 listar_opciones, programar_publicacion)}
+                                 listar_opciones, programar_publicacion, recordar_preferencia)}
 
 
 def resultados(respuesta: str) -> list[dict]:

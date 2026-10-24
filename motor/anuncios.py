@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import ia, seguro, video
+from . import ia, memoria, seguro, video
 from .desde_prompt import FALTAS, idioma_de, montar
 from .idioma import t
 from .shorts import PROYECTOS
@@ -76,7 +76,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
         f"(~{int(segundos * 2.5)} palabras, {max(3, round(segundos / 5))} escenas).\nVariantes: {variantes}"
         + idioma_de(voz)
-        + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")), ESQUEMA)
+        + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")
+        + memoria.para("anuncios")), ESQUEMA)
 
     # La IA decide cuántas variantes y escenas devuelve: se recorta a lo pedido (el gasto no lo marca la IA).
     plan["variantes"] = plan["variantes"][:variantes]

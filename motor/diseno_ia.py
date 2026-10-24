@@ -9,7 +9,7 @@ from typing import Callable
 
 from PySide6.QtGui import QColor, QFont, QImage, QTextDocument, QTextOption
 
-from . import diseno, ia, marca, recursos
+from . import diseno, ia, marca, memoria, recursos
 from .idioma import actual, IDIOMAS, t
 
 MAX_CAPAS, MAX_FOTOS = 14, 2  # el gasto (cada foto es una imagen de IA) y el tiempo no los decide la IA
@@ -525,7 +525,8 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
 
     if propuesta is None:
         aviso(t("La IA está diseñando…"), 0.05)
-    r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA)
+    r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas) + memoria.para("diseno"),
+                                                              ESQUEMA)
     r = r if isinstance(r, dict) else {}
     avisos = []
     # También en una propuesta: el Director de la app (una IA gratis) la escribe él mismo y también inventa

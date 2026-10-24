@@ -5,9 +5,11 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import claves, ia, seguro, video
+from . import claves, ia, memoria, seguro, video
 from .idioma import actual, IDIOMAS, t
 from .shorts import PROYECTOS
+
+MAX_ESCENAS = 14  # cada escena es una imagen de IA (de pago con Gemini): el gasto no lo decide la duración
 
 ESQUEMA = {
     "type": "object",
@@ -53,13 +55,14 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
         t("Escuchando la canción en {servicio}… {p:.0%}", servicio=servicio, p=f) if servicio
         else t("Escuchando la canción en tu PC… {p:.0%}", p=f), 0.03 + 0.15 * f))
 
-    # Una escena cada ~8 s, máximo 14 para no gastar demasiadas imágenes.
-    n = max(2, min(14, math.ceil(total / 8)))
+    # Una escena cada ~8 s, con tope para no gastar demasiadas imágenes.
+    n = max(2, min(MAX_ESCENAS, math.ceil(total / 8)))
     aviso(t("La IA está dirigiendo el videoclip…"), 0.2)
     letra_oida = " ".join(p["palabra"] for p in palabras)
     plan = ia.texto_json(INSTRUCCIONES, (
         f"Canción: {titulo}\nGénero: {genero or 'no indicado'}\nDuración: {total:.0f} s\nIdea del usuario: {idea or '—'}\n"
-        f"Letra:\n{letra or letra_oida or '(instrumental)'}\n\nDame exactamente {n} escenas."), ESQUEMA)
+        f"Letra:\n{letra or letra_oida or '(instrumental)'}\n\nDame exactamente {n} escenas." + memoria.para("musica_voz")),
+        ESQUEMA)
     escenas = (plan["escenas"] or ["dancing crowd under club lights"])[:n]
     n = len(escenas)
     tramo = total / n

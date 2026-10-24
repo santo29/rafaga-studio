@@ -1,6 +1,7 @@
 """Asistente de voz del Director: escucha SOLO mientras lo activas (botón del micro o Ctrl+Espacio) y se para solo
 cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, aunque tengas Groq u
 OpenAI conectados) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
+import re
 import tempfile
 import threading
 import time
@@ -68,6 +69,19 @@ def entender(audio: np.ndarray) -> str:
         sf.write(str(wav), audio, SR)
         palabras = ia.transcribir(wav, idioma=actual(), en_pc=True)
     return " ".join(p["palabra"] for p in palabras).strip()
+
+
+SI = {"si", "sí", "claro", "dale", "hazlo", "vale", "ok", "okay", "adelante", "acepto", "yes", "yeah", "sure", "sim",
+      "oui"}
+NO = {"no", "nop", "nope", "cancela", "cancelar", "para", "espera", "nunca", "non", "não", "nao"}
+
+
+def si_o_no(texto: str) -> bool | None:
+    """La respuesta a «¿Lo hago?»: True, False o None si no está clara (las dos cosas, «si no…», o ninguna). Sin un
+    sí claro no se gasta."""
+    palabras = set(re.findall(r"\w+", str(texto).lower()))
+    si, no = bool(palabras & SI), bool(palabras & NO)
+    return None if si == no else si
 
 
 def hablar(texto: str) -> Path:

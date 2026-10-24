@@ -65,7 +65,10 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 El Director es la IA que maneja el estudio entero. Tú eres la marca o el creador: pides el trabajo y él decide qué
 herramientas usar, las usa una tras otra y te entrega los videos, diseños o canciones. Usa las mismas herramientas que
 el servidor MCP, así que también lo puedes dirigir desde Claude. Funciona con cualquier IA de texto conectada (también
-la gratis sin clave) y se detiene tras 6 pasos para no gastar de más.
+la gratis sin clave) y se detiene tras 6 pasos para no gastar de más. Trabaja como un estudio con departamentos
+(guion y video, diseño, música y voz, dibujos animados, anuncios, edición, publicación y nichos), cada uno con sus
+reglas de calidad. Antes de algo que cuesta dinero o publica en tu canal te dice el costo y te pregunta (también con la
+voz: contesta «sí» o «no»), y recuerda tus gustos por departamento: los ves y los borras en «Memoria del estudio».
 
 Pulsa **Hablar** o **Ctrl+Espacio** y pídeselo con la voz: escucha solo mientras está activo, se para solo cuando
 terminas de hablar y te contesta en voz alta. Mientras te escucha, piensa o habla, una luz de colores recorre el borde

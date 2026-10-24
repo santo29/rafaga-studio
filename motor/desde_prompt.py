@@ -8,7 +8,7 @@ from typing import Callable
 
 import edge_tts
 
-from . import claves, ia, seguro, video
+from . import claves, ia, memoria, seguro, video
 from .idioma import actual, IDIOMAS, t
 from .shorts import PROYECTOS
 
@@ -162,7 +162,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         guion = ia.texto_json(INSTRUCCIONES, (
             f"Pedido: {prompt}\nDuración: unos {segundos} segundos (~{int(segundos * 2.5)} palabras de narración), "
             f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}{hablado}{idioma_de(voz)}"
-            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "")), ESQUEMA)
+            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "") + memoria.para("video")), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»). Animadas, cada una se paga: ni una de más.
     # Se quitan las del medio: la última es el cierre o la llamada a la acción.

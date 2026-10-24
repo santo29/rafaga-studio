@@ -201,7 +201,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     claves.guardar(cuenta)
 
     # ---------- La herramienta del Director y del MCP ----------
-    assert len(herramientas.TODAS) == 16 and "programar_publicacion" in herramientas.TODAS
+    assert len(herramientas.TODAS) == 17 and "programar_publicacion" in herramientas.TODAS
     partes["falla"] = False
     r = json.loads(herramientas.programar_publicacion(str(video), "Con hashtags", "Mira esto #RD #viral",
                                                       en_dos_horas.isoformat(), red=" YouTube "))  # como la escribe una IA

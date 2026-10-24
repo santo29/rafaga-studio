@@ -287,7 +287,7 @@ if ejemplos:
 
 _dirigir = director.dirigir
 try:
-    director.dirigir = lambda pedido, historial, al_usar, aviso: (
+    director.dirigir = lambda pedido, historial, al_usar, aviso, **_: (
         al_usar("crear_diseno"), aviso("trabajando", 0.5),
         {"mensaje": "Hecho <b>sin HTML</b>", "pasos": [], "formato": "9:16",
          "resultados": [{"archivo": str(salida), "titulo": "Mi video", "descripcion": "", "hashtags": []}]})[-1]
@@ -381,7 +381,7 @@ def entender_falso(pedido, tipo="auto"):
     return dict(entendido)
 
 
-def crear_falso(pedido, tipo, usar_marca=True, aviso=None, propuesta=None, estilo="auto"):
+def crear_falso(pedido, tipo, usar_marca=True, aviso=None, propuesta=None, estilo="auto", calidad="1K"):
     llamado["crear"].append({"pedido": pedido, "tipo": tipo, "propuesta": propuesta, "estilo": estilo})
     return {"tipo": "diseno", "carpeta": "C:/x/d", "archivo": "C:/x/d/vista_previa.png", "titulo": "t"}
 
@@ -439,7 +439,7 @@ try:
     # Con el diseno_ia de antes (sin entender, estilos ni los tipos nuevos) sigue funcionando
     del diseno_ia.entender, diseno_ia.ESTILOS
     diseno_ia.TIPOS = guardados["TIPOS"]
-    diseno_ia.crear = lambda pedido, tipo, usar_marca=True, aviso=None, propuesta=None: (
+    diseno_ia.crear = lambda pedido, tipo, usar_marca=True, aviso=None, propuesta=None, calidad="1K": (
         llamado["crear"].append(tipo) or {"tipo": "diseno"})
     assert json.loads(herramientas.crear_diseno("calavera")) == {"tipo": "diseno"} and llamado["crear"][-1] == "post"
     if "estampado" not in diseno_ia.TIPOS:  # la camiseta que mandan las instrucciones no falla sin P1: cae en post

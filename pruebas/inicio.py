@@ -512,4 +512,29 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.edicion)
     esperar(lambda: not ventana.edicion.tareas and ventana.edicion.proyecto["nombre"] == "Mi edición")
     assert ventana.close()
+
+# El halo del vidrio: el del botón principal se apaga si está desactivado o pegado al borde de su padre (saldría
+# cortado); en un selector de formato lo lleva solo la opción elegida, también si se cambia desde el código.
+from ui.comun import boton, SelectorFormato  # noqa: E402
+
+padre = QWidget()
+padre.resize(300, 100)
+principal = boton("Hacer", "principal")
+principal.setParent(padre)
+principal.setGeometry(30, 20, 200, 40)
+padre.show()
+app.processEvents()
+assert principal.graphicsEffect().isEnabled()
+principal.setEnabled(False)
+assert not principal.graphicsEffect().isEnabled()
+principal.setEnabled(True)
+assert principal.graphicsEffect().isEnabled()
+principal.setGeometry(100, 60, 200, 40)  # toca los bordes de abajo y de la derecha
+app.processEvents()
+assert not principal.graphicsEffect().isEnabled()
+selector = SelectorFormato()
+assert [b.property("formato") for b in selector.grupo.buttons() if b.graphicsEffect()] == ["9:16"]
+selector.grupo.buttons()[1].setChecked(True)
+assert [b.property("formato") for b in selector.grupo.buttons() if b.graphicsEffect()] == ["16:9"]
+padre.close()
 print("Pruebas de la página de inicio pasadas.")

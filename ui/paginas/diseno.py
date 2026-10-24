@@ -72,14 +72,17 @@ QComboBox::drop-down { width: 20px; }
 QComboBox QAbstractItemView::item { min-height: 24px; }
 #secundario { padding: 4px 10px; border-radius: 6px; }
 #principal { padding: 5px 16px; border-radius: 6px; }
-#barra_sup, #barra_ia, #herr, #panel, QScrollArea#lateral { background: #17171D; }
+#herr, #panel, QScrollArea#lateral { background: #17171D; }
+#barra_sup, #barra_ia { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1C1C24, stop:1 #15151B); }
 #barra_sup { border-bottom: 1px solid #24242C; }
 #barra_ia { border-top: 1px solid #24242C; }
 #herr { border-right: 1px solid #24242C; }
 QScrollArea#lateral { border-left: 1px solid #24242C; }
-#herr QToolButton { border: none; border-radius: 6px; padding: 6px; }
+#herr QToolButton { border: 1px solid transparent; border-radius: 8px; padding: 5px; }
 #herr QToolButton:hover, #panel QToolButton:hover, #barra_estado QToolButton:hover { background: #2A2A36; }
-#herr QToolButton:checked { background: #2A2340; }
+#herr QToolButton:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(168, 146, 255, 0.55),
+                                                        stop:1 rgba(118, 86, 250, 0.20));
+                            border-color: rgba(150, 125, 255, 0.45); border-top-color: rgba(225, 215, 255, 0.60); }
 #panel QToolButton { background: #1F1F27; border: 1px solid #2C2C36; border-radius: 5px; padding: 4px; }
 #seccion { color: #FFFFFF; font-weight: 700; padding-top: 4px; }
 #barra_estado { background: #111116; border-top: 1px solid #24242C; }

@@ -20,9 +20,16 @@ from ui.paginas.claves import NOMBRES_PROVEEDOR
 ESTILO_INICIO = """
 #portada { font-size: 34px; font-weight: 800; color: #FFFFFF; }
 #seccion { font-size: 19px; font-weight: 700; color: #FFFFFF; padding-top: 6px; }
-#acceso { background: #17171D; border: 1px solid #24242C; border-radius: 14px; text-align: left; }
-#acceso:hover, #acceso:focus { background: #1C1A28; border: 1px solid #7C5CFF; }
-#acceso:pressed { background: #241E3A; }
+#acceso { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(200, 190, 255, 0.085),
+                                      stop:1 rgba(200, 190, 255, 0.035));
+          border: 1px solid rgba(255, 255, 255, 0.07); border-top-color: rgba(255, 255, 255, 0.15); border-radius: 16px;
+          text-align: left; }
+#acceso:hover, #acceso:focus { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.16),
+                                                           stop:1 rgba(124, 92, 255, 0.05));
+                               border: 1px solid rgba(124, 92, 255, 0.70); border-top-color: rgba(205, 190, 255, 0.85); }
+#acceso:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.25),
+                                              stop:1 rgba(124, 92, 255, 0.14));
+                  border-top-color: rgba(0, 0, 0, 0.40); border-bottom-color: rgba(205, 190, 255, 0.60); }
 #acceso_titulo { font-size: 17px; font-weight: 700; color: #FFFFFF; }
 #acceso QLabel#sub { font-size: 14px; }
 #indicador { font-size: 17px; font-weight: 700; color: #FFFFFF; }

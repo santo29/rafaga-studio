@@ -83,6 +83,7 @@ class Ventana(QMainWindow):
         menu = QWidget()
         botones = QVBoxLayout(menu)
         botones.setContentsMargins(0, 0, 0, 0)
+        botones.setSpacing(3)  # junto con el padding de #nav: los 14 botones caben a 728 px de alto sin desplazar
         desplaza_menu = QScrollArea()
         desplaza_menu.setWidgetResizable(True)
         desplaza_menu.setFrameShape(QFrame.NoFrame)

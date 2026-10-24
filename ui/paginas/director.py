@@ -9,8 +9,8 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QProgressBar, QScrollArea,
-                               QTextBrowser, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMenu, QProgressBar,
+                               QScrollArea, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from motor import director, voz
 from motor.idioma import t
@@ -194,7 +194,9 @@ class PaginaDirector(QWidget):
         lay.addWidget(self.estado)
         acciones = QHBoxLayout()
         self.ir_diseno = boton(f"🎨  {t('Abrir en {programa}', programa=t('Diseño'))}")
-        self.ir_diseno.clicked.connect(lambda: self.abrir_diseno(self.diseno_hecho))
+        # varios diseños en un trabajo: el botón los ofrece uno por uno en su menú, y el clic no abre además el último
+        self.menu_disenos = QMenu(self.ir_diseno)
+        self.ir_diseno.clicked.connect(lambda: None if self.ir_diseno.menu() else self.abrir_diseno(self.diseno_hecho))
         self.ir_serie = boton(f"🐰  {t('Abrir en {programa}', programa=t('Dibujos animados'))}")
         self.ir_serie.clicked.connect(lambda: self.abrir_serie(self.serie_hecha))
         for b in (self.ir_diseno, self.ir_serie):
@@ -284,12 +286,20 @@ class PaginaDirector(QWidget):
         if videos:
             self.reproductor.show()
             self.reproductor.mostrar({**r, "resultados": videos})
-        if imagenes:  # un diseño: se ve en grande y se sigue editando en su página
-            ver_imagen(self, imagenes[-1]["archivo"], imagenes[-1]["titulo"])
-        self.diseno_hecho = next((Path(x["archivo"]).parent for x in reversed(imagenes)
-                                  if (Path(x["archivo"]).parent / "diseno.json").is_file()), None)
+        elif imagenes:  # solo diseños: el video del trabajo anterior no se queda debajo como si fuera lo nuevo
+            self.reproductor.player.stop()
+            self.reproductor.hide()
+        for x in imagenes:  # cada diseño se ve en grande y se sigue editando en su página
+            ver_imagen(self, x["archivo"], x["titulo"])
+        hechos = [x for x in imagenes if (Path(x["archivo"]).parent / "diseno.json").is_file()]
+        self.diseno_hecho = Path(hechos[-1]["archivo"]).parent if hechos else None
+        self.menu_disenos.clear()
+        for x in hechos:  # «&&»: un «&» del título no se toma como atajo de teclado
+            self.menu_disenos.addAction(x["titulo"].replace("&", "&&")).triggered.connect(
+                lambda _=False, c=Path(x["archivo"]).parent: self.abrir_diseno(c))
+        self.ir_diseno.setMenu(self.menu_disenos if len(hechos) > 1 else None)
         self.serie_hecha = serie_de_pasos(r.get("pasos", []))
-        self.ir_diseno.setVisible(bool(self.diseno_hecho and self.abrir_diseno))
+        self.ir_diseno.setVisible(bool(hechos and self.abrir_diseno))
         self.ir_serie.setVisible(bool(self.serie_hecha and self.abrir_serie))
         if self.en_voz.isChecked() and self.por_voz:
             self._leer_en_voz(r["mensaje"])

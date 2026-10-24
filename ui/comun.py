@@ -21,7 +21,7 @@ ESTILO = """
 QMainWindow, #contenido, QScrollArea, QScrollArea > QWidget > QWidget { background: #0F0F13; }
 #barra { background: #17171D; border-right: 1px solid #24242C; }
 #marca { font-size: 22px; font-weight: 800; color: #FFFFFF; padding-left: 4px; }
-#nav { text-align: left; padding: 9px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
+#nav { text-align: left; padding: 6px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
        font-size: 17px; }
 #nav:hover { background: #20202A; color: #FFFFFF; }
 #nav:checked { background: #2A2340; color: #FFFFFF; }
@@ -45,6 +45,9 @@ QScrollBar::handle:horizontal { background: #2C2C36; border-radius: 5px; min-wid
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QToolTip { background: #17171D; color: #ECECF1; border: 1px solid #2C2C36; }
+QMenu { background: #17171D; border: 1px solid #2C2C36; padding: 4px; }
+QMenu::item { padding: 8px 18px; border-radius: 6px; }
+QMenu::item:selected { background: #2A2340; }
 QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #3C3C48; border-radius: 5px; background: #0F0F13; }
 QCheckBox::indicator:checked { background: #7C5CFF; border: 1px solid #7C5CFF; }
 #formato { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 10px; padding: 10px 14px; color: #A9A9B6; }

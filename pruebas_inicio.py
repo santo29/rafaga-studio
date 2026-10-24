@@ -284,6 +284,35 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         {"archivo": str(suelta), "titulo": "Suelta", "descripcion": "", "hashtags": []}]})
     assert [x["titulo"] for x in mostrados[-1]["resultados"]] == ["Uno"] and director_ui.ir_diseno.isHidden()
     director_ui.findChildren(QDialog)[-1].close()
+    # Después, un trabajo que solo da un diseño: el video del pedido anterior no se queda debajo
+    assert not director_ui.reproductor.isHidden()
+    director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
+        {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []}]})
+    assert director_ui.reproductor.isHidden() and len(mostrados) == 1 and director_ui.ir_diseno.menu() is None
+    director_ui.findChildren(QDialog)[-1].close()
+    # Dos diseños en un trabajo («un post y un flyer»): se ven los dos y cada uno se abre desde el menú del botón
+    carpeta_flyer = diseno.CARPETA / "20261024-120100-flyer"
+    flyer = diseno.nuevo("flyer", "Flyer")
+    diseno.guardar(flyer, carpeta_flyer)
+    png_flyer = diseno.exportar(flyer, carpeta_flyer, carpeta_flyer / "vista_previa.png")
+    director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
+        {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []},
+        {"archivo": str(png_flyer), "titulo": "Flyer", "descripcion": "", "hashtags": []}]})
+    visores = [v for v in director_ui.findChildren(QDialog) if v.isVisible()]
+    assert [v.windowTitle() for v in visores] == ["Cartel", "Flyer"]
+    for v in visores:
+        v.close()
+    assert not director_ui.ir_diseno.isHidden()
+    assert [a.text() for a in director_ui.ir_diseno.menu().actions()] == ["Cartel", "Flyer"]
+    ventana.ir_a(0)
+    director_ui.ir_diseno.click()  # con menú, el clic solo lo despliega: no abre el último por su cuenta
+    assert ventana.paginas.currentIndex() == 0
+    for accion, carpeta in zip(director_ui.ir_diseno.menu().actions(), (carpeta_diseno, carpeta_flyer)):
+        ventana.ir_a(0)
+        accion.trigger()
+        assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
+        assert ventana.diseno.carpeta == carpeta, carpeta
+    director_ui.ir_diseno.menu().close()
     # Una serie: «Abrir en Dibujos animados» la deja elegida en su página
     director_ui._listo({"mensaje": "Listo", "formato": "16:9", "resultados": [], "pasos": [
         {"herramienta": "crear_serie", "argumentos": {},

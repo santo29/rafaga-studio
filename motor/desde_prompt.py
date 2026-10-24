@@ -288,6 +288,8 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         paso = desde + (hasta - desde) * i / n
         if i in (hablados or {}):
             partes.append(hablados[i])
+            if (hecha := carpeta / f"{nombre}_imagen_{i:02d}.png").is_file():  # si falla la siguiente, se repite esta
+                ultima, de_donde = hecha, t("la imagen anterior")
             continue
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"

@@ -274,12 +274,21 @@ class PaginaSerie(PaginaTrabajo):
         self.reproductor.player.setSource(QUrl())  # el video del capítulo se va a reescribir: que nadie lo tenga abierto
         if self.lanzar(self.capitulo_btn, funcion, **datos):  # un botón fijo: los del guion gráfico se rehacen
             self.tarea.listo.connect(self._hecho)
-            self.tarea.fallo.connect(lambda _: self.recargar())  # p. ej. el capítulo que quedó «Sin dibujos»
+            self.tarea.fallo.connect(self._fallo)
 
     def _hecho(self, r: dict):
         if r.get("tipo") == "episodio":
             self.capitulo_elegido = r["carpeta"]
         self.recargar()
+
+    def _fallo(self, _):
+        """El capítulo nuevo que quedó «Sin dibujos» se elige: el error pide pulsar ahí «Dibujar lo que falta»."""
+        antes = {e["carpeta"] for e in (self.series.currentData() or {}).get("episodios", [])}
+        self.recargar()
+        nuevos = [n for n, e in enumerate((self.series.currentData() or {}).get("episodios", []))
+                  if e["carpeta"] not in antes]
+        if nuevos:
+            self.capitulos.setCurrentRow(nuevos[-1])
 
     def _crear_capitulo(self, numero: int = 0):
         self._trabajo(serie.crear_episodio, serie=self.series.currentData()["nombre"],

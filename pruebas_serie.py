@@ -1,6 +1,7 @@
 """Pruebas de la serie animada, sin red ni claves: python pruebas_serie.py"""
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -398,6 +399,15 @@ def la_serie(titulo):
 cap = la_serie("Gato pirata")["episodios"][0]
 assert (cap["estado"], cap["planos"], cap["miniatura"]) == ("sin_dibujos", 4, "")
 assert [p["imagen"] for p in serie.guion_grafico(str(ep))] == [""] * 4
+# Un capítulo de antes de guardar el estado y sin ningún dibujo no sale como «listo»: se cuentan los dibujos
+viejo = Path(g["carpeta"]) / "episodios" / "07"
+viejo.mkdir()
+(viejo / "guion.json").write_text((ep / "guion.json").read_text(encoding="utf-8"), encoding="utf-8")
+diseno.escribir_json(viejo / "episodio.json", {"numero": 7, "titulo": "Viejo", "resumen": ""})
+assert next(e for e in la_serie("Gato pirata")["episodios"] if e["numero"] == 7)["estado"] == "sin_dibujos"
+diseno.escribir_json(viejo / "episodio.json", {"numero": 7, "titulo": "Viejo", "resumen": "", "estado": "listo"})
+assert next(e for e in la_serie("Gato pirata")["episodios"] if e["numero"] == 7)["estado"] == "sin_dibujos"
+shutil.rmtree(viejo)
 
 # La página lo enseña como «Sin dibujos», con su guion gráfico y sin video; y deja dibujar las láminas que faltan
 pagina.recargar()
@@ -453,8 +463,18 @@ assert r["estado"] == "listo" and len(imagenes) == 1 and len(voces) == 1  # los 
 assert [Path(p["imagen"]).name for p in serie.guion_grafico(str(ep))] == [f"video_final_imagen_{i:02d}.png"
                                                                           for i in range(4)]
 assert la_serie("Gato pirata")["episodios"][0]["miniatura"].endswith("video_final_imagen_00.png")
+# Sin cuota otra vez: el plano que no sale repite el dibujo anterior aunque ese se reuse, no un fondo de color
+for i in (1, 2):
+    (ep / f"video_final_imagen_{i:02d}.png").unlink()
+ia.imagen = sin_cuota
+r = serie.crear_episodio("Gato pirata", numero=1)
+assert r["estado"] == "incompleto" and not any("fondo de color" in a for a in r["avisos"])
+assert any("escena 2" in a and "la imagen anterior" in a for a in r["avisos"])
+ia.imagen = dibujar
+assert serie.crear_episodio("Gato pirata", numero=1)["estado"] == "listo"
 # Rehacer un plano: 1 imagen nueva y las demás se conservan
 otras = {i: (ep / f"video_final_imagen_{i:02d}.png").stat().st_mtime_ns for i in (0, 2, 3)}
+proyectos = len(list(edicion.CARPETA.iterdir()))
 imagenes.clear()
 voces.clear()
 r = serie.rehacer_plano(str(ep), 1, texto="¡Un mapa en el calcetín!")
@@ -462,6 +482,31 @@ assert len(imagenes) == 1 and len(voces) == 1 and r["estado"] == "listo"
 assert Path(r["resultados"][0]["archivo"]).is_file()
 assert {i: (ep / f"video_final_imagen_{i:02d}.png").stat().st_mtime_ns for i in (0, 2, 3)} == otras
 assert serie.guion_grafico(str(ep))[1]["texto"] == "¡Un mapa en el calcetín!"
+# ...y pone al día su proyecto del editor, sin dejar otro cada vez (salvo que lo retocaras: eso no se pisa)
+assert len(list(edicion.CARPETA.iterdir())) == proyectos
+retocado = Path(r["edicion"]) / "proyecto.json"
+os.utime(retocado, (retocado.stat().st_mtime + 60,) * 2)
+mio_ed = retocado.read_bytes()
+r = serie.rehacer_plano(str(ep), 1)
+assert len(list(edicion.CARPETA.iterdir())) == proyectos + 1 and retocado.read_bytes() == mio_ed
+# Sin cuota: el plano bueno, su guion y el video se quedan como estaban
+ia.imagen = sin_cuota
+quietos = [ep / n for n in ("video_final_imagen_01.png", "video_final_escena_01.mp4", "video_final.mp4", "guion.json")]
+fechas = [f.stat().st_mtime_ns for f in quietos]
+assert "Se quedó como estaba" in falla(serie.rehacer_plano, str(ep), 1, texto="Otro", error=RuntimeError)
+assert [f.stat().st_mtime_ns for f in quietos] == fechas and not (ep / "plano_nuevo.png").exists()
+assert serie.guion_grafico(str(ep))[1]["texto"] == "¡Un mapa en el calcetín!"
+assert la_serie("Gato pirata")["episodios"][0]["estado"] == "listo"
+# Gasta 1 imagen aunque al capítulo le falten otras (esas, con «Dibujar lo que falta»)
+ia.imagen = dibujar
+(ep / "video_final_imagen_02.png").unlink()  # sin dibujo, con su escena
+(ep / "video_final_imagen_03.png").unlink()  # sin dibujo ni escena
+(ep / "video_final_escena_03.mp4").unlink()
+imagenes.clear()
+r = serie.rehacer_plano(str(ep), 0)
+assert len(imagenes) == 1 and r["estado"] == "incompleto" and Path(r["resultados"][0]["archivo"]).is_file()
+assert any("escena 4" in a and "Dibujar lo que falta" in a for a in r["avisos"])
+assert serie.crear_episodio("Gato pirata", numero=1)["estado"] == "listo"
 falla(serie.rehacer_plano, str(ep), 4)
 falla(serie.rehacer_plano, str(tmp), 0)  # solo carpetas de capítulos
 falla(serie.rehacer_plano, r"\\atacante.example\s\ep", 0)
@@ -503,4 +548,18 @@ arriba = pagina.estudio.mapTo(visor.viewport(), QPoint(0, 0)).y()
 assert arriba >= 0 and arriba + pagina.estudio.height() <= visor.viewport().height(), (arriba, pagina.estudio.height())
 assert pagina.reproductor.isVisible() and visor.verticalScrollBar().value() > 0
 pagina.reproductor.player.stop()
+# Sin cuota, el capítulo nuevo queda «Sin dibujos» y elegido, con «Dibujar lo que falta» a mano (lo pide el error)
+import ui.comun  # noqa: E402
+errores, error_real = [], ui.comun.mensaje_error
+ui.comun.mensaje_error = lambda padre, titulo, texto: errores.append(texto)
+ia.imagen = sin_cuota
+try:
+    pagina._crear_capitulo()
+    pagina.tarea.wait(60000)
+    app.processEvents()
+finally:
+    ui.comun.mensaje_error, ia.imagen = error_real, dibujar
+assert errores and "Dibujar lo que falta" in errores[0] and pagina.capitulos.count() == 3
+assert pagina.capitulos.currentRow() == 2 and "Sin dibujos" in pagina.capitulos.item(2).text()
+assert pagina.rehacer_btn.isEnabled() and pagina.estudio.isVisible()
 print("Pruebas de la serie animada pasadas.")

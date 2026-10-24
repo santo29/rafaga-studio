@@ -178,6 +178,12 @@ def _capitulo(episodio: str) -> Path:
     return ep
 
 
+def _estado(ep: Path, planos: int) -> str:
+    """Uno de ESTADOS, contando los dibujos que hay de verdad (también en los capítulos de antes de guardarlo)."""
+    dibujos = sum(_imagen(ep, i).is_file() for i in range(planos))
+    return "listo" if dibujos == planos else "incompleto" if dibujos else "sin_dibujos"
+
+
 def _episodios(carpeta: Path) -> list[dict]:
     lista = []
     for archivo in sorted((carpeta / "episodios").glob("*/episodio.json")):
@@ -190,9 +196,7 @@ def _episodios(carpeta: Path) -> list[dict]:
             miniatura = min(archivo.parent.glob("video_final_imagen_*.png"), default="")
             lista.append({"numero": int(archivo.parent.name), "titulo": _texto(e.get("titulo"), 120),
                           "resumen": _texto(e.get("resumen"), 1000), "carpeta": str(archivo.parent),
-                          "video": str(archivo.parent / "video_final.mp4"),
-                          # los de antes de guardar el estado salieron enteros
-                          "estado": e.get("estado") if e.get("estado") in ESTADOS else "listo",
+                          "video": str(archivo.parent / "video_final.mp4"), "estado": _estado(archivo.parent, planos),
                           "planos": planos, "miniatura": str(miniatura)})
         except (OSError, ValueError, TypeError, AttributeError):
             continue  # uno roto no impide ver los demás
@@ -328,12 +332,51 @@ def cambiar_lamina(serie: str, personaje: str, archivo: str) -> str:
     return str(destino)
 
 
+def _escenas(datos: dict, guion: dict) -> list[dict]:
+    """Cada plano como escena de desde_prompt.montar: su voz y su dibujo, con la apariencia fija de quien sale."""
+    nombres = {p["nombre"].lower(): p for p in datos["personajes"]}
+    # Las imágenes salen cuadradas y se recortan a 16:9: que nadie quede con la cabeza o los pies fuera
+    encuadre = ", characters fully inside the central band, no text" if datos["formato"] == "16:9" else ", no text"
+    escenas = []
+    for plano in _planos(guion):
+        salen = [nombres[n.lower()] for n in plano.get("personajes", []) if isinstance(n, str) and n.lower() in nombres]
+        habla = nombres.get(str(plano.get("habla", "")).lower())
+        fijas = "; ".join(f"{p['nombre']}: {p['descripcion']}" for p in salen)
+        escenas.append({"narracion": _texto(plano.get("texto"), 400) or "…",
+                        "imagen": _texto(plano.get("descripcion"), 1000) + (f". Characters: {fijas}" if fijas else "")
+                        + encuadre, "voz": habla["voz"] if habla else datos["narrador"],
+                        "ref": salen[0] if salen else None})
+    return escenas
+
+
+def _dibujar(carpeta: Path, escena: dict, prompt: str, ancho: int, alto: int, destino: Path) -> Path:
+    ref = escena["ref"]
+    if ref and lamina(carpeta, ref).is_file() and ia.puede_referencia():
+        return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False)
+    return ia.imagen(prompt, ancho, alto, destino)
+
+
+def _edicion(ep: Path, nombre: str) -> Path:
+    """La carpeta del editor del capítulo: al rehacerlo se pone al día la misma (no se llena Mis proyectos de copias),
+    salvo que la retocaras a mano después: entonces va a otra y tu retoque se queda."""
+    try:
+        ed = diseno._local(json.loads((ep / "episodio.json").read_text(encoding="utf-8"))["edicion"]).resolve()
+        if ed.parent == edicion.CARPETA.resolve() and \
+                (ed / "proyecto.json").stat().st_mtime <= (ep / "episodio.json").stat().st_mtime:
+            return ed
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return edicion.nueva_carpeta(nombre)
+
+
 def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0,
-                   aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None) -> dict:
+                   aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None,
+                   dibujar: bool = True) -> dict:
     """Escribe el capítulo siguiente (o rehace el `numero` que ya existe, con su mismo guion y las imágenes que ya
     salieron) y lo convierte en video: imagen, animación y voz de cada plano. Queda también como proyecto del editor.
     Si no sale ningún dibujo no hay video: el guion queda guardado (estado «sin_dibujos») y se avisa con un error.
-    guion: ya escrito (forma de ESQUEMA_EPISODIO) por quien maneja el estudio; entonces no se usa la IA de texto."""
+    guion: ya escrito (forma de ESQUEMA_EPISODIO) por quien maneja el estudio; entonces no se usa la IA de texto.
+    dibujar=False: al rehacer no pide ningún dibujo; solo vuelve a montar los planos que no tienen escena."""
     escrito = ia.de_fuera(guion, ESQUEMA_EPISODIO, t("El guion del capítulo")) if guion is not None else None
     carpeta, datos = _abrir(serie)
     planos = max(3, min(int(planos), MAX_PLANOS))
@@ -369,36 +412,26 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         for vieja in ep.glob("video_final_imagen_*.png"):  # un guion nuevo pide imágenes nuevas (si no, se reusarían)
             vieja.unlink()
         diseno.escribir_json(ep / "guion.json", guion)
-    nombres = {p["nombre"].lower(): p for p in datos["personajes"]}
-    # Las imágenes salen cuadradas y se recortan a 16:9: que nadie quede con la cabeza o los pies fuera
-    encuadre = ", characters fully inside the central band, no text" if datos["formato"] == "16:9" else ", no text"
-    escenas = []
-    for plano in _planos(guion):
-        salen = [nombres[n.lower()] for n in plano.get("personajes", []) if isinstance(n, str) and n.lower() in nombres]
-        habla = nombres.get(str(plano.get("habla", "")).lower())
-        fijas = "; ".join(f"{p['nombre']}: {p['descripcion']}" for p in salen)
-        escenas.append({"narracion": _texto(plano.get("texto"), 400) or "…",
-                        "imagen": _texto(plano.get("descripcion"), 1000) + (f". Characters: {fijas}" if fijas else "")
-                        + encuadre, "voz": habla["voz"] if habla else datos["narrador"],
-                        "ref": salen[0] if salen else None})
+    escenas = _escenas(datos, guion)
     if not escenas:
         raise ValueError(t("El guion del capítulo {n} está dañado.", n=numero))
-    # Al rehacer, el plano que ya tenía su dibujo se queda como está (ni se vuelve a narrar ni a montar)
+    # Al rehacer, el plano que ya tenía su dibujo se queda como está (ni se vuelve a narrar ni a montar); sin dibujar,
+    # también los que no lo tienen: esos son de «Dibujar lo que falta»
     hechas = {i: ep / f"video_final_escena_{i:02d}.mp4" for i in range(len(escenas))
-              if rehacer and _imagen(ep, i).is_file() and (ep / f"video_final_escena_{i:02d}.mp4").is_file()}
+              if rehacer and (_imagen(ep, i).is_file() or not dibujar)
+              and (ep / f"video_final_escena_{i:02d}.mp4").is_file()}
 
     def crear_imagen(prompt, ancho, alto, destino):
         if destino.is_file():  # al rehacer el capítulo, lo que ya salió no se vuelve a pedir
             return destino
-        ref = escenas[int(destino.stem.rsplit("_", 1)[1])]["ref"]
-        if ref and lamina(carpeta, ref).is_file() and ia.puede_referencia():
-            return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False)
-        return ia.imagen(prompt, ancho, alto, destino)
+        if not dibujar:
+            raise RuntimeError(t("se dibuja con «Dibujar lo que falta»"))
+        return _dibujar(carpeta, escenas[int(destino.stem.rsplit("_", 1)[1])], prompt, ancho, alto, destino)
     notas = []
     final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
                                 datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas, hablados=hechas)
     dibujos = sum(_imagen(ep, i).is_file() for i in range(len(escenas)))
-    estado = "listo" if dibujos == len(escenas) else "incompleto" if dibujos else "sin_dibujos"
+    estado = _estado(ep, len(escenas))
     capitulo = {"numero": numero, "titulo": _texto(guion.get("titulo"), 120),
                 "resumen": _texto(guion.get("resumen"), 1000), "estado": estado, "avisos": notas}
     if estado == "sin_dibujos":  # un video de manchas de color no es un capítulo: queda el guion para dibujarlo luego
@@ -413,7 +446,7 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
     proyecto = edicion.nuevo(nombre[:80], datos["formato"])
     for i in range(len(escenas)):  # para retocarlo a mano: cada plano es un clip en el editor de video
         proyecto = edicion.anadir_medio(proyecto, str(ep / f"video_final_escena_{i:02d}.mp4"))
-    ed = edicion.nueva_carpeta(proyecto["nombre"])
+    ed = _edicion(ep, proyecto["nombre"])
     edicion.guardar(proyecto, ed)
     diseno.escribir_json(ep / "episodio.json", {**capitulo, "edicion": str(ed)})
     aviso(t("¡Listo!"), 1.0)
@@ -428,8 +461,9 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
 def rehacer_plano(episodio: str, i: int, descripcion: str | None = None, texto: str | None = None,
                   aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
     """Vuelve a dibujar el plano `i` (desde 0) de un capítulo, si se pasa con otra descripción (en inglés) u otro
-    texto, y monta otra vez el video: los demás planos se quedan como están."""
+    texto, y monta otra vez el video: los demás planos se quedan como están. Gasta 1 imagen, aunque falten otras."""
     ep = _capitulo(episodio)
+    carpeta, datos = _abrir(ep.parent.parent.name)
     guion = _leer_guion(ep, ep.name)
     lista, i = _planos(guion), int(i)
     if not 0 <= i < len(lista):
@@ -438,10 +472,19 @@ def rehacer_plano(episodio: str, i: int, descripcion: str | None = None, texto: 
         lista[i]["descripcion"] = _texto(descripcion, 1000)
     if texto:
         lista[i]["texto"] = _texto(texto, 400)
+    # Primero el dibujo nuevo, aparte: sin cuota, el plano bueno (y su guion) se quedan como estaban
+    escena, nuevo = _escenas(datos, guion)[i], ep / "plano_nuevo.png"
+    aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=len(lista)), 0.05)
+    try:  # el mismo prompt que le pondría desde_prompt.montar
+        _dibujar(carpeta, escena, f"{escena['imagen']}, {datos['estilo']}", *video.FORMATOS[datos["formato"]], nuevo)
+    except Exception as e:
+        nuevo.unlink(missing_ok=True)
+        raise RuntimeError(t("El plano {n} no se pudo dibujar ({causa}). Se quedó como estaba.", n=i + 1,
+                             causa=str(e).replace("\n", " · ")[:300])) from None
     diseno.escribir_json(ep / "guion.json", guion)
-    _imagen(ep, i).unlink(missing_ok=True)
+    os.replace(nuevo, _imagen(ep, i))
     (ep / f"video_final_escena_{i:02d}.mp4").unlink(missing_ok=True)
-    return crear_episodio(ep.parent.parent.name, numero=int(ep.name), aviso=aviso)
+    return crear_episodio(carpeta.name, numero=int(ep.name), aviso=aviso, dibujar=False)
 
 
 def exportar_cuadros(episodio: str, fps: int = 12) -> str:

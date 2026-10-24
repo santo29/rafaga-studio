@@ -181,7 +181,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # La hora: al menos 15 minutos en el futuro y con formato válido, antes de subir nada
     antes = len(rutas)
     for hora, se_lee in (((datetime.now() + timedelta(minutes=5)).isoformat(), "15 minutos"),
-                         ("2020-01-01T10:00", "15 minutos"), ("mañana a las 6", "no válidas"), ("", "no válidas")):
+                         ("2020-01-01T10:00", "15 minutos"), ("mañana a las 6", "no válidas"), ("", "no válidas"),
+                         ("1960-01-01T10:00", "no válidas"), ("3500-01-01T10:00", "no válidas")):  # OSError en Windows
         assert se_lee in falla(publicar.programar, str(video), "T", "", (), hora)
     assert "solo se puede programar en YouTube" in falla(publicar.programar, str(video), "T", "", (),
                                                          en_dos_horas.isoformat(), red="tiktok")
@@ -203,8 +204,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert len(herramientas.TODAS) == 16 and "programar_publicacion" in herramientas.TODAS
     partes["falla"] = False
     r = json.loads(herramientas.programar_publicacion(str(video), "Con hashtags", "Mira esto #RD #viral",
-                                                      en_dos_horas.isoformat()))
-    assert r["id"] == "VID123" and metadatos[-1][1]["snippet"]["tags"] == ["RD", "viral"]
+                                                      en_dos_horas.isoformat(), red=" YouTube "))  # como la escribe una IA
+    assert r["id"] == "VID123" and r["red"] == "youtube" and metadatos[-1][1]["snippet"]["tags"] == ["RD", "viral"]
+    # La cuenta de YouTube no va a la IA del Director ni al agente MCP (la página de Claves sí la ve, para quitarla)
+    claves.guardar({"proveedor": "groq", "clave": "gsk_" + "x" * 30, "usos": ["texto"]})
+    vistos = [c["proveedor"] for c in json.loads(herramientas.listar_opciones())["proveedores"]]
+    assert vistos == ["groq"] and "youtube" in [c["proveedor"] for c in claves.publico()]
+    claves.borrar("groq")
     from motor import director  # noqa: E402
     assert director.RUTAS["programar_publicacion"] == ("archivo",)  # solo videos del usuario o del estudio
 

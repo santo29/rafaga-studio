@@ -224,7 +224,7 @@ def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: 
 def programar_publicacion(archivo: str, titulo: str, descripcion: str, fecha_hora: str, red: str = "youtube") -> str:
     """Programa un video (ruta de un video local) para que se publique solo a esa hora, aunque el PC esté apagado: se
     sube ya a YouTube como privado con su hora de salida y marcado como hecho con IA. Publica en el canal del
-    usuario: úsalo solo si él lo pidió. fecha_hora: ISO 8601, p. ej. 2026-10-25T18:00 (sin zona = hora de este PC),
+    usuario: úsalo solo si él lo pidió. fecha_hora: ISO 8601, AAAA-MM-DDTHH:MM (sin zona = hora de este PC),
     al menos 15 min en el futuro. red: por ahora solo youtube (se conecta una vez en la página «Publicar» de la app).
     Los #hashtags de la descripción van también como etiquetas."""
     etiquetas = re.findall(r"#(\w+)", str(descripcion or ""))
@@ -243,10 +243,12 @@ def listar_proyectos() -> str:
 
 def listar_opciones() -> str:
     """Formatos, voces y proveedores de IA conectados (sin mostrar las claves)."""
+    # solo los de IA: la cuenta de YouTube no sale de este PC (ni a la IA del Director ni al agente MCP)
     return _json({"formatos": list(video.FORMATOS), "voces": desde_prompt.voces(),
                   "generos_musica": list(musica.GENEROS), "estilos_anuncio": list(anuncios.ESTILOS),
                   "estilos_cabina": list(cabina.PRESETS),
-                  "proveedores": claves.publico(), "por_defecto": claves.ajustes()})
+                  "proveedores": [c for c in claves.publico() if c["proveedor"] in claves.USOS],
+                  "por_defecto": claves.ajustes()})
 
 
 TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, crear_anuncios, crear_cancion,

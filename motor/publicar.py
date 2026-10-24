@@ -117,7 +117,7 @@ def hora_utc(fecha_hora: str) -> datetime:
     """La hora de salida en UTC (sin zona horaria, es la hora de este PC), al menos 15 minutos en el futuro."""
     try:
         hora = datetime.fromisoformat(str(fecha_hora).strip()).astimezone(timezone.utc)
-    except (ValueError, OverflowError):  # OverflowError: el año 9999 en una zona detrás de UTC
+    except (ValueError, OverflowError, OSError):  # el año 9999 detrás de UTC; en Windows, antes de 1970 o tras 3000
         raise ValueError(t("Fecha y hora no válidas ({fecha!r:.40}); usa el formato 2026-10-25T18:00.",
                            fecha=fecha_hora)) from None
     if hora < datetime.now(timezone.utc) + MARGEN:
@@ -183,6 +183,7 @@ def programar(archivo: str, titulo: str, descripcion: str = "", etiquetas=(), fe
     """Sube el video a YouTube como privado con su hora de salida: YouTube lo publica solo a esa hora, aunque el PC
     esté apagado. Devuelve lo apuntado en el historial (datos/publicaciones.json)."""
     aviso = aviso or (lambda texto, f: None)
+    red = str(red or "youtube").strip().lower()  # la IA escribe a menudo «YouTube»
     if red != "youtube":
         raise ValueError(t("Por ahora solo se puede programar en YouTube; {red} llegará más adelante.",
                            red=str(red)[:30]))

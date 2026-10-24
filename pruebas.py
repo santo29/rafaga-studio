@@ -75,6 +75,9 @@ assert claves.candidatos("ghp_" + "a" * 36) == [] and claves.candidatos("glpat-"
 assert claves.limpiar(f"Account ID: {cuenta}\nAPI token: {token}") == f"{cuenta} {token}"
 assert claves.limpiar(f'curl https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/x -H "Authorization: '
                       f'Bearer {token}"') == f"{cuenta} {token}"
+nuevo = "cfut_" + "K9x" * 16  # la orden de «verificar token» que da Cloudflare: sin cuenta, se saca el token
+assert claves.limpiar('curl "https://api.cloudflare.com/client/v4/user/tokens/verify" \\\n'
+                      f'-H "Authorization: Bearer {nuevo}"') == nuevo
 _get = claves.httpx.get
 
 

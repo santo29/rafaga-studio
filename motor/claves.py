@@ -237,6 +237,10 @@ def limpiar(clave: str) -> str:
         tokens = set(re.findall(rf"(?<![A-Za-z0-9_-]){TOKEN_CF}(?![A-Za-z0-9_-])", c)) - cuentas
         if len(cuentas) == 1 and len(tokens) == 1:
             return f"{cuentas.pop()} {tokens.pop()}"
+        # Solo el token (p. ej. la orden curl de «verificar token»): se saca, y detectar pide la cuenta si hace falta.
+        # Solo con el prefijo de Cloudflare: una palabra cualquiera de 40 letras en un texto no es una clave
+        if not cuentas and len(tokens) == 1 and re.match(r"cf[ua]t_", next(iter(tokens))):
+            return tokens.pop()
     return c
 
 

@@ -9,8 +9,8 @@ from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 
 
-USOS_UI = {"texto": t("Guiones y elegir clips"), "imagen": t("Imágenes"), "video": t("Animar escenas con IA de video"),
-           "transcripcion": t("Transcripción"), "musica": t("Música")}
+USOS_UI = {"texto": t("Guiones y elegir clips"), "diseno": t("IA que diseña"), "imagen": t("Imágenes"),
+           "video": t("Animar escenas con IA de video"), "transcripcion": t("Transcripción"), "musica": t("Música")}
 
 
 NOMBRES_PROVEEDOR = {"auto": t("Automático (la mejor conectada)"), "pollinations": t("Pollinations (gratis)"),
@@ -115,6 +115,9 @@ class PaginaClaves(QWidget):
             fila.addWidget(combo, 1)
             defecto_lay.addLayout(fila)
             self.selectores[uso] = combo
+            if uso == "diseno":
+                self.nota_diseno = etiqueta(t("Claude o ChatGPT diseñan mejor: conecta su clave."), "sub")
+                defecto_lay.addWidget(self.nota_diseno)
         lay.addWidget(defecto)
         # Nube de video en Modal: instalar el motor una vez y fijar el tope diario para no pasar del crédito gratis.
         nube_caja, nube_lay = tarjeta()
@@ -177,6 +180,7 @@ class PaginaClaves(QWidget):
             estado.setStyleSheet("color: #3DDC97; font-weight: 700;" if clave in conectadas else "color: #8D8D9A;")
         self.uso_nube.setText(t("Hoy: {n} de {m} clips", n=nube.usados_hoy(), m=nube.limite())
                               if "modal" in conectadas else t("Sin conectar"))
+        self.nota_diseno.setVisible(not {"anthropic", "openai"} & conectadas.keys())
         actual = claves.ajustes()
         for uso, combo in self.selectores.items():
             combo.blockSignals(True)
@@ -185,6 +189,8 @@ class PaginaClaves(QWidget):
                 nombre = NOMBRES_PROVEEDOR.get(p, p.capitalize())
                 if uso == "video" and p == "auto":  # que se sepa adónde va la foto antes de elegir
                     nombre = t("Automático (gratis primero: Space público de Hugging Face)")
+                elif uso == "diseno" and p == "auto":
+                    nombre = t("La misma que escribe los guiones")
                 combo.addItem(nombre, p)
             combo.setCurrentIndex(max(combo.findData(actual.get(uso, "auto")), 0))
             combo.blockSignals(False)

@@ -18,6 +18,10 @@ capa, en el orden de diseno["capas"] (el último, encima).
 Formas: "linea" es un trazo horizontal por el centro de la caja, del color de `relleno` y de grosor `grosor_borde`.
 El texto que no cabe en su caja se recorta (si se saliera, una sombra lo pintaría entero aparte: GB de memoria).
 
+Como en Photoshop: cada capa tiene su modo de fusión (`fusion`, de FUSIONES), y una capa imagen, sus AJUSTES (brillo,
+contraste y saturación de -100 a 100, y desenfoque, un radio en px del diseño; 0 = sin cambio). El PDF y el SVG no
+tienen modos de fusión: hasta la última capa que no es «normal» salen como una imagen, y lo de encima en vectores.
+
 Topes para que un diseño ajeno no cuelgue el editor ni llene la memoria (los aplica validar()):
 - Se RECORTAN sin error (ajustar_capa, que el editor puede llamar antes de validar): cada capa mide como mucho
   FACTOR_CAPA (2) veces el lienzo de ancho y de alto, y el grosor_contorno de un texto, como mucho su tamano ×
@@ -41,13 +45,13 @@ import uuid
 from functools import cache, lru_cache
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMarginsF, QPointF, QRect, QRectF, QSize, QSizeF, Qt
+from PySide6.QtCore import QByteArray, QMarginsF, QPoint, QPointF, QRect, QRectF, QSize, QSizeF, Qt
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QImageReader, QLinearGradient,
                            QPageSize, QPainter, QPainterPath, QPdfWriter, QPen, QTextCharFormat, QTextCursor,
-                           QTextOption)
+                           QTextOption, QTransform)
 from PySide6.QtSvg import QSvgGenerator, QSvgRenderer
-from PySide6.QtWidgets import (QApplication, QGraphicsDropShadowEffect, QGraphicsItem, QGraphicsScene,
-                               QGraphicsTextItem)
+from PySide6.QtWidgets import (QApplication, QGraphicsDropShadowEffect, QGraphicsItem, QGraphicsRectItem,
+                               QGraphicsScene, QGraphicsTextItem)
 
 from . import recursos, seguro
 from .idioma import t
@@ -66,6 +70,10 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
 # Nombres que Windows abre como dispositivos aunque lleven extensión (leer «CON.png» se quedaría esperando la consola)
 _RESERVADOS = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
 _ALINEACION = {"izquierda": Qt.AlignLeft, "centro": Qt.AlignHCenter, "derecha": Qt.AlignRight}
+FUSIONES = {"normal": QPainter.CompositionMode_SourceOver, "multiplicar": QPainter.CompositionMode_Multiply,
+            "trama": QPainter.CompositionMode_Screen, "superponer": QPainter.CompositionMode_Overlay,
+            "aclarar": QPainter.CompositionMode_Lighten, "oscurecer": QPainter.CompositionMode_Darken}
+AJUSTES = ("brillo", "contraste", "saturacion", "desenfoque")  # los de una capa imagen, en el orden de ajustar_imagen
 
 
 # ---------- Validación ----------
@@ -143,13 +151,15 @@ _REGLAS = {
     "negrita": _si_no, "cursiva": _si_no, "sombra": _si_no,
     "alineacion": _una(*_ALINEACION), "ajuste": _una("cubrir", "contener"),
     "forma": _una("rectangulo", "elipse", "linea"), "redondeo": lambda v: _num(v, 0, 10000),
-    "archivo": nombre_imagen, "nombre": _icono,
+    "archivo": nombre_imagen, "nombre": _icono, "fusion": _una(*FUSIONES),
+    "brillo": lambda v: _num(v, -100, 100), "contraste": lambda v: _num(v, -100, 100),
+    "saturacion": lambda v: _num(v, -100, 100), "desenfoque": lambda v: _num(v, 0, 100),
 }
-_COMUNES = {"x": 0, "y": 0, "ancho": 300, "alto": 300, "rotacion": 0, "opacidad": 1}
+_COMUNES = {"x": 0, "y": 0, "ancho": 300, "alto": 300, "rotacion": 0, "opacidad": 1, "fusion": "normal"}
 CAPAS = {  # lo propio de cada tipo de capa, con su valor por defecto
     "texto": {"texto": t("Texto"), "fuente": "Montserrat", "tamano": 64, "color": "#FFFFFF", "negrita": False,
               "cursiva": False, "alineacion": "izquierda", "contorno": "", "grosor_contorno": 0, "sombra": False},
-    "imagen": {"archivo": "", "ajuste": "cubrir", "redondeo": 0},
+    "imagen": {"archivo": "", "ajuste": "cubrir", "redondeo": 0, **dict.fromkeys(AJUSTES, 0)},
     "forma": {"forma": "rectangulo", "relleno": "#7C5CFF", "borde": "", "grosor_borde": 0, "redondeo": 0},
     "icono": {"nombre": "star", "color": "#FFFFFF"},
     "emoji": {"texto": "⭐"},
@@ -375,15 +385,25 @@ def _registrar_fuentes() -> None:
             QFontDatabase.addApplicationFont(str(archivo))
 
 
-def _imagen(carpeta: Path, nombre: str) -> QImage | None:
-    """La imagen de imagenes/, o None si falta, no es una imagen o es un enlace que apunta fuera de la carpeta."""
+def ruta_imagen(carpeta: Path, nombre: str) -> Path | None:
+    """La ruta real de una imagen de imagenes/, o None si falta, no es una imagen o es un enlace que apunta fuera de
+    la carpeta (un diseño de otro PC no saca así un archivo privado: ni al lienzo ni a una IA)."""
     imagenes = Path(carpeta) / "imagenes"
     try:
         ruta = seguro.archivo_medio(str(imagenes / nombre), seguro.IMAGENES, "imagen")
-        if ruta.parent != imagenes.resolve():
-            return None
-        imagen = _leer_imagen(str(ruta), ruta.stat().st_mtime_ns)
+        return ruta if ruta.parent == imagenes.resolve() else None
     except (ValueError, OSError):
+        return None
+
+
+def _imagen(carpeta: Path, nombre: str) -> QImage | None:
+    """La imagen de imagenes/ ya leída, o None (ver ruta_imagen)."""
+    ruta = ruta_imagen(carpeta, nombre)
+    if ruta is None:
+        return None
+    try:
+        imagen = _leer_imagen(str(ruta), ruta.stat().st_mtime_ns)
+    except OSError:
         return None
     return None if imagen.isNull() else imagen
 
@@ -401,24 +421,39 @@ def _leer_imagen(ruta: str, _fecha: int) -> QImage:
     return imagen
 
 
-class _Sombra(QGraphicsDropShadowEffect):
-    """Qt pone el desenfoque y el desplazamiento en píxeles de pantalla: se escalan con el zoom para que la sombra
-    mida lo mismo en el lienzo que en el PNG o el PDF."""
+class _Efecto(QGraphicsDropShadowEffect):
+    """La sombra de un texto (tamano: el de su letra; 0, sin sombra) y el modo de fusión de la capa: la capa ya pintada
+    entera se funde con lo de debajo, así un texto no se funde con su propio contorno. Qt pone el desenfoque y el
+    desplazamiento de la sombra en píxeles de pantalla: se escalan con el zoom para que mida lo mismo en el lienzo que
+    en el PNG o el PDF."""
 
-    def __init__(self, tamano: float):
+    def __init__(self, tamano: float, fusion: str):
         super().__init__()
-        self.tamano = tamano
+        self.tamano, self.modo = tamano, FUSIONES[fusion]
         self.setColor(QColor(0, 0, 0, 150))
+        self.setBlurRadius(0)
+        self.setOffset(0, 0)
 
     def draw(self, p: QPainter) -> None:
-        t = p.worldTransform()
-        z = math.hypot(t.m11(), t.m12())  # la escala, aunque la capa esté girada
-        self.setBlurRadius(self.tamano / 6 * z)  # con el mismo valor, Qt no repinta: no hay bucle
-        self.setOffset(0, self.tamano / 20 * z)
+        if self.tamano:
+            t = p.worldTransform()
+            z = math.hypot(t.m11(), t.m12())  # la escala, aunque la capa esté girada
+            self.setBlurRadius(self.tamano / 6 * z)  # con el mismo valor, Qt no repinta: no hay bucle
+            self.setOffset(0, self.tamano / 20 * z)
+        p.save()  # el modo no se queda puesto para las capas de encima
+        p.setCompositionMode(self.modo)
         r = self.sourceBoundingRect(Qt.DeviceCoordinates)
-        if r.width() * r.height() > MAX_PIXELES_SOMBRA:  # a mucha escala serían GB: ese pintado va sin sombra
-            return self.drawSource(p)
-        super().draw(p)
+        if r.width() * r.height() > MAX_PIXELES_SOMBRA:  # a mucha escala serían GB: sin sombra y fundida trazo a trazo
+            self.drawSource(p)
+        elif self.tamano:
+            super().draw(p)
+        else:
+            origen = QPoint()
+            imagen = self.sourcePixmap(Qt.DeviceCoordinates, origen)  # PySide6 escribe en `origen` dónde va
+            p.setWorldTransform(QTransform())
+            p.setOpacity(1)  # la de la capa ya va en la imagen: si no, contaría dos veces
+            p.drawPixmap(origen, imagen)
+        p.restore()
 
 
 class ItemCapa(QGraphicsItem):
@@ -426,7 +461,7 @@ class ItemCapa(QGraphicsItem):
 
     def __init__(self, capa: dict, carpeta: Path):
         super().__init__()
-        self.carpeta, self.texto = Path(carpeta), None
+        self.carpeta, self.texto, self._ajustada = Path(carpeta), None, (None, None)
         self._archivo = self._icono = self._imagen = self._svg = self._contorno = None
         # El texto no sale de su caja: la sombra pinta la capa entera aparte, y un texto desbordado serían GB
         self.setFlag(QGraphicsItem.ItemClipsChildrenToShape)
@@ -449,6 +484,9 @@ class ItemCapa(QGraphicsItem):
             self._svg.setAspectRatioMode(Qt.KeepAspectRatio)
         elif c["tipo"] == "texto":
             self._poner_texto(c)
+        # En la capa entera: la sombra la hacen el texto y su contorno juntos
+        sombra = c["tamano"] if c["tipo"] == "texto" and c["sombra"] else 0
+        self.setGraphicsEffect(_Efecto(sombra, c["fusion"]) if sombra or c["fusion"] != "normal" else None)
         self.update()
 
     def _poner_texto(self, c: dict) -> None:
@@ -482,8 +520,6 @@ class ItemCapa(QGraphicsItem):
             cursor = QTextCursor(self._contorno.document())
             cursor.select(QTextCursor.Document)
             cursor.mergeCharFormat(formato)
-        # En la capa entera: la sombra la hacen el texto y su contorno juntos
-        self.setGraphicsEffect(_Sombra(c["tamano"]) if c["sombra"] else None)
 
     def boundingRect(self) -> QRectF:
         c = self._capa
@@ -549,11 +585,78 @@ class ItemCapa(QGraphicsItem):
             else:
                 destino.setWidth(destino.width() * proporcion)
             destino.moveCenter(caja.center())
+        if any(c[k] for k in AJUSTES):
+            imagen, origen = self._con_ajustes(p, imagen, origen, destino, c)
         r = min(c["redondeo"], destino.width() / 2, destino.height() / 2)
         camino = QPainterPath()
         camino.addRoundedRect(destino, r, r)
         p.setClipPath(camino, Qt.IntersectClip)
         p.drawImage(destino, imagen, origen)
+
+    def _con_ajustes(self, p: QPainter, imagen: QImage, origen: QRectF, destino: QRectF,
+                     c: dict) -> tuple[QImage, QRectF]:
+        """El trozo `origen` de la imagen con los ajustes de la capa, a los píxeles con que se va a ver (sin pasar de
+        los de la foto): así el lienzo no va lento. En caché hasta que cambien la imagen, el zoom o los ajustes."""
+        t = p.worldTransform()
+        f = min(math.hypot(t.m11(), t.m12()) * destino.width() / origen.width(), 1,
+                4096 / max(origen.width(), origen.height()))
+        ancho, alto = max(1, round(origen.width() * f)), max(1, round(origen.height() * f))
+        ajustes = tuple(c[k] for k in AJUSTES)
+        clave = (imagen.cacheKey(), origen.getRect(), ancho, alto, ajustes)
+        if self._ajustada[0] != clave:
+            trozo = imagen.copy(origen.toAlignedRect()).scaled(ancho, alto, Qt.IgnoreAspectRatio,
+                                                               Qt.SmoothTransformation)
+            # El desenfoque va en px del diseño: en los de este trozo, a su escala
+            self._ajustada = clave, ajustar_imagen(trozo, *ajustes[:3], ajustes[3] * ancho / destino.width())
+        return self._ajustada[1], QRectF(self._ajustada[1].rect())
+
+
+def _suavizar(a):
+    """Cada píxel, la media de los 3 × 3 de su alrededor (con el borde repetido)."""
+    import numpy as np
+    for eje in (0, 1):
+        b = np.moveaxis(a, eje, 0)
+        c = b.copy()
+        c[1:] += b[:-1]
+        c[:-1] += b[1:]
+        c[0] += b[0]
+        c[-1] += b[-1]
+        a = np.moveaxis(c, 0, eje) / 3
+    return a
+
+
+def ajustar_imagen(imagen: QImage, brillo: float = 0, contraste: float = 0, saturacion: float = 0,
+                   radio: float = 0) -> QImage:
+    """La imagen con brillo, contraste y saturación (de -100 a 100; 0 = igual) y desenfoque (radio en píxeles de esta
+    imagen), como los ajustes de Photoshop. Sale premultiplicada: el desenfoque no oscurece los bordes transparentes."""
+    import numpy as np
+    w, h = imagen.width(), imagen.height()
+    if radio > 2.8:  # tan desenfocada no tiene detalle: se desenfoca en pequeño (mucho más rápido) y se amplía
+        f = 2.8 / radio
+        pequena = imagen.scaled(max(1, round(w * f)), max(1, round(h * f)), Qt.IgnoreAspectRatio,
+                                Qt.SmoothTransformation)
+        return ajustar_imagen(pequena, brillo, contraste, saturacion, 2.8).scaled(w, h, Qt.IgnoreAspectRatio,
+                                                                                  Qt.SmoothTransformation)
+    origen = imagen.convertToFormat(QImage.Format_RGBA8888)
+    a = np.frombuffer(origen.constBits(), np.uint8).reshape(h, origen.bytesPerLine())[:, :4 * w]
+    a = a.reshape(h, w, 4).astype(np.float32)
+    alfa = a[..., 3].copy()  # las cuentas van con los 4 canales (más rápido) y la transparencia se repone después
+    if brillo or contraste or saturacion:
+        factor = 2 ** (contraste / 50)  # de ¼ a ×4 alrededor del gris medio
+        a *= factor
+        a += 127.5 * (1 - factor) + brillo * 1.275
+        if saturacion:  # gris + (color − gris) × s
+            gris = a @ np.array([0.299, 0.587, 0.114, 0], np.float32)
+            a *= 1 + saturacion / 100
+            a -= (gris * (saturacion / 100))[..., None]
+        np.clip(a, 0, 255, out=a)
+    a *= (alfa / 255)[..., None]
+    a[..., 3] = alfa
+    # Cada pasada de 3 × 3 desenfoca un poco más: hasta 3, que son casi un desenfoque gaussiano de ese radio
+    for _ in range(0 if radio < 0.5 else min(3, max(1, round((radio / 1.63) ** 2)))):
+        a = _suavizar(a)
+    datos = np.ascontiguousarray(np.clip(a + 0.5, 0, 255).astype(np.uint8))
+    return QImage(datos.data, w, h, 4 * w, QImage.Format_RGBA8888_Premultiplied).copy()
 
 
 def escena(diseno: dict, carpeta: Path) -> QGraphicsScene:
@@ -569,9 +672,8 @@ def escena(diseno: dict, carpeta: Path) -> QGraphicsScene:
             brocha.setColorAt(i / (len(fondo["colores"]) - 1), QColor(c))
     s.addRect(s.sceneRect(), Qt.NoPen, brocha)
     if fondo["tipo"] == "imagen":  # encima del color, que queda de respaldo si la imagen falta
-        s.addItem(ItemCapa({"id": None, "tipo": "imagen", "x": 0, "y": 0, "ancho": d["ancho"], "alto": d["alto"],
-                            "rotacion": 0, "opacidad": 1, "archivo": fondo["imagen"], "ajuste": "cubrir",
-                            "redondeo": 0}, carpeta))
+        s.addItem(ItemCapa({**_COMUNES, **CAPAS["imagen"], "id": None, "tipo": "imagen", "ancho": d["ancho"],
+                            "alto": d["alto"], "archivo": fondo["imagen"]}, carpeta))
     for capa in d["capas"]:
         s.addItem(ItemCapa(capa, carpeta))
     return s
@@ -582,8 +684,33 @@ def _pintar(s: QGraphicsScene, dispositivo, origen: QRectF) -> None:
     if not p.isActive():
         raise RuntimeError(t("No se pudo escribir el archivo exportado (¿carpeta sin permiso o archivo abierto?)."))
     p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform | QPainter.TextAntialiasing)
-    s.render(p, QRectF(0, 0, dispositivo.width(), dispositivo.height()), origen, Qt.IgnoreAspectRatio)
+    destino = QRectF(0, 0, dispositivo.width(), dispositivo.height())
+    if not isinstance(dispositivo, QImage):  # el PDF y el SVG
+        _aplanar(s, p, destino, origen)
+    s.render(p, destino, origen, Qt.IgnoreAspectRatio)
     p.end()
+
+
+def _aplanar(s: QGraphicsScene, p: QPainter, destino: QRectF, origen: QRectF) -> None:
+    """El PDF y el SVG no tienen modos de fusión: hasta la última capa con fusión se pintan como una imagen (al doble,
+    300 ppp en el PDF, como sus sombras) y se esconden; lo de encima queda para pintarse en vectores."""
+    # El fondo, la foto de fondo y las capas, de abajo arriba. Ni items(Qt.AscendingOrder) ni parentItem(): con
+    # PySide6 dejan la escena sin pintar después
+    items = [i for i in reversed(s.items()) if isinstance(i, (QGraphicsRectItem, ItemCapa))]
+    ultima = max((n for n, i in enumerate(items) if isinstance(i, ItemCapa) and i._capa["fusion"] != "normal"),
+                 default=None)
+    if ultima is None:
+        return
+    for i in items[ultima + 1:]:
+        i.hide()
+    escala = min(2, math.sqrt(40_000_000 / (origen.width() * origen.height())))  # el tope de exportar
+    plano = QImage(max(1, round(origen.width() * escala)), max(1, round(origen.height() * escala)),
+                   QImage.Format_ARGB32_Premultiplied)
+    plano.fill(Qt.transparent)
+    _pintar(s, plano, origen)
+    for n, i in enumerate(items):
+        i.setVisible(n > ultima)
+    p.drawImage(destino, plano)
 
 
 # Tamaños fijos para exportar en vez de una escala: (lado largo en px, solo el cuadrado del centro)
@@ -637,3 +764,74 @@ def exportar(diseno: dict, carpeta: Path, destino: Path, formato: str = "png", e
         svg.setViewBox(QRect(0, 0, int(origen.width()), int(origen.height())))
         _pintar(s, svg, origen)
     return destino
+
+
+# ---------- Quitar el fondo ----------
+
+class FondoNoLiso(ValueError):
+    """La imagen no tiene un fondo de un solo color: sin IA no se puede quitar bien."""
+
+
+def _crecer(marca, dentro, veces: int):
+    """La marca extendida a sus vecinos (arriba, abajo y a los lados) que están `dentro` (None: a todos), hasta que no
+    crece más o tras `veces` pasos."""
+    import numpy as np
+    for _ in range(veces):
+        nueva = marca.copy()
+        nueva[1:] |= marca[:-1]
+        nueva[:-1] |= marca[1:]
+        nueva[:, 1:] |= marca[:, :-1]
+        nueva[:, :-1] |= marca[:, 1:]
+        if dentro is not None:
+            nueva &= dentro
+        if np.array_equal(nueva, marca):
+            break
+        marca = nueva
+    return marca
+
+
+def quitar_fondo(origen: Path, destino: Path, tolerancia: float = 60) -> Path:
+    """Quita el fondo liso de una imagen (como las ilustraciones que pide la IA «isolated on plain solid background»),
+    gratis y en el PC, y la guarda en `destino` como PNG con transparencia. El fondo es el color del borde: se quita lo
+    que se le parece (a menos de `tolerancia` en distancia RGB) y llega al borde sin cruzar el dibujo, así lo de dentro
+    del mismo color (unos ojos blancos sobre fondo blanco) se queda. El filo sale suave y sin el halo del fondo.
+    FondoNoLiso si el borde no es de un solo color (una foto).
+    ponytail: un fondo con viñeta muy marcada (el centro a más de `tolerancia` del borde) deja una mancha: con IA."""
+    import numpy as np
+    imagen = _leer_imagen(str(origen), Path(origen).stat().st_mtime_ns).convertToFormat(QImage.Format_RGBA8888)
+    if imagen.isNull():
+        raise ValueError(t("No se pudo leer la imagen."))
+    w, h = imagen.width(), imagen.height()
+    a = np.frombuffer(imagen.constBits(), np.uint8).reshape(h, imagen.bytesPerLine())[:, :4 * w].reshape(h, w, 4)
+    if np.mean(np.concatenate([a[0, :, 3], a[-1, :, 3], a[:, 0, 3], a[:, -1, 3]]) < 128) > 0.5:
+        raise ValueError(t("Esta imagen ya no tiene fondo: su borde es transparente."))
+    rgb = a[..., :3].astype(np.float32)
+    borde = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
+    fondo = np.median(borde, axis=0)
+    if np.mean(np.linalg.norm(borde - fondo, axis=1) < tolerancia) < 0.7:
+        raise FondoNoLiso(t("El fondo de esta imagen no es liso (de un solo color): sin IA no se puede quitar bien."))
+    cerca = np.linalg.norm(rgb - fondo, axis=2) < tolerancia
+    # Lo que llega al borde se busca en pequeño, que es rápido: un bloque cuenta solo si es todo fondo, así una raya
+    # fina del dibujo no deja pasar; luego se termina píxel a píxel hasta el filo
+    paso = max(1, math.ceil(max(w, h) / 512))
+    filas, columnas = -(-h // paso), -(-w // paso)
+    bloques = np.pad(cerca, ((0, filas * paso - h), (0, columnas * paso - w)), constant_values=True)
+    bloques = bloques.reshape(filas, paso, columnas, paso).all(axis=(1, 3))
+    semilla = np.zeros_like(bloques)
+    semilla[[0, -1]] = bloques[[0, -1]]
+    semilla[:, [0, -1]] |= bloques[:, [0, -1]]
+    fuera = np.repeat(np.repeat(_crecer(semilla, bloques, 4 * (filas + columnas)), paso, 0), paso, 1)[:h, :w]
+    fuera = _crecer(fuera, cerca, 2 * paso)
+    # El fondo, transparente del todo; en el filo (a los dos lados), cada píxel es alfa × dibujo + (1 − alfa) × fondo:
+    # la opacidad es lo que se aparta del fondo hacia el blanco o el negro (sin el ruido de menos del 4 %), y el color,
+    # el del dibujo sin el del fondo mezclado (así no queda un halo del color del fondo)
+    lado = max(2, round(max(w, h) / 400))
+    filo = _crecer(fuera, None, lado) & _crecer(~fuera, None, lado)
+    techo = np.where(rgb > fondo, 255 - fondo, fondo)
+    mezcla = np.clip(((np.abs(rgb - fondo) / np.maximum(techo, 1)).max(axis=2) - 0.04) / 0.96, 0, 1)
+    alfa = np.where(filo, mezcla, np.where(fuera, 0, 1))[..., None]
+    rgb = np.clip((rgb - (1 - alfa) * fondo) / np.maximum(alfa, 1e-3), 0, 255)
+    datos = np.ascontiguousarray(np.dstack([rgb, alfa * a[..., 3:]]).round().astype(np.uint8))
+    if not QImage(datos.data, w, h, 4 * w, QImage.Format_RGBA8888).save(str(destino), "PNG"):
+        raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
+    return Path(destino)

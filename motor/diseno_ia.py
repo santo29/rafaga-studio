@@ -439,7 +439,7 @@ def entender(pedido: str, tipo: str = "auto") -> dict:
     _comprobar("post" if tipo == "auto" else tipo)
     pieza = "" if tipo == "auto" else f"\nPieza elegida por el usuario: {tipo}."
     try:
-        r = ia.texto_json(INSTRUCCIONES_ENTENDER, f"Pedido: {pedido}{pieza}", ESQUEMA_ENTENDER)
+        r = ia.texto_json(INSTRUCCIONES_ENTENDER, f"Pedido: {pedido}{pieza}", ESQUEMA_ENTENDER, uso="diseno")
         r = r if isinstance(r, dict) else {}
     except Exception:  # sin IA de texto o caída: mejor diseñar lo escrito que no diseñar
         r = {}
@@ -464,6 +464,16 @@ def ilustracion(prompt: str, estilo: str, destino: Path, calidad: str = "1K") ->
         return ia.imagen(_prompt(prompt, estilo), 1024, 1024, Path(destino), calidad=calidad)
     except Exception as error:
         raise RuntimeError(t("La imagen no salió ({causa}).", causa=_causa(error))) from None
+
+
+FONDO_VERDE = ("Replace the whole background with a flat, pure green (#00FF00) background, with no shadows, gradients "
+               "or texture. Keep the subject exactly the same, with its edges intact.")
+
+
+def quitar_fondo_con_ia(foto: Path, destino: Path, calidad: str = "1K") -> Path:
+    """Para una imagen sin fondo liso: la IA de imágenes (con referencia) le pone un fondo verde puro y luego se quita
+    aquí, gratis, con diseno.quitar_fondo. De pago: quien la llama avisa antes del costo."""
+    return diseno.quitar_fondo(ia.editar_imagen(foto, FONDO_VERDE, destino, calidad), destino)
 
 
 def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
@@ -525,7 +535,7 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
 
     if propuesta is None:
         aviso(t("La IA está diseñando…"), 0.05)
-    r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA)
+    r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA, uso="diseno")
     r = r if isinstance(r, dict) else {}
     avisos = []
     # También en una propuesta: el Director de la app (una IA gratis) la escribe él mismo y también inventa

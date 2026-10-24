@@ -47,6 +47,8 @@ PREFERENCIA = {
     "video": ["huggingface", "modal", "pollinations"],  # gratis primero; igual que nubes.ORDEN
     "musica": ["gemini", "elevenlabs"],  # Lyria: ~$0.08 por canción y suena mejor; ElevenLabs: ~$0.30-0.45
 }
+# La IA que diseña (diseno_ia) es una de las de texto; en «auto», la misma que escribe los guiones (ver para)
+PREFERENCIA["diseno"] = PREFERENCIA["texto"]
 
 # De pago y con una clave que muchos conectan por otra cosa (Gemini, por su texto gratis): se ofrecen para elegir,
 # pero el modo automático nunca los usa (ver también nubes.orden).
@@ -469,13 +471,15 @@ def opciones(uso: str) -> list[str]:
 
 
 def para(uso: str) -> dict | None:
-    """La clave que toca para un uso ('texto', 'imagen', 'transcripcion', 'video').
+    """La clave que toca para un uso ('texto', 'diseno', 'imagen', 'transcripcion', 'video').
     Devuelve {'proveedor': 'pc'|'ninguno'|'pollinations'} sin clave si se eligió una opción gratis."""
     todas, elegido = cargar(), ajustes().get(uso, "auto")
     if elegido in todas:
         return todas[elegido]
     if elegido == GRATIS.get(uso):
         return {"proveedor": elegido}
+    if uso == "diseno":  # «auto», o la elegida ya no tiene clave: la misma IA que escribe los guiones
+        return para("texto")
     # "auto", o el proveedor elegido ya no tiene clave: elección automática.
     return next((todas[p] for p in PREFERENCIA[uso] if p in todas), None)
 

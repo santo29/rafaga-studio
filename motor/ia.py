@@ -476,9 +476,10 @@ API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
 IMAGEN_GEMINI = "gemini-nano-banana-2.1"  # Nano Banana 2.1, si la API no dice cuál hay
-# US$ por imagen según su calidad (imageSize) con Nano Banana 2.1, según Google el 22-10-2026 (sin cuota gratis).
-# ponytail: con el Flash Image de respaldo (claves sin Nano Banana) cuesta casi el doble; si pasa, precio por modelo
-PRECIO_IMAGEN_GEMINI = {"1K": 0.0336, "2K": 0.0504, "4K": 0.113}
+# US$ por imagen según el modelo y su calidad (imageSize), según Google el 22-10-2026 (sin cuota gratis): el Flash
+# Image de respaldo (claves sin Nano Banana) cuesta casi el doble
+PRECIO_IMAGEN_GEMINI = {IMAGEN_GEMINI: {"1K": 0.0336, "2K": 0.0504, "4K": 0.113},
+                        "gemini-3.1-flash-image": {"1K": 0.067, "2K": 0.101, "4K": 0.151}}
 PROPORCIONES_GEMINI = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")  # las que acepta
 _elegidos = {}  # modelo elegido por clave y por uso, una vez por sesión
 
@@ -502,6 +503,13 @@ def modelo_video_voz(clave: str) -> str:
 
 def modelo_imagen_gemini(clave: str) -> str:
     return _modelo_de_la_clave(clave, claves.elegir_modelo_imagen_gemini, IMAGEN_GEMINI)
+
+
+def precio_imagen_gemini(clave: str, calidad: str) -> float:
+    """US$ por imagen con el modelo ya elegido para esa clave; si aún no se sabe (o no se conoce su precio), el más
+    caro de los conocidos: el aviso de costo nunca se queda corto. No pregunta a la red."""
+    precios = PRECIO_IMAGEN_GEMINI.get(_elegidos.get((clave, claves.elegir_modelo_imagen_gemini)))
+    return precios[calidad] if precios else max(p[calidad] for p in PRECIO_IMAGEN_GEMINI.values())
 
 
 def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path | None = None,

@@ -355,7 +355,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert list(pd.ESTILOS_IA) == ["auto", "vector", "sticker", "tatuaje", "poster", "grabado", "render3d",
                                    "neon_oscuro", "animado3d", "urbano", "foto"]
     # Calidad: sin Gemini para las imágenes, 2K y 4K no se pueden elegir y se dice por qué
-    assert list(pd.CALIDADES) == list(pd.ia.PRECIO_IMAGEN_GEMINI) and p.calidad.currentData() == "1K"
+    assert all(list(pd.CALIDADES) == list(precios) for precios in pd.ia.PRECIO_IMAGEN_GEMINI.values())
+    assert p.calidad.currentData() == "1K"
     assert not any(p.calidad.model().item(i).isEnabled() for i in (1, 2)) and "Gemini" in p.calidad.toolTip()
     # Ideas: un pedido de ejemplo con el estilo que le va
     ideas = next(b for b in p.findChildren(QPushButton) if b.toolTip() == "Ideas")
@@ -462,13 +463,20 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a: costos.append(texto) or QMessageBox.No)
     p.disenar_con_ia()
     assert len(pedidos) == 5 and p.disenar.isEnabled() and "Cancelado" in p.estado.text()
-    assert "4K" in costos[-1] and "hasta 2 foto(s)" in costos[-1] and "US$0.23" in costos[-1], costos  # 2 × 0,113
+    # Aún no se sabe qué modelo tiene la clave: el precio más alto conocido (Flash Image), nunca uno menor
+    assert "4K" in costos[-1] and "hasta 2 foto(s)" in costos[-1] and "US$0.30" in costos[-1], costos  # 2 × 0,151
+    elegido = ("AIzaPrueba", claves.elegir_modelo_imagen_gemini)
+    pd.ia._elegidos[elegido] = pd.ia.IMAGEN_GEMINI  # la clave tiene Nano Banana
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a: costos.append(texto) or QMessageBox.Yes)
     p.disenar_con_ia()
     esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 6)
-    assert calidades[-1] == "4K"
+    assert calidades[-1] == "4K" and "US$0.23" in costos[1], costos  # 2 × 0,113 (luego: «cambios sin guardar»)
     p.calidad.setCurrentIndex(p.calidad.findData("2K"))
     assert p._calidad(1) == "2K" and "US$0.05" in costos[-1]  # «Generar con IA»: una sola foto
+    # Clave sin Nano Banana (solo el Flash Image de respaldo, casi el doble): avisa de su precio, no del de Nano Banana
+    pd.ia._elegidos[elegido] = "gemini-3.1-flash-image"
+    assert p._calidad(1) == "2K" and "US$0.10" in costos[-1] and "US$0.05" not in costos[-1], costos[-1]
+    del pd.ia._elegidos[elegido]
     pd.claves.para = para_real  # sin Gemini otra vez: vuelve a Normal
     p._calidades()
     assert p.calidad.currentData() == "1K" and not p.calidad.model().item(2).isEnabled()
@@ -702,6 +710,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     vista, desplazable = ventana.diseno.vista.viewport(), ventana.paginas.currentWidget()
     assert vista.width() >= 700 and vista.height() >= 560, vista.size()
     assert desplazable.verticalScrollBar().maximum() == 0 == desplazable.horizontalScrollBar().maximum()
+    # Más estrecha (1280: 1920×1080 al 150 %, lo normal en un portátil): sin scroll de lado y el pedido con sitio
+    for ancho in (1366, 1280, 1152):
+        ventana.resize(ancho, 728)
+        app.processEvents()
+        assert desplazable.horizontalScrollBar().maximum() == 0, ancho
+        assert ventana.diseno.pedido.width() >= 300, (ancho, ventana.diseno.pedido.width())
     assert not any("Canva" in w.text() for w in ventana.diseno.findChildren(QLabel))
     ventana.diseno.sucio = True  # un diseño sin guardar: cerrar pregunta, y «No» deja la ventana abierta
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)

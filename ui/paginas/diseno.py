@@ -36,15 +36,16 @@ ESTILOS_IA = {"auto": t("Automático"), "vector": t("Vector plano"), "sticker": 
               "poster": t("Póster"), "grabado": t("Grabado"), "render3d": t("Render 3D"),
               "neon_oscuro": t("Neón oscuro"), "animado3d": t("Animado 3D"), "urbano": t("Urbano"),
               "foto": t("Foto realista")}  # las claves de diseno_ia.ESTILOS
-# Las calidades de ia.PRECIO_IMAGEN_GEMINI: 2K y 4K solo con Gemini (ver _calidades)
+# Las calidades de cada modelo de ia.PRECIO_IMAGEN_GEMINI: 2K y 4K solo con Gemini (ver _calidades)
 CALIDADES = {"1K": t("Normal (1K)"), "2K": t("Alta (2K)"), "4K": t("Máxima (4K)")}
 # Pedidos de ejemplo (portadas de arte digital) con el estilo que les va
 IDEAS = [(t("Pareja zombi con gorras y luces neón verde y morado, portada de álbum"), "neon_oscuro"),
          (t("Dos esqueletos con capucha y alas sosteniendo la Tierra, cielo con rayos"), "render3d"),
          (t("Esqueleto urbano con gorra roja y humo, luna llena"), "urbano")]
 FORMATOS = {"png": "PNG (*.png)", "jpg": "JPG (*.jpg)", "pdf": "PDF (*.pdf)", "svg": "SVG (*.svg)"}
-# PNG y JPG; PDF y SVG salen en vectores. Los de texto son los tamaños fijos de diseno.TAMANOS_EXPORTAR
-ESCALAS = {1: "1x", 2: "2x", 4: "4x", "4k": t("4K (3840 px)"), "portada": t("Portada de música 3000×3000")}
+# PNG y JPG; PDF y SVG salen en vectores. Los de texto son los tamaños fijos de diseno.TAMANOS_EXPORTAR, con nombre
+# corto: el combo no tiene ancho fijo (la portada de música se explica en su ayuda)
+ESCALAS = {1: "1x", 2: "2x", 4: "4x", "4k": t("4K (3840 px)"), "portada": t("Portada 3000²")}
 FILTRO_IMAGENES = t("Imágenes ({tipos})", tipos=" ".join("*" + e for e in sorted(seguro.IMAGENES)))
 # ESTILO no pinta diálogos ni menús: con Windows en modo claro saldrían claros con el texto claro de la app
 OSCURO = ("QDialog, QMenu { background: #17171D; } QMenu { border: 1px solid #2C2C36; padding: 4px; }"
@@ -581,8 +582,8 @@ class PaginaDiseno(QWidget):
         self.deshacer_btn.clicked.connect(self.deshacer)
         self.rehacer_btn.clicked.connect(self.rehacer)
         self.escala = _combo(ESCALAS)
-        self.escala.setFixedWidth(200)  # «Portada de música 3000×3000» entera
-        self.escala.setToolTip(t("Tamaño del PNG o JPG exportado: 2x y 4x, para imprimir o para pantallas grandes"))
+        self.escala.setToolTip(t("Tamaño del PNG o JPG exportado: 2x y 4x, para imprimir o para pantallas grandes; "
+                                 "4K, 3840 px de lado largo; Portada, la de música (3000×3000)"))
         exportar, carpeta = boton(f"⬇  {t('Exportar')}", "principal"), boton("📁")
         carpeta.setToolTip(t("Abrir la carpeta de lo exportado"))
         exportar.clicked.connect(self._pedir_exportar)
@@ -650,7 +651,7 @@ class PaginaDiseno(QWidget):
         self.vista.poner_mano(mano)
 
     def _barra_ia(self):
-        """Bajo el lienzo, en una fila: qué quieres, tipo de pieza, estilo, marca y Diseñar."""
+        """Bajo el lienzo: qué quieres, ideas y Diseñar; debajo, tipo de pieza, estilo, calidad y marca."""
         chispa = QLabel()
         chispa.setPixmap(icono("sparkles", "#B9A6FF").pixmap(18, 18))
         self.pedido = QLineEdit()
@@ -671,9 +672,16 @@ class PaginaDiseno(QWidget):
         mi_marca.clicked.connect(lambda: DialogoMarca(self).exec())
         self.disenar = boton(f"✨  {t('Diseñar')}", "principal")
         self.disenar.clicked.connect(self.disenar_con_ia)
-        return _barra("barra_ia", [chispa, self.pedido, ideas, _rotulo(t("Tipo")), self.tipo_ia, _rotulo(t("Estilo")),
-                                   self.estilo_ia, _rotulo(t("Calidad")), self.calidad, self.usar_marca, mi_marca,
-                                   self.disenar], (10, 6, 10, 6))
+        # En dos filas: en una, el pedido se quedaba sin sitio (y la página con scroll) en pantallas de 1280 px
+        filas = QFrame()
+        filas.setObjectName("barra_ia")
+        lay = QVBoxLayout(filas)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(4)
+        lay.addWidget(_barra("", [chispa, self.pedido, ideas, self.disenar], (0, 0, 0, 0)))
+        lay.addWidget(_barra("", [_rotulo(t("Tipo")), self.tipo_ia, _rotulo(t("Estilo")), self.estilo_ia,
+                                  _rotulo(t("Calidad")), self.calidad, self.usar_marca, mi_marca, None], (0, 0, 0, 0)))
+        return filas
 
     def showEvent(self, e):
         self._calidades()  # Gemini se puede elegir en «Claves de IA» con esta página ya abierta
@@ -692,7 +700,7 @@ class PaginaDiseno(QWidget):
     def _calidad(self, fotos: int) -> str | None:
         """La calidad elegida; 2K y 4K, solo si el usuario acepta su costo aproximado. None si no lo acepta."""
         calidad = self.calidad.currentData()
-        precio = ia.PRECIO_IMAGEN_GEMINI[calidad]
+        precio = ia.precio_imagen_gemini((claves.para("imagen") or {}).get("clave", ""), calidad)
         if calidad == "1K" or QMessageBox.question(self, CALIDADES[calidad], t(
                 "Calidad {calidad} con Gemini: hasta {fotos} foto(s) a unos US${precio} cada una, hasta unos "
                 "US${costo} según el precio de Google. ¿Seguir?", calidad=calidad, fotos=fotos,

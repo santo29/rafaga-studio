@@ -688,8 +688,17 @@ assert claves.elegir_modelo_imagen_gemini(sin_nano + ["models/gemini-nano-banana
                                                       "models/gemini-nano-banana-pro-3"]) == "gemini-nano-banana-2.1"
 assert claves.elegir_modelo_imagen_gemini(["gemini-nano-banana-2.9", "gemini-nano-banana-2.10"]) == "gemini-nano-banana-2.10"
 assert claves.elegir_modelo_imagen_gemini(["gemini-3-pro-image", "gemini-2.5-flash"]) is None
-assert ia.IMAGEN_GEMINI == "gemini-nano-banana-2.1" and set(ia.PRECIO_IMAGEN_GEMINI) == {"1K", "2K", "4K"}
-assert ia.PRECIO_IMAGEN_GEMINI["1K"] < ia.PRECIO_IMAGEN_GEMINI["2K"] < ia.PRECIO_IMAGEN_GEMINI["4K"]
+# Precio por modelo: el que elige elegir_modelo_imagen_gemini (Nano Banana o el Flash Image de respaldo)
+assert set(ia.PRECIO_IMAGEN_GEMINI) == {ia.IMAGEN_GEMINI, "gemini-3.1-flash-image"} == {
+    claves.elegir_modelo_imagen_gemini(sin_nano), ia.IMAGEN_GEMINI}
+assert ia.IMAGEN_GEMINI == "gemini-nano-banana-2.1"
+assert all(p["1K"] < p["2K"] < p["4K"] for p in ia.PRECIO_IMAGEN_GEMINI.values())
+# El aviso de costo usa el modelo ya elegido para la clave; si aún no se sabe (o su precio no), el más caro conocido
+flash, nano = ia.PRECIO_IMAGEN_GEMINI["gemini-3.1-flash-image"], ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]
+assert all(ia.precio_imagen_gemini("AIzaNueva", c) == flash[c] > nano[c] for c in nano)
+for elegido, precios in ((ia.IMAGEN_GEMINI, nano), ("gemini-3.1-flash-image", flash), ("gemini-nano-banana-2.10", flash)):
+    ia._elegidos[("AIzaNueva", claves.elegir_modelo_imagen_gemini)] = elegido
+    assert ia.precio_imagen_gemini("AIzaNueva", "2K") == precios["2K"], elegido
 cargar_real, ajustes_real, post_real, uso_real = claves.cargar, claves.ajustes, ia.httpx.post, nubes.USO
 nubes.USO = tmp / "uso.json"  # el contador de hoy, fuera de datos/
 claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"},

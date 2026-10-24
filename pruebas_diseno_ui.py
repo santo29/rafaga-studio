@@ -9,8 +9,9 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QStandardPaths, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import (QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QImage, QKeyEvent,  # noqa: E402
-                           QKeySequence, QMouseEvent, QPainter, QShortcut, QWheelEvent)
+from PySide6.QtGui import (QColor, QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QImage,  # noqa: E402
+                           QKeyEvent, QKeySequence, QMouseEvent, QPainter, QShortcut, QWheelEvent)
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QGraphicsView, QLabel,  # noqa: E402
                                QLineEdit, QMessageBox, QPushButton, QToolButton)
 
@@ -73,9 +74,9 @@ def tecla(tipo, clave, modificadores=Qt.NoModifier):
     QApplication.sendEvent(p.vista, QKeyEvent(tipo, clave, modificadores))
 
 
-def rueda(pasos, modificadores=Qt.ControlModifier):
-    """Rueda del ratón en el centro del lienzo (pasos > 0: hacia arriba)."""
-    centro = QPointF(p.vista.viewport().rect().center())
+def rueda(pasos, modificadores=Qt.ControlModifier, centro=None):
+    """Rueda del ratón en un punto del lienzo, por defecto el centro (pasos > 0: hacia arriba)."""
+    centro = centro or QPointF(p.vista.viewport().rect().center())
     QApplication.sendEvent(p.vista.viewport(), QWheelEvent(centro, p.vista.viewport().mapToGlobal(centro), QPoint(),
                                                            QPoint(0, 120 * pasos), Qt.NoButton, modificadores,
                                                            Qt.NoScrollPhase, False))
@@ -426,10 +427,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.anadir_texto()
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
     p.pedido.setText("anuncio de pizza 2x1")
-    antes = copy.deepcopy(p.diseno)
+    antes, n = copy.deepcopy(p.diseno), len(avisos)
     p.disenar_con_ia()
     esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 5)
     assert p.diseno == antes and "quedó guardado" in p.estado.text()
+    # La barra de estado lo cortaría: también en una ventana, entero, con la instrucción del final
+    assert any("quedó guardado" in a and a.endswith("ábrelo con «Abrir».") for a in avisos[n:]), avisos[n:]
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
 
     # ---------- Generar con IA: una ilustración como capa nueva, sin tocar las demás ----------
@@ -578,11 +581,66 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # Como mucho 12 imágenes contando el fondo: la 13.ª, como capa o como fondo, avisa sin tocar el diseño
     p.diseno = diseno.validar({**p.diseno, "capas": p.diseno["capas"] + [p.diseno["capas"][-1]] * 11})
     p._dibujar()
-    antes, n = copy.deepcopy(p.diseno), len(avisos)
-    p.anadir_imagen(str(ruta_foto))
+    antes, n, archivos = copy.deepcopy(p.diseno), len(avisos), set((p.carpeta / "imagenes").iterdir())
+    assert p.anadir_imagen(str(ruta_foto)) is False
+    assert set((p.carpeta / "imagenes").iterdir()) == archivos  # la copia que no cupo no se queda huérfana
     p._pedir_imagen = lambda *a: str(ruta_foto)
     p.fondo_imagen()
     assert p.diseno == antes and len(avisos) == n + 2 and "12 imágenes" in avisos[-1]
+
+    # ---------- Hallazgos de la segunda revisión ----------
+    # «Generar con IA» con el diseño lleno avisa antes de gastar una imagen de la IA
+    dialogos = []
+    pd.pedir_ilustracion = lambda padre: dialogos.append(padre) or ("calavera", "auto")
+    tarea, n, n_dibujos = p.tarea, len(avisos), len(dibujos)
+    p.generar_ilustracion()
+    assert not dialogos and len(dibujos) == n_dibujos and p.tarea is tarea
+    assert len(avisos) == n + 1 and "12 imágenes" in avisos[-1]
+    # Y si se llenó mientras dibujaba, no dice «añadida» y la ilustración no se pierde: queda donde avisa
+    dibujada = d / "rafaga-ilustracion-prueba.png"
+    assert foto.save(str(dibujada))
+    p.estado.setText("")
+    archivos = set((p.carpeta / "imagenes").iterdir())
+    p._ilustracion_lista({"ruta": str(dibujada)})
+    assert p.diseno == antes and dibujada.is_file() and str(dibujada) in avisos[-1] and "añadida" not in p.estado.text()
+    assert set((p.carpeta / "imagenes").iterdir()) == archivos
+    # Las letras de las herramientas no saltan con el foco en un desplegable o en la lista de capas, sí en el lienzo
+    p.nuevo("post")
+    p.anadir_texto()
+    p.activateWindow()
+    for campo in (p.w["fuente"], p.tipo_ia, p.capas):
+        campo.setFocus()
+        app.processEvents()
+        assert app.focusWidget() is campo
+        QTest.keyClick(campo, Qt.Key_M)
+        assert len(p.diseno["capas"]) == 1, campo
+    p.vista.setFocus()
+    QTest.keyClick(p.vista, Qt.Key_M)
+    assert [c["tipo"] for c in p.diseno["capas"]] == ["texto", "forma"] and p.diseno["capas"][1]["forma"] == "rectangulo"
+    # Mantener pulsada una flecha (1 pulsación y sus repeticiones) es un solo «deshacer»: no borra el historial
+    rect_id, pila = p.diseno["capas"][1]["id"], len(p.deshacer_pila)
+    x0 = capa(rect_id)["x"]
+    tecla(QEvent.KeyPress, Qt.Key_Right)
+    for _ in range(59):
+        QApplication.sendEvent(p.vista, QKeyEvent(QEvent.KeyPress, Qt.Key_Right, Qt.NoModifier, "", True))
+    assert capa(rect_id)["x"] == x0 + 60 and len(p.deshacer_pila) == pila + 1
+    p.deshacer()
+    assert capa(rect_id)["x"] == x0 and len(p.diseno["capas"]) == 2
+    # Ctrl+rueda se ancla bajo el ratón también fuera de la mesa (un diseño vertical tiene mucho margen a los lados)
+    p.nuevo("historia")
+    raton_en = QPointF(150, 150)
+    p.vista.setAttribute(Qt.WA_UnderMouse, True)
+    QCursor.setPos(p.vista.viewport().mapToGlobal(raton_en.toPoint()))
+    QApplication.sendEvent(p.vista.viewport(), QMouseEvent(QEvent.MouseMove, raton_en, p.vista.viewport().mapToGlobal(
+        raton_en), Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    bajo = p.vista.mapToScene(raton_en.toPoint())
+    assert bajo.x() < 0  # en el tablero, a la izquierda de la mesa
+    rueda(3, centro=raton_en)
+    assert cerca(p.vista.mapToScene(raton_en.toPoint()), bajo, 1), (p.vista.mapToScene(raton_en.toPoint()), bajo)
+    p.vista.setAttribute(Qt.WA_UnderMouse, False)
+    # La barra de estado corta los avisos largos: el texto entero, al pasar el ratón (escapado: no se pinta como HTML)
+    p.estado.setText("⚠️ <b>x</b> " + "muy largo " * 40)
+    assert "&lt;b&gt;x" in p.estado.toolTip() and "muy largo " * 40 in p.estado.toolTip()
 
     # ---------- La ventana completa, con la página después de «Música» ----------
     import app as aplicacion

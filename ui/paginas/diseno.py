@@ -3,6 +3,7 @@ izquierda, lienzo con zoom en el centro, propiedades y capas a la derecha, barra
 el pedido (pregunta si duda), diseña en capas editables o dibuja una ilustración como capa nueva. El diseño es el dict
 de motor/diseno.py: cada cambio se escribe ahí y el lienzo lo repinta."""
 import copy
+import html
 import os
 import re
 import tempfile
@@ -163,11 +164,19 @@ def _combo(opciones: dict) -> QComboBox:
     return c
 
 
-def _rotulo(texto: str) -> QLabel:
-    r = QLabel(texto)
+def _rotulo(texto: str, clase=QLabel) -> QLabel:
+    r = clase(texto)
     r.setTextFormat(Qt.PlainText)
     r.setObjectName("sub")
     return r
+
+
+class Estado(QLabel):
+    """La barra de estado corta los avisos largos: el texto entero sale al pasar el ratón."""
+    def setText(self, texto):
+        super().setText(texto)
+        # Escapado: puede traer lo que escribió la IA o el usuario, y un tooltip con «<» se pintaría como HTML
+        self.setToolTip(f"<p>{html.escape(texto)}</p>" if texto else "")
 
 
 def _barra(nombre: str, widgets, margenes=(8, 4, 8, 4)) -> QFrame:
@@ -362,7 +371,7 @@ class Lienzo(QGraphicsView):
 
     def __init__(self, pagina):
         super().__init__()
-        self.pagina, self._asa, self.ajustar, self.mano_fija = pagina, None, True, False
+        self.pagina, self._asa, self.ajustar, self.mano_fija, self._gesto = pagina, None, True, False, object()
         self.con_zoom = False  # Ctrl+rueda: solo donde hay cómo volver a «Ajustar» (Diseño; el editor de video no)
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform | QPainter.TextAntialiasing)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)  # las asas sobresalen de la capa: así no dejan rastro
@@ -375,7 +384,7 @@ class Lienzo(QGraphicsView):
     def encajar(self):
         """Modo «Ajustar»: la mesa entera a la vista, con un poco de aire."""
         self.ajustar = True
-        r = self.sceneRect()
+        r = self.scene().sceneRect()  # la mesa: la vista tiene margen alrededor (ver PaginaDiseno._dibujar)
         m = max(r.width(), r.height()) * 0.04
         self.fitInView(r.adjusted(-m, -m, m, m), Qt.KeepAspectRatio)
         self.zoom_cambiado.emit()
@@ -475,8 +484,11 @@ class Lienzo(QGraphicsView):
         flechas = {Qt.Key_Left: (-paso, 0), Qt.Key_Right: (paso, 0), Qt.Key_Up: (0, -paso), Qt.Key_Down: (0, paso)}
         if e.key() == Qt.Key_Space and not e.isAutoRepeat():
             return self.poner_mano(True)
-        if capa and e.key() in flechas:  # cada pulsación, un «deshacer»
-            return self.pagina._cambiar(object(), x=capa["x"] + flechas[e.key()][0], y=capa["y"] + flechas[e.key()][1])
+        if capa and e.key() in flechas:  # cada pulsación, un «deshacer»; mantenerla pulsada (repeticiones), uno solo
+            if not e.isAutoRepeat():
+                self._gesto = object()
+            return self.pagina._cambiar(self._gesto, x=capa["x"] + flechas[e.key()][0],
+                                        y=capa["y"] + flechas[e.key()][1])
         if e.key() in (Qt.Key_Delete, Qt.Key_Backspace) and capa:
             return self.pagina.borrar_capa()
         super().keyPressEvent(e)
@@ -531,9 +543,9 @@ class PaginaDiseno(QWidget):
 
     # ---------- Construcción ----------
 
-    def _atajo(self, tecla, accion):
-        atajo = QShortcut(QKeySequence(tecla), self)
-        atajo.setContext(Qt.WidgetWithChildrenShortcut)  # solo con esta página delante
+    def _atajo(self, tecla, accion, padre=None):
+        atajo = QShortcut(QKeySequence(tecla), padre or self)
+        atajo.setContext(Qt.WidgetWithChildrenShortcut)  # solo con esta página (o el padre) delante
         atajo.activated.connect(accion)
 
     def _barra_archivo(self):
@@ -613,7 +625,9 @@ class PaginaDiseno(QWidget):
             b.setPopupMode(QToolButton.DelayedPopup if accion else QToolButton.InstantPopup)
         if accion:
             b.clicked.connect(accion)
-        self._atajo(tecla, accion or b.showMenu)
+        # Las de una letra, solo con el lienzo activo (como en Illustrator): un desplegable o la lista de capas con el
+        # foco dejan pasar las letras y añadirían una capa
+        self._atajo(tecla, accion or b.showMenu, self.vista if len(tecla) == 1 else None)
         return b
 
     def _modo(self, mano: bool):
@@ -647,7 +661,7 @@ class PaginaDiseno(QWidget):
         self.zoom_btn.setToolTip(t("Zoom: Ctrl+rueda del ratón · Ctrl+0 ajustar · Ctrl+1 al 100 %"))
         _menu(self.zoom_btn, [(t("Ajustar a la ventana"), self.vista.encajar)] +
               [(f"{n} %", lambda n=n: self.vista.zoom(n / 100)) for n in (25, 50, 100, 200, 400)])
-        self.mesa, self.capa_txt, self.estado = _rotulo(""), _rotulo(""), _rotulo("")
+        self.mesa, self.capa_txt, self.estado = _rotulo(""), _rotulo(""), _rotulo("", Estado)
         self.estado.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)  # un aviso largo se corta, no ensancha
         self.progreso = QProgressBar()
         self.progreso.setRange(0, 100)
@@ -757,6 +771,8 @@ class PaginaDiseno(QWidget):
         escena = diseno.escena(self.diseno, self.carpeta or diseno.CARPETA)
         centro = self.vista.mapToScene(self.vista.viewport().rect().center())
         self.vista.setScene(escena)
+        a, h = self.diseno["ancho"], self.diseno["alto"]
+        self.vista.setSceneRect(-a, -h, 3 * a, 3 * h)  # margen: sin él, el zoom bajo el ratón y la mano topan con la mesa
         self.escena = escena
         for item in self._items():
             item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
@@ -941,17 +957,24 @@ class PaginaDiseno(QWidget):
     def _lado(self):
         return min(self.diseno["ancho"], self.diseno["alto"])
 
-    def anadir(self, capa):
-        """Añade la capa encima de todo y la deja elegida. Lo que falte toma su valor por defecto."""
+    def _con_capa(self, capa) -> dict | None:
+        """El diseño con la capa añadida encima (validado), o None si no cabe (ya avisado)."""
         if len(self.diseno["capas"]) >= diseno.MAX_CAPAS:
-            return mensaje(self, t("Demasiadas capas"), t("Un diseño puede tener hasta {n} capas.", n=diseno.MAX_CAPAS))
+            mensaje(self, t("Demasiadas capas"), t("Un diseño puede tener hasta {n} capas.", n=diseno.MAX_CAPAS))
+            return None
         try:  # validar el diseño entero también le da a la capa nueva un id que no choca con otro
-            limpio = diseno.validar({**self.diseno, "capas": self.diseno["capas"] + [capa]})
+            return diseno.validar({**self.diseno, "capas": self.diseno["capas"] + [capa]})
         except ValueError as e:
-            return mensaje_error(self, t("No se pudo añadir"), e)
-        self._recordar()
-        self.diseno = limpio
-        self._dibujar(limpio["capas"][-1]["id"])
+            mensaje_error(self, t("No se pudo añadir"), e)
+
+    def anadir(self, capa) -> bool:
+        """Añade la capa encima de todo y la deja elegida. Lo que falte toma su valor por defecto. False si no cupo."""
+        limpio = self._con_capa(capa)
+        if limpio:
+            self._recordar()
+            self.diseno = limpio
+            self._dibujar(limpio["capas"][-1]["id"])
+        return bool(limpio)
 
     def anadir_texto(self):
         tamano = max(12, round(self._lado() / 10))
@@ -972,19 +995,23 @@ class PaginaDiseno(QWidget):
     def anadir_emoji(self, emoji):
         self.anadir({"tipo": "emoji", "texto": emoji, **self._caja(self._lado() / 5, self._lado() / 5)})
 
-    def anadir_imagen(self, ruta, centro=None):
+    def anadir_imagen(self, ruta, centro=None) -> bool:
         nombre = self._importar(ruta)
         if not nombre:
-            return
+            return False
         lector = QImageReader(str(self.carpeta / "imagenes" / nombre))
         tam = lector.size()
         # El núcleo pinta con setAutoTransform(True), pero size() no aplica el giro del EXIF (fotos de móvil)
         if lector.transformation() & QImageIOHandler.TransformationRotate90:
             tam.transpose()
+        del lector  # suelta el archivo: Windows no deja borrarlo abierto si luego no cabe
         ancho, alto = (1, 1) if tam.isEmpty() else (tam.width(), tam.height())
         escala = min(self.diseno["ancho"] * 0.6 / ancho, self.diseno["alto"] * 0.6 / alto)  # cabe y no se deforma
-        self.anadir({"tipo": "imagen", "archivo": nombre, **self._caja(max(1, ancho * escala), max(1, alto * escala),
-                                                                       centro)})
+        if self.anadir({"tipo": "imagen", "archivo": nombre, **self._caja(max(1, ancho * escala),
+                                                                          max(1, alto * escala), centro)}):
+            return True
+        (self.carpeta / "imagenes" / nombre).unlink(missing_ok=True)  # no cupo: que no quede una copia que nada usa
+        return False
 
     def _imagen_de_archivo(self):
         ruta = self._pedir_imagen()
@@ -1201,15 +1228,19 @@ class PaginaDiseno(QWidget):
             self.abrir(resultado["carpeta"])  # se vuelve a leer y validar: lo hizo la IA
             self.estado.setText(f"✨ {t('Listo: cada capa se puede mover y cambiar.')}")
         else:
-            self.estado.setText("✨ " + t("El diseño de la IA quedó guardado en {carpeta}: ábrelo con «Abrir».",
-                                          carpeta=resultado["carpeta"]))
+            guardado = t("El diseño de la IA quedó guardado en {carpeta}: ábrelo con «Abrir».",
+                         carpeta=resultado["carpeta"])
+            self.estado.setText(f"✨ {guardado}")
+            mensaje(self, t("Diseño con IA"), guardado)  # la barra de estado lo cortaría y hay que leerlo entero
         if resultado.get("avisos"):
             mensaje(self, t("Terminado con avisos"), resumen_avisos(resultado["avisos"]))
 
     def generar_ilustracion(self):
         """«Generar con IA…»: la IA dibuja una ilustración y entra como capa nueva; el diseño abierto se queda."""
         diseno_ia = self._ia()
-        pedido = diseno_ia and self._libre() and pedir_ilustracion(self)
+        # Antes de gastar una imagen de la IA: ¿cabe otra capa de imagen? (topes de capas e imágenes)
+        cabe = diseno_ia and self._libre() and self._con_capa({"tipo": "imagen", "archivo": "ilustracion.png"})
+        pedido = cabe and pedir_ilustracion(self)
         if pedido:
             destino = Path(tempfile.gettempdir()) / f"rafaga-ilustracion-{uuid.uuid4().hex}.png"
             self.estado.setText(t("Dibujando con IA…"))
@@ -1217,6 +1248,8 @@ class PaginaDiseno(QWidget):
 
     def _ilustracion_lista(self, resultado):
         ruta = Path(resultado["ruta"])
-        self.anadir_imagen(str(ruta))  # se copia (validada) a la carpeta del diseño
-        ruta.unlink(missing_ok=True)
-        self.estado.setText(f"✨ {t('Ilustración añadida como capa nueva.')}")
+        if self.anadir_imagen(str(ruta)):  # se copia (validada) a la carpeta del diseño
+            ruta.unlink(missing_ok=True)
+            self.estado.setText(f"✨ {t('Ilustración añadida como capa nueva.')}")
+        else:  # mientras dibujaba se llenó el diseño (ya avisado): la ilustración no se pierde
+            mensaje(self, t("Generar con IA"), t("La ilustración no se añadió; quedó guardada en {ruta}", ruta=ruta))

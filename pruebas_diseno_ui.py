@@ -9,9 +9,10 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QStandardPaths, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import (QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QImage, QMouseEvent,  # noqa: E402
-                           QPainter)
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton  # noqa: E402
+from PySide6.QtGui import (QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QImage, QKeyEvent,  # noqa: E402
+                           QKeySequence, QMouseEvent, QPainter, QShortcut, QWheelEvent)
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QGraphicsView, QLabel,  # noqa: E402
+                               QLineEdit, QMessageBox, QPushButton, QToolButton)
 
 from motor import claves, diseno, marca  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
@@ -62,6 +63,38 @@ def arrastrar(desde, hasta):
 
 def cerca(a: QPointF, b: QPointF, margen=4):
     return abs(a.x() - b.x()) <= margen and abs(a.y() - b.y()) <= margen
+
+
+def atajo(tecla):
+    return next(a for a in p.findChildren(QShortcut) if a.key() == QKeySequence(tecla))
+
+
+def tecla(tipo, clave, modificadores=Qt.NoModifier):
+    QApplication.sendEvent(p.vista, QKeyEvent(tipo, clave, modificadores))
+
+
+def rueda(pasos, modificadores=Qt.ControlModifier):
+    """Rueda del ratón en el centro del lienzo (pasos > 0: hacia arriba)."""
+    centro = QPointF(p.vista.viewport().rect().center())
+    QApplication.sendEvent(p.vista.viewport(), QWheelEvent(centro, p.vista.viewport().mapToGlobal(centro), QPoint(),
+                                                           QPoint(0, 120 * pasos), Qt.NoButton, modificadores,
+                                                           Qt.NoScrollPhase, False))
+
+
+def responder(cual):
+    """Un QMessageBox.exec que pulsa la opción con ese texto (None: Cancelar) y apunta lo que preguntó. Las cajas sin
+    esa opción (el aviso del final) solo se apuntan."""
+    def pulsar(caja):
+        preguntas.append((caja.text(), [b.text() for b in caja.buttons()]))
+        opcion = (caja.button(QMessageBox.Cancel) if cual is None else
+                  next((b for b in caja.buttons() if b.text() == cual), None))
+        if opcion:
+            opcion.click()
+        return 0
+    return pulsar
+
+
+preguntas = []
 
 
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
@@ -261,6 +294,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert hecho.is_file() and hecho.stat().st_size > 1000, formato
     png = QImage(str(d / "salida" / "anuncio.png"))
     assert (png.width(), png.height()) == (1080, 1080)
+    p.escala.setCurrentIndex(p.escala.findData(2))  # la escala elegida arriba
+    assert QImage(str(p.exportar(d / "salida" / "doble.png", "png"))).size().toTuple() == (2160, 2160)
+    p.escala.setCurrentIndex(p.escala.findData(1))
     assert p.exportar(r"\\atacante.example\s\x.png") is None  # a la red no
     p.abrir_carpeta()
     assert abiertas == [d / "salida"]
@@ -310,16 +346,23 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.nuevo("post")
     assert p.diseno["fondo"]["colores"] == ["#FF4D8D"]  # el diseño nuevo sale con el color de la marca
 
-    # ---------- Diseñar con IA (simulada) ----------
+    # ---------- Diseñar con IA (simulada con el contrato A de motor/diseno_ia) ----------
+    assert list(pd.TIPOS_IA)[:3] == ["auto", "ilustracion", "estampado"] and p.tipo_ia.currentData() == "auto"
+    assert list(pd.ESTILOS_IA) == ["auto", "vector", "sticker", "tatuaje", "poster", "grabado", "foto"]
     p.pedido.setText("anuncio de pizza 2x1")
     sys.modules["motor.diseno_ia"] = None  # aún no está: la página avisa y sigue funcionando
     antes = len(avisos)
     p.disenar_con_ia()
     assert len(avisos) == antes + 1 and "todavía no" in avisos[-1] and p.tarea is None
-    pedidos = []
+    pedidos, entendidos, dibujos, duda = [], [], [], {}  # duda: lo que entender() añade para que la IA pregunte
 
-    def crear(pedido, tipo="post", usar_marca=True, aviso=lambda t, f: None):
-        pedidos.append((pedido, tipo, usar_marca))
+    def entender(pedido, tipo="auto"):
+        entendidos.append((pedido, tipo))
+        return {"entendido": pedido, "seguro": True, "pregunta": "", "opciones": [], "tipo": "post",
+                "estilo": "vector", **duda}
+
+    def crear(pedido, tipo="post", usar_marca=True, aviso=lambda t, f: None, propuesta=None, estilo="auto"):
+        pedidos.append((pedido, tipo, usar_marca, estilo))
         aviso("Diseñando…", 0.5)
         if pedido == "falla":
             raise RuntimeError("No hay IA de texto conectada.")
@@ -328,15 +371,53 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             {"nombre": "Pizza IA", "capas": [{"tipo": "texto", "texto": "PIZZA 2x1"}, {"tipo": "emoji"}]}))
         return {"tipo": "diseno", "carpeta": str(destino), "archivo": "", "diseno": {}, "avisos": ["una foto falló"],
                 "titulo": "", "descripcion": ""}
-    sys.modules["motor.diseno_ia"] = types.SimpleNamespace(crear=crear)
+
+    def ilustracion(prompt, estilo, destino):
+        dibujos.append((prompt, estilo, destino))
+        assert foto.save(str(destino))
+        return destino
+    sys.modules["motor.diseno_ia"] = types.SimpleNamespace(
+        crear=crear, entender=entender, ilustracion=ilustracion, TIPOS=dict.fromkeys(set(pd.TIPOS_IA) - {"auto"}),
+        ESTILOS=dict.fromkeys(pd.ESTILOS_IA, ""))
     p.tipo_ia.setCurrentIndex(p.tipo_ia.findData("historia"))
     p.usar_marca.setChecked(False)
     p.disenar_con_ia()
     assert not p.disenar.isEnabled()
     esperar(lambda: p.disenar.isEnabled() and p.diseno["nombre"] == "Pizza IA")
-    assert pedidos == [("anuncio de pizza 2x1", "historia", False)]
+    # Primero entiende (sin imágenes) y luego diseña: el tipo elegido manda; con el estilo en «Automático», el que
+    # entendió la IA
+    assert entendidos == [("anuncio de pizza 2x1", "historia")]
+    assert pedidos == [("anuncio de pizza 2x1", "historia", False, "vector")]
     assert [c["texto"] for c in p.diseno["capas"]] == ["PIZZA 2x1", "⭐"] and len(p._items()) == 2
     assert p.carpeta.parent == diseno.CARPETA and "una foto falló" in avisos[-1] and p.progreso.isHidden()
+    # Si duda, pregunta con sus opciones: se diseña la elegida, con el tipo y el estilo elegidos
+    duda.update(seguro=False, pregunta="¿Calavera o carabela?", opciones=["calavera gótica", "carabela (barco) gótica"])
+    QMessageBox.exec = responder("calavera gótica")
+    estados, poner_estado = [], p.estado.setText
+    p.estado.setText = lambda texto: (estados.append(texto), poner_estado(texto))
+    p.pedido.setText("carabela gótica")
+    p.tipo_ia.setCurrentIndex(p.tipo_ia.findData("estampado"))
+    p.estilo_ia.setCurrentIndex(p.estilo_ia.findData("sticker"))
+    p.disenar_con_ia()
+    esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 2)
+    assert preguntas[0][0] == "¿Calavera o carabela?"
+    assert {"calavera gótica", "carabela (barco) gótica"} <= set(preguntas[0][1])
+    assert pedidos[-1] == ("calavera gótica", "estampado", False, "sticker")
+    assert "Entendí: calavera gótica" in estados and "Entendí: calavera gótica · Diseñando…" in estados
+    # Cancelar no gasta nada: crear no se llama
+    QMessageBox.exec = responder(None)
+    p.disenar_con_ia()
+    esperar(lambda: p.disenar.isEnabled())
+    assert len(pedidos) == 2 and len(entendidos) == 3 and "Cancelado" in p.estado.text()
+    QMessageBox.exec = lambda caja: avisos.append(caja.text()) or QMessageBox.Ok
+    del p.estado.setText
+    duda.clear()
+    # «Automático»: la pieza que entendió la IA
+    p.tipo_ia.setCurrentIndex(p.tipo_ia.findData("auto"))
+    p.estilo_ia.setCurrentIndex(p.estilo_ia.findData("tatuaje"))
+    p.disenar_con_ia()
+    esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 3)
+    assert pedidos[-1] == ("carabela gótica", "post", False, "tatuaje")
     p.pedido.setText("falla")
     p.disenar_con_ia()
     esperar(lambda: p.disenar.isEnabled() and "No hay IA" in avisos[-1])
@@ -347,9 +428,105 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.pedido.setText("anuncio de pizza 2x1")
     antes = copy.deepcopy(p.diseno)
     p.disenar_con_ia()
-    esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 3)
+    esperar(lambda: p.disenar.isEnabled() and len(pedidos) == 5)
     assert p.diseno == antes and "quedó guardado" in p.estado.text()
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+
+    # ---------- Generar con IA: una ilustración como capa nueva, sin tocar las demás ----------
+    elegir_ilustracion = pd.pedir_ilustracion
+    exec_dialogo = QDialog.exec
+    QDialog.exec = lambda dialogo: (dialogo.findChild(QLineEdit).setText("  gato pirata  "),
+                                    dialogo.findChild(QComboBox).setCurrentIndex(2), 1)[-1]
+    assert elegir_ilustracion(p) == ("gato pirata", "sticker")
+    QDialog.exec = lambda dialogo: 0
+    assert elegir_ilustracion(p) is None  # Cancelar
+    QDialog.exec = exec_dialogo
+    pd.pedir_ilustracion = lambda padre: ("calavera gótica con rosas", "sticker")
+    antes = copy.deepcopy(p.diseno["capas"])
+    p.generar_ilustracion()
+    esperar(lambda: p.disenar.isEnabled() and len(p.diseno["capas"]) == len(antes) + 1)
+    assert p.diseno["capas"][:-1] == antes and p.diseno["capas"][-1]["tipo"] == "imagen"
+    assert [d[:2] for d in dibujos] == [("calavera gótica con rosas", "sticker")]
+    assert not dibujos[0][2].exists() and (p.carpeta / "imagenes" / p.diseno["capas"][-1]["archivo"]).is_file()
+    pd.pedir_ilustracion = lambda padre: None  # cancelado: nada
+    p.generar_ilustracion()
+    assert len(dibujos) == 1 and p.tarea.isFinished()
+
+    # ---------- Lienzo: zoom, mano, flechas y alinear ----------
+    p.nuevo("post")
+    assert p.vista.ajustar and "Ajustar" in p.zoom_btn.text() and p.mesa.text() == "Mesa: 1080 × 1080 px"
+    ajustado = p.vista.transform().m11()
+    rueda(2)  # Ctrl+rueda: zoom
+    zoom = p.vista.transform().m11()
+    assert abs(zoom - ajustado * 1.44) < 1e-6 and not p.vista.ajustar and p.zoom_btn.text() == f"{round(zoom * 100)} %"
+    rueda(-1, Qt.NoModifier)  # sin Ctrl, la rueda desplaza: no cambia el zoom
+    p.resize(1200, 900)
+    app.processEvents()
+    p.anadir_texto()
+    assert p.vista.transform().m11() == zoom  # ni cambiar el tamaño ni añadir una capa vuelven a «Ajustar»
+    atajo("Ctrl+1").activated.emit()
+    assert abs(p.vista.transform().m11() - 1) < 1e-9
+    rueda(-60)
+    assert abs(p.vista.transform().m11() - pd.ZOOM_MIN) < 1e-9
+    rueda(80)
+    assert abs(p.vista.transform().m11() - pd.ZOOM_MAX) < 1e-9
+    atajo("Ctrl+0").activated.emit()
+    visible = p.vista.mapToScene(p.vista.viewport().rect()).boundingRect()
+    assert p.vista.ajustar and visible.contains(p.escena.sceneRect()) and p.vista.transform().m11() < 1
+    # La mano: con la barra espaciadora mientras se pulsa, o fija con su herramienta; arrastrar mueve la vista
+    tecla(QEvent.KeyPress, Qt.Key_Space)
+    assert p.vista.dragMode() == QGraphicsView.ScrollHandDrag and not p.vista.isInteractive()
+    tecla(QEvent.KeyRelease, Qt.Key_Space)
+    assert p.vista.dragMode() == QGraphicsView.NoDrag and p.vista.isInteractive()
+    texto_id = p.diseno["capas"][-1]["id"]
+    elegir(texto_id)
+    p.vista.zoom(3)
+    p.vista.centerOn(item(texto_id))
+    atajo("H").activated.emit()
+    assert p.mano.isChecked() and p.vista.dragMode() == QGraphicsView.ScrollHandDrag
+    tecla(QEvent.KeyPress, Qt.Key_Space)
+    tecla(QEvent.KeyRelease, Qt.Key_Space)
+    assert p.vista.dragMode() == QGraphicsView.ScrollHandDrag  # con la Mano puesta, soltar el espacio no la quita
+    x0, barra = capa(texto_id)["x"], p.vista.horizontalScrollBar().value()
+    centro = QPointF(p.vista.viewport().rect().center())
+    for tipo, punto, b, bs in ((QEvent.MouseButtonPress, centro, Qt.LeftButton, Qt.LeftButton),
+                               (QEvent.MouseMove, centro + QPointF(-80, 0), Qt.NoButton, Qt.LeftButton),
+                               (QEvent.MouseMove, centro + QPointF(-160, 0), Qt.NoButton, Qt.LeftButton),
+                               (QEvent.MouseButtonRelease, centro + QPointF(-160, 0), Qt.LeftButton, Qt.NoButton)):
+        QApplication.sendEvent(p.vista.viewport(), QMouseEvent(tipo, punto, p.vista.viewport().mapToGlobal(punto), b,
+                                                               bs, Qt.NoModifier))
+    assert capa(texto_id)["x"] == x0 and p.vista.horizontalScrollBar().value() > barra  # la vista, no la capa
+    atajo("V").activated.emit()
+    assert p.seleccion.isChecked() and p.vista.dragMode() == QGraphicsView.NoDrag
+    atajo("Ctrl+0").activated.emit()
+    # Flechas: 1 px (con Mayúsculas, 10), cada pulsación un «deshacer»
+    p.anadir_forma("rectangulo")
+    rect_id = p.diseno["capas"][-1]["id"]
+    x0, y0 = capa(rect_id)["x"], capa(rect_id)["y"]
+    tecla(QEvent.KeyPress, Qt.Key_Right)
+    assert capa(rect_id)["x"] == x0 + 1 and item(rect_id).pos().x() == x0 + 1 and p.w["x"].value() == x0 + 1
+    tecla(QEvent.KeyPress, Qt.Key_Down, Qt.ShiftModifier)
+    assert (capa(rect_id)["x"], capa(rect_id)["y"]) == (x0 + 1, y0 + 10)
+    atajo(QKeySequence.Undo).activated.emit()
+    assert (capa(rect_id)["x"], capa(rect_id)["y"]) == (x0 + 1, y0)
+    atajo(QKeySequence.Undo).activated.emit()
+    assert (capa(rect_id)["x"], capa(rect_id)["y"]) == (x0, y0) and p.elegido()[1]["id"] == rect_id
+    # Alinear a la mesa (1080 × 1080; el rectángulo mide 432)
+    centrar = next(b for b in p.findChildren(QToolButton) if b.toolTip() == "Centrar en horizontal")
+    p.alinear("derecha")
+    centrar.click()
+    assert capa(rect_id)["x"] == (1080 - capa(rect_id)["ancho"]) / 2 == 324
+    for como, campo, valor in (("derecha", "x", 648), ("abajo", "y", 648), ("izquierda", "x", 0), ("arriba", "y", 0),
+                               ("centro_v", "y", 324)):
+        p.alinear(como)
+        assert capa(rect_id)[campo] == valor, (como, capa(rect_id))
+    pila = len(p.deshacer_pila)
+    p.deshacer()
+    assert capa(rect_id)["y"] == 0 and len(p.deshacer_pila) == pila - 1
+    assert pd.alineado({"ancho": 100, "alto": 50}, "centro_v", 1080, 1920) == {"y": 935}
+    assert pd.alineado({"ancho": 100, "alto": 50}, "derecha", 1080, 1920) == {"x": 980}
+    p.resize(1280, 1000)
+    app.processEvents()
 
     # ---------- Hallazgos de la revisión ----------
     p.nuevo("post")
@@ -422,6 +599,14 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
     ventana.ir_a(i)
     assert ventana.paginas.currentIndex() == i and ventana.grupo.buttons()[i].isChecked()
+    # En un portátil (1366×728 útiles) el lienzo se lleva casi toda la página y la página no se desplaza
+    ventana.resize(1366, 728)
+    ventana.show()
+    app.processEvents()
+    vista, desplazable = ventana.diseno.vista.viewport(), ventana.paginas.currentWidget()
+    assert vista.width() >= 700 and vista.height() >= 560, vista.size()
+    assert desplazable.verticalScrollBar().maximum() == 0 == desplazable.horizontalScrollBar().maximum()
+    assert not any("Canva" in w.text() for w in ventana.diseno.findChildren(QLabel))
     ventana.diseno.sucio = True  # un diseño sin guardar: cerrar pregunta, y «No» deja la ventana abierta
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
     assert not ventana.close()

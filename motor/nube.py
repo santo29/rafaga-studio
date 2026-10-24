@@ -88,6 +88,10 @@ def instalar() -> str:
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode:
         raise RuntimeError(t("Modal no pudo instalar el motor:\n{detalle}", detalle=(r.stderr or r.stdout)[-1200:]))
+    # Los pesos del modelo se bajan ya, con CPU (casi gratis): si no, los bajaría la GPU en el primer clip (pagado)
+    os.environ.update({k: v for k, v in claves.modal_env(c["clave"]).items() if k.startswith("MODAL_")})
+    import modal
+    modal.Function.from_name("rafaga-studio-video", "preparar").remote()
     return r.stdout[-600:]
 
 

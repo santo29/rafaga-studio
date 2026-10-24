@@ -5,14 +5,17 @@ FLUX gratis en Hugging Face), la voz, los subtítulos, el movimiento y el montaj
 cualquier pedido. Aquí queda una copia ligera (720p) de cada video, su miniatura y un GIF corto para el README."""
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
 CARPETA = Path(__file__).resolve().parent
 sys.path.insert(0, str(CARPETA.parent))
 os.chdir(CARPETA.parent)
-from motor import desde_prompt, ia, nubes, video  # noqa: E402
+from motor import claves, desde_prompt, ia, nubes, video  # noqa: E402
 from motor.shorts import PROYECTOS  # noqa: E402
+
+ajustes_reales = claves.ajustes
 
 # Los ejemplos son la muestra de calidad: nunca la opción sin clave de baja resolución y con marca de agua
 nubes.ORDEN["imagen"] = [p for p in nubes.ORDEN["imagen"] if p != "gratis_sin_clave"]
@@ -23,6 +26,14 @@ for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
         continue
     trabajo = PROYECTOS / f"ejemplo-{e['id']}"
     trabajo.mkdir(parents=True, exist_ok=True)
+    # Las imágenes de otro ejemplo, si ya se hicieron (si no, se generan con su descripción como las demás)
+    origen = PROYECTOS / f"ejemplo-{e.get('reusa', {}).get('de', '')}"
+    for i, n in enumerate(e.get("reusa", {}).get("imagenes", [])):
+        de, a = origen / f"video_final_imagen_{n:02d}.png", trabajo / f"video_final_imagen_{i:02d}.png"
+        if de.is_file() and not a.is_file():
+            shutil.copy(de, a)
+    # «animar»: cada escena se anima con la IA de video de tu nube Modal (solo en este ejemplo; tus ajustes no cambian)
+    claves.ajustes = (lambda: {**ajustes_reales(), "video": "modal"}) if e.get("animar") else ajustes_reales
     notas = []
     # Las imágenes que ya salieron se guardan: si la cuota gratis se acaba a mitad, la próxima vez sigue donde iba
     final = desde_prompt.montar(e["guion"], trabajo, e["formato"], e["voz"], lambda texto, f: print(f"{f:4.0%} {texto}"),

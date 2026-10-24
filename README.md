@@ -17,6 +17,10 @@ está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia aba
 | <img src="ejemplos/lugares-rd.gif" width="200" alt="3 lugares de RD que parecen de otro planeta"> | <img src="ejemplos/anuncio-cafe.gif" width="200" alt="Anuncio de Café Brisa Alta"> | <img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> |
 | **3 lugares de RD que parecen de otro planeta** · [ver video](ejemplos/lugares-rd.mp4) | **Café Brisa Alta** · [ver video](ejemplos/anuncio-cafe.mp4) | **La leyenda de Ráfaga** · [ver video](ejemplos/leyenda-rafaga.mp4) |
 
+**Con movimiento real de IA** (Wan 2.2 en tu propia nube Modal: el viento, el pelo, la cámara y las chispas se mueven):
+
+<img src="ejemplos/leyenda-ia.gif" width="420" alt="La leyenda de Ráfaga animada con IA de video"> · [ver video](ejemplos/leyenda-ia.mp4)
+
 | Presentación (16:9) | Post de marca (4:5) | Miniatura de YouTube (16:9) |
 |---|---|---|
 | <img src="ejemplos/presentacion-rafaga.jpg" width="320" alt="Portada de presentación de Ráfaga Studio"> | <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |

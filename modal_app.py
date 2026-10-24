@@ -22,6 +22,16 @@ NEGATIVO = ("blurry, low quality, static, distorted face, deformed hands, extra 
             "subtitles, jpeg artifacts, flicker")
 
 
+@app.function(image=imagen, volumes={"/models": cache}, timeout=3600)
+def preparar() -> str:
+    """Baja los pesos del modelo al volumen con una CPU (casi gratis). Si no, los bajaba la H100 en su primer clip:
+    unos minutos de GPU pagados solo por descargar."""
+    from huggingface_hub import snapshot_download
+    snapshot_download(MODELO)
+    cache.commit()
+    return "listo"
+
+
 @app.cls(image=imagen, gpu="H100", volumes={"/models": cache}, timeout=1800, scaledown_window=60)
 class Wan:
     @modal.enter()

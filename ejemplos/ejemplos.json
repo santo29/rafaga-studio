@@ -8,21 +8,38 @@
     "guion": {
       "titulo": "3 lugares de RD que parecen de otro planeta",
       "descripcion": "Lago Enriquillo, Bahía de las Águilas y Los Haitises: tres paisajes dominicanos que no parecen de este mundo.",
-      "hashtags": ["#RepúblicaDominicana", "#Viajes", "#LugaresIncreíbles", "#Caribe"],
+      "hashtags": [
+        "#RepúblicaDominicana",
+        "#Viajes",
+        "#LugaresIncreíbles",
+        "#Caribe"
+      ],
       "estilo_visual": "cinematic travel photography, golden hour, ultra detailed, vibrant natural colors, no text",
       "escenas": [
-        {"narracion": "Estos tres lugares de República Dominicana parecen de otro planeta.",
-         "imagen": "dramatic aerial view of a turquoise caribbean coast with limestone cliffs and lush green jungle"},
-        {"narracion": "Primero, el Lago Enriquillo: está a unos cuarenta metros bajo el nivel del mar, el punto más bajo del Caribe.",
-         "imagen": "vast blue salt lake in a dry desert valley surrounded by cacti and arid mountains, white salt crust on the shore"},
-        {"narracion": "Y en sus orillas viven cocodrilos americanos e iguanas rinoceronte.",
-         "imagen": "wildlife photography of a large grey Cyclura cornuta iguana lizard on rocks by a salty desert lake, an american crocodile basking in the background"},
-        {"narracion": "Segundo, Bahía de las Águilas: ocho kilómetros de arena blanca, protegidos dentro del Parque Nacional Jaragua.",
-         "imagen": "pristine empty white sand beach with crystal clear turquoise water and dry forest hills, untouched, no buildings"},
-        {"narracion": "Tercero, Los Haitises: islotes de piedra cubiertos de selva que salen del mar, con cuevas que guardan arte taíno.",
-         "imagen": "rounded karst limestone islets covered in tropical jungle rising from a calm bay with mangroves, misty morning"},
-        {"narracion": "¿Cuál visitarías primero? Te leo en los comentarios.",
-         "imagen": "traveler standing on a cliff at sunset looking over a caribbean bay, seen from behind, cinematic"}
+        {
+          "narracion": "Estos tres lugares de República Dominicana parecen de otro planeta.",
+          "imagen": "dramatic aerial view of a turquoise caribbean coast with limestone cliffs and lush green jungle"
+        },
+        {
+          "narracion": "Primero, el Lago Enriquillo: está a unos cuarenta metros bajo el nivel del mar, el punto más bajo del Caribe.",
+          "imagen": "vast blue salt lake in a dry desert valley surrounded by cacti and arid mountains, white salt crust on the shore"
+        },
+        {
+          "narracion": "Y en sus orillas viven cocodrilos americanos e iguanas rinoceronte.",
+          "imagen": "wildlife photography of a large grey Cyclura cornuta iguana lizard on rocks by a salty desert lake, an american crocodile basking in the background"
+        },
+        {
+          "narracion": "Segundo, Bahía de las Águilas: ocho kilómetros de arena blanca, protegidos dentro del Parque Nacional Jaragua.",
+          "imagen": "pristine empty white sand beach with crystal clear turquoise water and dry forest hills, untouched, no buildings"
+        },
+        {
+          "narracion": "Tercero, Los Haitises: islotes de piedra cubiertos de selva que salen del mar, con cuevas que guardan arte taíno.",
+          "imagen": "rounded karst limestone islets covered in tropical jungle rising from a calm bay with mangroves, misty morning"
+        },
+        {
+          "narracion": "¿Cuál visitarías primero? Te leo en los comentarios.",
+          "imagen": "traveler standing on a cliff at sunset looking over a caribbean bay, seen from behind, cinematic"
+        }
       ]
     }
   },
@@ -36,19 +53,34 @@
     "guion": {
       "titulo": "Café Brisa Alta",
       "descripcion": "Café de montaña tostado en pequeños lotes: aroma intenso, sabor suave y sin amargura. Pídelo hoy.",
-      "hashtags": ["#Café", "#CaféDeMontaña", "#BuenosDías", "#Emprendimiento"],
+      "hashtags": [
+        "#Café",
+        "#CaféDeMontaña",
+        "#BuenosDías",
+        "#Emprendimiento"
+      ],
       "estilo_visual": "premium commercial photography, warm cinematic lighting, shallow depth of field, no text, no logos",
       "escenas": [
-        {"narracion": "¿Tu mañana necesita un empujón de verdad?",
-         "imagen": "sleepy young woman in a sunlit kitchen reaching for a cup of coffee, soft morning light, lifestyle photo"},
-        {"narracion": "Café Brisa Alta: granos cultivados en la montaña y tostados en pequeños lotes.",
-         "imagen": "ripe red coffee cherries on branches in a misty mountain plantation at sunrise, close-up"},
-        {"narracion": "Aroma intenso, sabor suave y sin amargura.",
-         "imagen": "freshly brewed coffee pouring into a white ceramic cup with steam rising, dark moody background"},
-        {"narracion": "Del cafetal a tu taza, en cada sorbo.",
-         "imagen": "plain kraft paper coffee bag with a blank label next to a steaming cup and roasted coffee beans on a wooden table, product shot"},
-        {"narracion": "Pídelo hoy y despierta distinto.",
-         "imagen": "smiling woman enjoying a cup of coffee on a balcony with a mountain view at sunrise"}
+        {
+          "narracion": "¿Tu mañana necesita un empujón de verdad?",
+          "imagen": "sleepy young woman in a sunlit kitchen reaching for a cup of coffee, soft morning light, lifestyle photo"
+        },
+        {
+          "narracion": "Café Brisa Alta: granos cultivados en la montaña y tostados en pequeños lotes.",
+          "imagen": "ripe red coffee cherries on branches in a misty mountain plantation at sunrise, close-up"
+        },
+        {
+          "narracion": "Aroma intenso, sabor suave y sin amargura.",
+          "imagen": "freshly brewed coffee pouring into a white ceramic cup with steam rising, dark moody background"
+        },
+        {
+          "narracion": "Del cafetal a tu taza, en cada sorbo.",
+          "imagen": "plain kraft paper coffee bag with a blank label next to a steaming cup and roasted coffee beans on a wooden table, product shot"
+        },
+        {
+          "narracion": "Pídelo hoy y despierta distinto.",
+          "imagen": "smiling woman enjoying a cup of coffee on a balcony with a mountain view at sunrise"
+        }
       ]
     }
   },
@@ -62,19 +94,71 @@
     "guion": {
       "titulo": "La leyenda de Ráfaga",
       "descripcion": "Tráiler de una serie anime original hecha con Ráfaga Studio.",
-      "hashtags": ["#Anime", "#Animación", "#Samurái", "#Caribe"],
+      "hashtags": [
+        "#Anime",
+        "#Animación",
+        "#Samurái",
+        "#Caribe"
+      ],
       "estilo_visual": "anime illustration, 90s cel animation style, bold ink lines, dramatic cel shading, cinematic composition, high contrast, no text",
       "escenas": [
-        {"narracion": "En una isla donde el viento corta como una espada…",
-         "imagen": "stormy tropical island at night seen from the sea, lightning, palm trees bending in a violent wind"},
-        {"narracion": "…vive un guerrero al que todos llaman Ráfaga.",
-         "imagen": "young Afro-Caribbean swordsman with long locs tied back and a scar over his left eyebrow, dark blue haori with a white wind pattern, curved sword at his hip, standing on a rocky shore at night, wind blowing his hair, full moon behind him"},
-        {"narracion": "Le quitaron su hogar. Ahora busca a los siete que lo traicionaron.",
-         "imagen": "burning wooden village on a hillside at night, silhouettes of seven masked warriors walking away, red sky"},
-        {"narracion": "Cada paso lo acerca a la venganza… o a la verdad.",
-         "imagen": "young Afro-Caribbean swordsman with long locs and a dark blue haori walking alone on a dirt road through a sugarcane field at sunset, seen from behind, long shadow"},
-        {"narracion": "La leyenda de Ráfaga.",
-         "imagen": "close-up of a young Afro-Caribbean swordsman with long locs, determined glowing eyes, sword half drawn, sparks flying, dramatic lighting"}
+        {
+          "narracion": "En una isla donde el viento corta como una espada…",
+          "imagen": "stormy tropical island at night seen from the sea, lightning, palm trees bending in a violent wind"
+        },
+        {
+          "narracion": "…vive un guerrero al que todos llaman Ráfaga.",
+          "imagen": "young Afro-Caribbean swordsman with long locs tied back and a scar over his left eyebrow, dark blue haori with a white wind pattern, curved sword at his hip, standing on a rocky shore at night, wind blowing his hair, full moon behind him"
+        },
+        {
+          "narracion": "Le quitaron su hogar. Ahora busca a los siete que lo traicionaron.",
+          "imagen": "burning wooden village on a hillside at night, silhouettes of seven masked warriors walking away, red sky"
+        },
+        {
+          "narracion": "Cada paso lo acerca a la venganza… o a la verdad.",
+          "imagen": "young Afro-Caribbean swordsman with long locs and a dark blue haori walking alone on a dirt road through a sugarcane field at sunset, seen from behind, long shadow"
+        },
+        {
+          "narracion": "La leyenda de Ráfaga.",
+          "imagen": "close-up of a young Afro-Caribbean swordsman with long locs, determined glowing eyes, sword half drawn, sparks flying, dramatic lighting"
+        }
+      ]
+    }
+  },
+  {
+    "id": "leyenda-ia",
+    "titulo": "La leyenda de Ráfaga (con movimiento de IA)",
+    "pedido": "Dos escenas del anime con movimiento real: el viento, el mar y la espada",
+    "formato": "16:9",
+    "voz": "es-DO-EmilioNeural",
+    "animar": true,
+    "reusa": {
+      "de": "leyenda-rafaga",
+      "imagenes": [
+        1,
+        4
+      ]
+    },
+    "cierre": "La leyenda de Ráfaga\nMuy pronto",
+    "guion": {
+      "titulo": "La leyenda de Ráfaga",
+      "descripcion": "Dos escenas del anime animadas con IA de video (Wan 2.2) en la nube de Modal.",
+      "hashtags": [
+        "#Anime",
+        "#Animación",
+        "#IA",
+        "#Samurái"
+      ],
+      "estilo_visual": "anime illustration, 90s cel animation style, bold ink lines, dramatic cel shading, cinematic, no text",
+      "escenas": [
+        {
+          "narracion": "En una isla donde el viento corta como una espada, vive Ráfaga.",
+          "imagen": "anime, a young Afro-Caribbean swordsman stands on a rocky shore at night, strong wind blowing his long locs and dark blue haori, waves crashing on the rocks, full moon, slow camera push-in"
+        },
+        {
+          "narracion": "Y esta noche, su espada despierta.",
+          "imagen": "anime close-up of a determined young swordsman slowly drawing his sword, sparks flying, hair moving in the wind, dramatic lighting, subtle camera movement"
+        }
       ]
     }
   }

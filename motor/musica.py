@@ -64,8 +64,12 @@ def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes
                    json={"prompt": prompt[:4000], "music_length_ms": segundos * 1000, "model_id": c["modelo_musica"],
                          "force_instrumental": letra is None})
     if r.status_code in (401, 402, 403):
-        raise RuntimeError(t("ElevenLabs no permite música con este plan (la API de música es solo para planes de "
-                             "pago)."))
+        detalle = " ".join(r.text.split())[:300]
+        if "permission" in detalle:  # una clave creada sin el permiso de música, aunque el plan sí lo tenga
+            raise RuntimeError(t("Tu clave de ElevenLabs no tiene permiso para crear música: en ElevenLabs, edita la "
+                                 "clave y activa «Music». ({detalle})", detalle=detalle))
+        raise RuntimeError(t("ElevenLabs no dejó crear la música ({codigo}): {detalle}", codigo=r.status_code,
+                             detalle=detalle))
     r.raise_for_status()
     return r.content
 

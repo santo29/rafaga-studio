@@ -230,6 +230,29 @@ with tempfile.TemporaryDirectory() as d:
     claves.elegir_por_defecto("texto", "pollinations")
     assert claves.para("texto")["proveedor"] == "openai"  # sin clave no hay texto gratis: vuelve a automático
     assert claves.publico()[0]["clave"] == "sk-x…sk-x"
+
+# Música con ElevenLabs: el aviso dice la causa real (una clave sin el permiso de música no es «tu plan no deja»)
+from motor import musica  # noqa: E402
+
+
+class _RespuestaMusica:
+    def __init__(self, codigo, cuerpo):
+        self.status_code, self.text = codigo, cuerpo
+
+
+_post = musica.httpx.post
+try:
+    for codigo, cuerpo, se_lee in (
+            (401, '{"detail": {"message": "missing the permission music_generation"}}', "no tiene permiso"),
+            (402, '{"detail": {"message": "quota exceeded"}}', "quota exceeded")):
+        musica.httpx.post = lambda *a, c=codigo, b=cuerpo, **k: _RespuestaMusica(c, b)
+        try:
+            musica._elevenlabs({"clave": "x", "modelo_musica": "music_v2_5"}, "dembow", None, 30)
+            raise AssertionError("debió fallar")
+        except RuntimeError as e:
+            assert se_lee in str(e), e
+finally:
+    musica.httpx.post = _post
 print("Todas las pruebas pasaron.")
 
 # ---------- Seguridad: los ataques de la auditoría no deben volver a funcionar ----------

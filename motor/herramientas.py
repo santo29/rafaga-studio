@@ -29,27 +29,34 @@ def _json(datos) -> str:
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
                 animado: bool = False) -> str:
-    """Crea un video completo desde un pedido: guion con IA, imágenes, voz, subtítulos y montaje.
+    """Crea un video completo desde un pedido: la IA escribe la narración y hace imágenes, voz, subtítulos y montaje.
     animado: true = cada escena es un video de IA con su propia voz: los personajes hablan con los labios
     sincronizados (una fruta que habla, un anuncio con actor…). Usa Gemini y es DE PAGO: ~US$1 por escena de 8 s
     (una escena cada ~8 s, tope de 15 por video). Úsalo solo si el usuario aceptó ese costo. Por defecto false:
     imágenes animadas con narración (gratis).
-    guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
-    {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
-    "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
-    Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
-    las del medio y se conserva la última.
-    formato: 9:16, 16:9, 1:1 o 4:5. voz: una de las voces de la lista (ver listar_opciones).
+    formato: 9:16, 16:9, 1:1 o 4:5. voz: el id de una de estas: {voces} (o una de ElevenLabs de listar_opciones).
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube
     a la IA de video: en Automático, primero a un Space público y gratis de Hugging Face; solo si el usuario eligió
     «Mi nube Modal» en Claves de IA, únicamente a su nube.
-    Devuelve la ruta del video y el texto para publicar. Tarda varios minutos."""
+    Devuelve la ruta del video y el texto para publicar. Tarda varios minutos.
+
+    guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
+    {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
+    "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
+    Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
+    las del medio y se conserva la última."""
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
     if imagen and solo_animar:
         return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
+    if voz not in desde_prompt.voces().values():  # antes de gastar en imágenes: la narración fallaría al final
+        raise ValueError(t("Voz desconocida ({voz!r:.40}); valen {voces}.", voz=voz,
+                           voces=", ".join(desde_prompt.voces().values())))
     return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
                                       animado=animado))
+
+
+crear_video.__doc__ = crear_video.__doc__.replace("{voces}", ", ".join(desde_prompt.VOCES.values()))
 
 
 def sacar_shorts(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: int = 5,
@@ -61,26 +68,34 @@ def sacar_shorts(url: str, formato: str = "9:16", modo: str = "recortar", cantid
     return _json(shorts.generar(url, formato, modo, cantidad, min(20, duracion_max), duracion_max, aviso=_aviso()))
 
 
-def investigar_nichos(tema: str = "", pais: str = "Latinoamérica") -> str:
+def investigar_nichos(tema: str = "", pais: str = "Latinoamérica",
+                      redes: str = "YouTube, TikTok, Instagram y Facebook") -> str:
     """Investiga nichos virales (YouTube con datos reales + web en vivo si la IA es Claude).
+    tema: solo el tema (p. ej. «recetas dominicanas»), sin red ni país: esos van en redes y pais.
     Devuelve nichos con potencial, pruebas, monetización e ideas de video con su prompt."""
-    return _json(nichos.investigar(tema, pais=pais, aviso=_aviso()))
+    return _json(nichos.investigar(tema, redes=redes, pais=pais, aviso=_aviso()))
 
 
 def crear_anuncios(foto: str, producto: str, detalles: str = "", publico: str = "", oferta: str = "",
                    estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
                    variantes: int = 3, segundos: int = 25) -> str:
-    """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto."""
+    """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto.
+    estilo: uno de {estilos}."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
     return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,
                                 variantes=variantes, segundos=segundos, aviso=_aviso()))
 
 
-def crear_cancion(idea: str, genero: str = "Dembow clásico (riddim jamaiquino 90s)", con_voz: bool = True,
-                  segundos: int = 150) -> str:
-    """Escribe y produce una canción o pista de cualquier género (ver listar_opciones para los géneros)."""
+crear_anuncios.__doc__ = crear_anuncios.__doc__.replace("{estilos}", "; ".join(anuncios.ESTILOS))
+
+
+def crear_cancion(idea: str, genero: str = "", con_voz: bool = True, segundos: int = 150) -> str:
+    """Escribe y produce una canción o pista. genero: uno de {generos}; vacío: la IA lo elige según la idea."""
     segundos = max(30, min(int(segundos), 300))
     return _json(musica.crear(idea, genero, con_voz, segundos, aviso=_aviso()))
+
+
+crear_cancion.__doc__ = crear_cancion.__doc__.replace("{generos}", "; ".join(musica.GENEROS))
 
 
 def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", letra: str = "", genero: str = "") -> str:
@@ -106,19 +121,49 @@ def separar_voz_y_pista(cancion: str) -> str:
     return _json(cabina.separar_cancion(ruta(cancion), aviso=_aviso()))
 
 
-def crear_diseno(pedido: str, tipo: str = "post", usar_marca: bool = True, propuesta: dict | None = None) -> str:
-    """Diseña una pieza gráfica en capas editables (como en Canva): textos, formas, iconos, emojis y fotos.
-    tipo: anuncio, post, historia, miniatura, flyer, logo, tarjeta, marca_personal o presentacion (diapositiva 16:9).
+def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propuesta: dict | None = None,
+                 estilo: str = "auto") -> str:
+    """Diseña una pieza gráfica en capas editables: textos, formas, iconos, emojis e ilustraciones o fotos.
+    tipo: auto (la IA lo elige según el pedido), anuncio, post, historia, miniatura, flyer, logo, tarjeta,
+    marca_personal, presentacion (diapositiva 16:9), ilustracion (un dibujo grande, sin textos salvo que los pida) o
+    estampado (camiseta, taza o sticker: el dibujo es la pieza, sin textos de venta).
+    estilo del dibujo: auto, vector, sticker, tatuaje, poster, grabado o foto (foto solo para un producto, lugar o
+    persona real).
+    usar_marca: usa el nombre, los colores, las fuentes y el logo guardados en «Mi marca» de la app.
+    Primero la IA entiende el pedido (también con faltas). Si tiene dos lecturas igual de probables, no gasta nada y
+    devuelve {"pregunta", "opciones"}: házsela al usuario y vuelve a llamar con lo que elija. Si no, "entendido" dice
+    qué entendió. El diseño lo piensa la IA de texto conectada y los dibujos se generan con la IA de imágenes
+    conectada (primero lo gratis). Devuelve la carpeta del diseño (se abre y se edita en la página «Diseño» de la
+    app), la vista previa PNG y los avisos.
+
     propuesta (opcional): si tú diseñas, pásalo y no se usa la IA de texto de la app. Medidas en % del lienzo (0-100):
     {"titulo", "descripcion", "fondo_colores": ["#RRGGBB", ...], "fondo_prompt_imagen": foto de fondo en inglés o "",
     "capas": [{"tipo": texto|imagen|forma|icono|emoji, "x", "y", "ancho", "alto", y según el tipo: "texto", "fuente",
     "tamano" (alto de letra en % del alto), "color", "negrita", "alineacion" (izquierda|centro|derecha), "sombra",
-    "forma" (rectangulo|elipse|linea), "redondeo", "opacidad", "icono" (nombre Lucide), "prompt_imagen"}]}.
-    usar_marca: usa el nombre, los colores, las fuentes y el logo guardados en «Mi marca» de la app.
-    El diseño lo piensa la IA de texto conectada y las fotos se generan con la IA de imágenes conectada (primero
-    lo gratis). Devuelve la carpeta del diseño (se abre y se edita en la página «Diseño» de la app), la vista
-    previa PNG y los avisos."""
-    return _json(diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso(), propuesta=propuesta))
+    "forma" (rectangulo|elipse|linea), "redondeo", "opacidad" (0-100), "icono" (nombre Lucide), "prompt_imagen"}]}."""
+    if tipo in ("ilustracion", "estampado") and tipo not in diseno_ia.TIPOS:  # ponytail: respaldo hasta P1
+        tipo = "post"
+    # antes de gastar nada en entender el pedido (el Director no pasa por la validación de tipos del MCP)
+    if tipo != "auto" and (not isinstance(tipo, str) or tipo not in diseno_ia.TIPOS):
+        raise ValueError(t("Tipo de diseño desconocido ({tipo!r:.30}); valen {tipos}.", tipo=tipo,
+                           tipos=", ".join(diseno_ia.TIPOS)))
+    if hasattr(diseno_ia, "ESTILOS") and (not isinstance(estilo, str) or estilo not in diseno_ia.ESTILOS):
+        raise ValueError(t("Estilo desconocido ({estilo!r:.30}); valen {estilos}.", estilo=estilo,
+                           estilos=", ".join(diseno_ia.ESTILOS)))
+    delante = {}
+    entender = getattr(diseno_ia, "entender", None)  # ponytail: respaldo mientras diseno_ia no tenga entender (P1)
+    if propuesta is None and entender and str(pedido or "").strip():
+        e = entender(pedido, tipo)
+        if not e.get("seguro", True):
+            return _json({"pregunta": e.get("pregunta", ""), "opciones": e.get("opciones", [])})
+        pedido = e.get("entendido") or pedido
+        tipo = e.get("tipo", tipo) if tipo == "auto" else tipo
+        estilo = e.get("estilo", estilo) if estilo == "auto" else estilo
+        delante = {"entendido": pedido}  # primero: el Director ve el resultado recortado y debe saber qué se entendió
+    tipo = "post" if tipo == "auto" else tipo
+    con_estilo = {"estilo": estilo} if hasattr(diseno_ia, "ESTILOS") else {}  # ponytail: igual, hasta P1
+    return _json({**delante, **diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso(), propuesta=propuesta,
+                                               **con_estilo)})
 
 
 def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:16", musica: str = "",
@@ -147,31 +192,34 @@ def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:
                   "resultados": [{"archivo": str(archivo), "titulo": p["nombre"], "descripcion": "", "hashtags": []}]})
 
 
-def crear_serie(titulo: str, idea: str, estilo: str = "Anime 90s (estilo samurái)", personajes: int = 3,
+def crear_serie(titulo: str, idea: str, estilo: str = "Cartoon 2D", personajes: int = 3,
                 formato: str = "16:9", biblia: dict | None = None) -> str:
-    """Serie animada: crea la serie (título, sinopsis) y sus personajes ORIGINALES, cada uno con su apariencia fija,
-    su voz y su lámina dibujada. estilo: uno de la lista (Anime 90s (estilo samurái), Anime moderno, Cartoon 2D,
-    Animación 3D (tipo Pixar), Cine realista, Cómic) o una descripción propia en inglés. personajes: de 1 a 6.
+    """Dibujos animados (serie animada): crea la serie (título, sinopsis) y sus personajes ORIGINALES, cada uno con
+    su apariencia fija, su voz y su lámina dibujada. estilo: uno de la lista (Cartoon 2D, Anime 90s (estilo
+    samurái), Anime moderno, Animación 3D (tipo Pixar), Cine realista, Cómic) o una descripción propia en inglés.
+    personajes: de 1 a 6. Después se hacen los capítulos con crear_episodio.
+
     biblia (opcional): si tú la escribes, no se usa la IA de texto de la app. Forma: {"titulo", "sinopsis",
     "personajes": [{"nombre", "descripcion": apariencia FIJA y concreta en inglés (50-80 palabras), "personalidad",
-    "genero": hombre o mujer}]}. Después se hacen los capítulos con crear_episodio."""
+    "genero": hombre o mujer}]}."""
     return _json(serie.crear_serie(titulo, idea, estilo, personajes, formato, aviso=_aviso(), biblia=biblia))
 
 
 def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: int = 0,
                    guion: dict | None = None) -> str:
-    """Serie animada: escribe y hace en video el capítulo siguiente de una serie (su título o nombre, ver
-    listar_series), con los mismos personajes y siguiendo la historia. idea: qué pasa en este capítulo (vacío: la IA
-    sigue la historia). planos: de 3 a 40 (unos 5 s cada uno). numero: para rehacer un capítulo que ya existe con su
-    mismo guion (p. ej. si se acabó la cuota de imágenes a mitad). guion (opcional): si tú lo escribes, no se usa la
-    IA de texto de la app. Forma: {"titulo", "resumen", "planos": [{"descripcion": lo que se ve en inglés (lugar,
-    acción, cámara; sin texto), "personajes": [nombres que salen], "habla": nombre de quien habla o "Narrador",
-    "texto": lo que dice, 1-2 frases}]}. Tarda varios minutos."""
+    """Dibujos animados (serie animada): escribe y hace en video el capítulo siguiente de una serie (su título o
+    nombre, ver listar_series), con los mismos personajes y siguiendo la historia. idea: qué pasa en este capítulo
+    (vacío: la IA sigue la historia). planos: de 3 a 40 (unos 5 s cada uno). numero: para rehacer un capítulo que
+    ya existe con lo que ya tiene escrito (p. ej. si se acabó la cuota de imágenes a mitad). Tarda varios minutos.
+
+    guion (opcional): si tú lo escribes, no se usa la IA de texto de la app. Forma: {"titulo", "resumen",
+    "planos": [{"descripcion": lo que se ve en inglés (lugar, acción, cámara; sin texto), "personajes": [nombres
+    que salen], "habla": nombre de quien habla o "Narrador", "texto": lo que dice, 1-2 frases}]}."""
     return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
 
 
 def listar_series() -> str:
-    """Las series animadas creadas, con sus personajes y capítulos."""
+    """Las series de dibujos animados creadas, con sus personajes y capítulos."""
     return _json(serie.listar())
 
 

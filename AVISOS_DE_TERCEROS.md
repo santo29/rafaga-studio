@@ -56,7 +56,7 @@ proveedor.
 | Recurso | Licencia |
 |---|---|
 | Iconos Lucide (`assets/iconos`) | ISC (y MIT para los iconos que vienen de Feather; ver `assets/iconos/LICENSE`) |
-| Fuentes de Google Fonts: Anton, Bebas Neue, Lora, Montserrat, Oswald, Pacifico, Playfair Display, Poppins (`assets/fuentes`) | SIL Open Font License 1.1 (ver `assets/fuentes/OFL.txt`) |
+| Fuentes de Google Fonts: Anton, Bebas Neue, Cinzel Decorative, Creepster, Grenze Gotisch, Lora, Metal Mania, Montserrat, New Rocker, Oswald, Pacifico, Pirata One, Playfair Display, Poppins (`assets/fuentes`) | SIL Open Font License 1.1 (ver `assets/fuentes/OFL.txt`) |
 | FFmpeg 7.1 (compilación essentials de gyan.dev, incluida en imageio-ffmpeg) | GPLv3 (compilado con --enable-gpl --enable-version3, x264 y x265) |
 
 ## Servicios de terceros

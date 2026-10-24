@@ -42,6 +42,17 @@ contenido revisado antes de copiarlo aquí.
 | Pacifico | `Pacifico-Regular.ttf` | `ofl/pacifico/Pacifico-Regular.ttf` | `5b6c0d5334a7bf77dea52b975c5a0c408878c0f7115ed5b6fb151f634b7bf701` |
 | Lora | `Lora-Italic[wght].ttf` | `ofl/lora/Lora-Italic[wght].ttf` | `22d8d8854b53807aa664ca34f2031a9ed57a1d0dea296b8b96cdd3aad937a2b3` |
 | Lora | `Lora[wght].ttf` | `ofl/lora/Lora[wght].ttf` | `822a6621ccbe8d97d20ac88c1c41f5615c9c2c202eaa75f272cd452aac6475a7` |
+| Pirata One | `PirataOne-Regular.ttf` | `ofl/pirataone/PirataOne-Regular.ttf` | `5347a2e155589ecf667d4b766613c8ee003edde9f83717fd24c09599a4b1ecc0` |
+| Grenze Gotisch | `GrenzeGotisch[wght].ttf` | `ofl/grenzegotisch/GrenzeGotisch[wght].ttf` | `701b299d8dc002a2b4bea2ff0f1272c0e4081a2835914354804565c410d0c637` |
+| Metal Mania | `MetalMania-Regular.ttf` | `ofl/metalmania/MetalMania-Regular.ttf` | `4b95f0e55b291990c26a7b68818b20c1b728a8be05a34982b7bb4736c46c19ea` |
+| New Rocker | `NewRocker-Regular.ttf` | `ofl/newrocker/NewRocker-Regular.ttf` | `28a499ce5b8bcf0652f8b2e25135183eaddf0c3c8c3e251259b075c71d1ef14c` |
+| Creepster | `Creepster-Regular.ttf` | `ofl/creepster/Creepster-Regular.ttf` | `402aeb734586c74aecd3dbdc454589b1fb12e2e1c71f782fd019ae68066d9f44` |
+| Cinzel Decorative | `CinzelDecorative-Regular.ttf` | `ofl/cinzeldecorative/CinzelDecorative-Regular.ttf` | `5b862be329103ad287a10f0a53e27a40e8cc519999253f1a0223e2dc330b10b8` |
+| Cinzel Decorative | `CinzelDecorative-Bold.ttf` | `ofl/cinzeldecorative/CinzelDecorative-Bold.ttf` | `e854e68a388aa50d742a4415c1ae5c17a617ef7956c95a70021d0a4a44f20518` |
+
+Las siete de abajo (góticas y decorativas, para títulos) se bajaron después del mismo commit, cada archivo a una
+carpeta aislada; se comprobó la cabecera TrueType y el blob de git antes de copiarlo. UnifrakturMaguntia y
+MedievalSharp se descartaron: la familia que `recursos.fuentes()` saca del nombre del archivo no sería la real.
 
 ## Emojis
 

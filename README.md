@@ -64,12 +64,12 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 |---|---|
 | 🤖 **AI Director** | Ask for the job in writing or with your voice; it plans and runs the right tools, step by step |
 | ✨ **Create with AI** | Prompt → script → images → voice → animation → subtitles. Optional talking characters with lip sync |
+| 🎨 **Design** | Canva-style layer editor (2,100+ icons, 8 fonts) and an AI that designs posts, thumbnails, flyers and logos **as editable layers** with your brand |
+| 🐰 **Cartoons** | Your cartoon series, episode by episode: original characters with a fixed look, a model sheet and their own voice |
+| ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles |
 | ⚡ **Magic Shorts** | Paste a long video link; the AI picks the best moments and crops them vertically with subtitles |
 | 🚀 **Ads** | Product photo → several ad versions (A/B tests) that keep your real product |
 | 🎵 **Music** | Lyrics and production in any genre (dembow, reggaetón, bachata…) plus a music video with karaoke lyrics |
-| 🎨 **Design** | Canva-style layer editor (2,100+ icons, 8 fonts) and an AI that designs posts, thumbnails, flyers and logos **as editable layers** with your brand |
-| ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles |
-| 🎞️ **Animated series** | Your cartoon, episode by episode: original characters with a fixed look, a model sheet and their own voice |
 | 🎙️ **Recording booth** | Record over the beat; tuning, genre vocal chains, sidechain mix and mastering |
 | 🔎 **Viral niches** | Real YouTube views-per-day plus live web research (with Claude) → niches with ready ideas |
 | 🔌 **MCP** | Claude (or any agent) uses the whole studio from the chat |
@@ -152,7 +152,7 @@ issue? See [SECURITY.md](SECURITY.md).
 
 ## 🗺️ Roadmap
 
-- [x] Prompt-to-video, shorts, ads, music, design, video editor, animated series
+- [x] Prompt-to-video, shorts, ads, music, design, video editor, cartoons (animated series)
 - [x] AI Director with local voice control, MCP server
 - [x] Talking characters with lip sync (Gemini Omni)
 - [x] Windows installer

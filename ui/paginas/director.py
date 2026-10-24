@@ -9,8 +9,8 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QLineEdit, QProgressBar, QTextBrowser,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMenu, QProgressBar,
+                               QScrollArea, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from motor import director, voz
 from motor.idioma import t
@@ -23,7 +23,8 @@ PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "cre
           "crear_cancion": "Música", "crear_video_musical": "Música", "producir_cancion": "Cabina de grabación",
           "separar_voz_y_pista": "Cabina de grabación", "crear_diseno": "Diseño", "editar_video": "Editor de video",
           "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA",
-          "crear_serie": "Serie animada", "crear_episodio": "Serie animada", "listar_series": "Serie animada"}
+          "crear_serie": "Dibujos animados", "crear_episodio": "Dibujos animados", "listar_series": "Dibujos animados"}
+IMAGENES = (".png", ".jpg", ".jpeg")  # resultados que no son video: el reproductor no los enseña
 
 
 def ejemplos() -> list[dict]:
@@ -63,6 +64,24 @@ def tarjeta_ejemplo(e: dict, al_pulsar) -> QToolButton:
     return b
 
 
+def fila_ejemplos(lista: list[dict], abrir) -> QScrollArea:
+    """Una fila de ejemplos que se desplaza de lado si no cabe: así la página no se sale por la derecha a 1366 px."""
+    contenido = QWidget()
+    fila = QHBoxLayout(contenido)
+    fila.setContentsMargins(0, 0, 0, 0)
+    for e in lista:
+        fila.addWidget(tarjeta_ejemplo(e, lambda e=e: abrir(e)))
+    fila.addStretch()
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    area.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+    area.setFixedHeight(230)
+    area.setWidget(contenido)
+    return area
+
+
 def galeria_ejemplos(padre, ver_video) -> QWidget:
     """Los ejemplos hechos con el estudio: una fila de videos (ver_video(e) los reproduce) y otra de diseños (se
     abren en grande). Sin ejemplos, no se ve."""
@@ -70,13 +89,23 @@ def galeria_ejemplos(padre, ver_video) -> QWidget:
     lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"))
     for lista, abrir in ((ejemplos(), ver_video),
                          (disenos(), lambda d: ver_imagen(padre, EJEMPLOS / f"{d['id']}.jpg", str(d.get("titulo", ""))))):
-        fila = QHBoxLayout()
-        for e in lista:
-            fila.addWidget(tarjeta_ejemplo(e, lambda e=e, abrir=abrir: abrir(e)))
-        fila.addStretch()
-        lay.addLayout(fila)
+        if lista:
+            lay.addWidget(fila_ejemplos(lista, abrir))
     caja.setVisible(bool(ejemplos() or disenos()))
     return caja
+
+
+def serie_de_pasos(pasos: list[dict]) -> str:
+    """La serie (nombre de su carpeta) que creó o continuó el Director en su último paso de serie; '' si ninguna."""
+    for p in reversed(pasos):
+        if p.get("herramienta") in ("crear_serie", "crear_episodio"):
+            try:
+                carpeta = Path(json.loads(p["resultado"])["carpeta"])
+            except (ValueError, TypeError, KeyError):
+                continue  # ese paso falló («ERROR: …»): no dejó serie
+            # el capítulo está en series/<serie>/episodios/NN
+            return (carpeta if p["herramienta"] == "crear_serie" else carpeta.parent.parent).name
+    return ""
 
 
 class Escucha(QThread):
@@ -107,9 +136,13 @@ class PaginaDirector(QWidget):
     usando = Signal(str)  # la herramienta que empieza a usar el Director (desde su hilo)
     termino = Signal()
 
-    def __init__(self, brillo=None):
+    def __init__(self, brillo=None, abrir_diseno=None, abrir_serie=None):
+        """abrir_diseno(carpeta) y abrir_serie(nombre) llevan lo hecho a su página: las páginas no se conocen, lo une
+        app.py."""
         super().__init__()
         self.brillo, self.historial, self.adjuntos = brillo, [], []
+        self.abrir_diseno, self.abrir_serie = abrir_diseno, abrir_serie
+        self.diseno_hecho, self.serie_hecha = None, ""
         self.tarea = self.escucha = self.lectura = None
         self._viejas = []  # lecturas en voz que ya no interesan pero siguen corriendo (soltarlas tumbaría la app)
         self.por_voz = False  # el pedido llegó hablando: la luz sigue mientras trabaja y contesta
@@ -159,6 +192,18 @@ class PaginaDirector(QWidget):
         self.progreso.hide()
         lay.addWidget(self.progreso)
         lay.addWidget(self.estado)
+        acciones = QHBoxLayout()
+        self.ir_diseno = boton(f"🎨  {t('Abrir en {programa}', programa=t('Diseño'))}")
+        # varios diseños en un trabajo: el botón los ofrece uno por uno en su menú, y el clic no abre además el último
+        self.menu_disenos = QMenu(self.ir_diseno)
+        self.ir_diseno.clicked.connect(lambda: None if self.ir_diseno.menu() else self.abrir_diseno(self.diseno_hecho))
+        self.ir_serie = boton(f"🐰  {t('Abrir en {programa}', programa=t('Dibujos animados'))}")
+        self.ir_serie.clicked.connect(lambda: self.abrir_serie(self.serie_hecha))
+        for b in (self.ir_diseno, self.ir_serie):
+            b.hide()
+            acciones.addWidget(b)
+        acciones.addStretch()
+        lay.addLayout(acciones)
         self.reproductor = Reproductor()
         self.reproductor.hide()
         lay.addWidget(self.reproductor, 1)
@@ -236,9 +281,26 @@ class PaginaDirector(QWidget):
         # con lo hecho y sus archivos: «sigue» o «cámbiale la música» se refieren a eso
         self.historial.append({"rol": "director", "texto": r["mensaje"],
                                **({"hecho": r["resumen"]} if r.get("resumen") else {})})
-        if r["resultados"]:
+        imagenes = [x for x in r["resultados"] if Path(x["archivo"]).suffix.lower() in IMAGENES]
+        videos = [x for x in r["resultados"] if x not in imagenes]
+        if videos:
             self.reproductor.show()
-            self.reproductor.mostrar(r)
+            self.reproductor.mostrar({**r, "resultados": videos})
+        elif imagenes:  # solo diseños: el video del trabajo anterior no se queda debajo como si fuera lo nuevo
+            self.reproductor.player.stop()
+            self.reproductor.hide()
+        for x in imagenes:  # cada diseño se ve en grande y se sigue editando en su página
+            ver_imagen(self, x["archivo"], x["titulo"])
+        hechos = [x for x in imagenes if (Path(x["archivo"]).parent / "diseno.json").is_file()]
+        self.diseno_hecho = Path(hechos[-1]["archivo"]).parent if hechos else None
+        self.menu_disenos.clear()
+        for x in hechos:  # «&&»: un «&» del título no se toma como atajo de teclado
+            self.menu_disenos.addAction(x["titulo"].replace("&", "&&")).triggered.connect(
+                lambda _=False, c=Path(x["archivo"]).parent: self.abrir_diseno(c))
+        self.ir_diseno.setMenu(self.menu_disenos if len(hechos) > 1 else None)
+        self.serie_hecha = serie_de_pasos(r.get("pasos", []))
+        self.ir_diseno.setVisible(bool(hechos and self.abrir_diseno))
+        self.ir_serie.setVisible(bool(self.serie_hecha and self.abrir_serie))
         if self.en_voz.isChecked() and self.por_voz:
             self._leer_en_voz(r["mensaje"])
 

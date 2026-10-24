@@ -584,7 +584,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     ventana = aplicacion.Ventana()
     assert not resto.exists() and ajena.is_dir()
     i = next(i for i, pagina in enumerate(ventana.orden) if isinstance(pagina, pe.PaginaEdicion))
-    assert isinstance(ventana.orden[i - 1], pd.PaginaDiseno) and "Editor de video" in ventana.grupo.buttons()[i].text()
+    assert ventana.orden[i - 1] is ventana.serie and "Editor de video" in ventana.grupo.buttons()[i].text()
     reproductor = ventana.crear.reproductor
     assert not reproductor.editar.isHidden()
     reproductor.mostrar({"formato": "16:9", "resultados": [{"archivo": str(clip), "titulo": "Prueba",

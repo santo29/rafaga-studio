@@ -24,10 +24,16 @@ def texto_json(instrucciones, pedido, esquema):
     return copy.deepcopy(respuesta)
 
 
+CUENTA = "0123456789abcdef0123456789abcdef"  # el ID de la cuenta de Cloudflare va en la URL de sus errores
+
+
 def imagen(prompt, ancho, alto, destino):
     fotos.append((prompt, ancho, alto))
+    if "FALLA429" in prompt:
+        raise RuntimeError("Ninguna opción pudo hacerlo.\nCloudflare: Client error '429 Too Many Requests' for url "
+                           f"'https://api.cloudflare.com/client/v4/accounts/{CUENTA}/ai/run/@cf/flux' — {CUENTA}")
     if "FALLA" in prompt:
-        raise RuntimeError("Ninguna opción pudo hacerlo.\ncuota agotada")
+        raise RuntimeError("Ninguna opción pudo hacerlo.\nservicio caído")
     foto = QImage(ancho, alto, QImage.Format_RGB32)
     foto.fill(QColor("#00AA00"))
     assert foto.save(str(destino))
@@ -44,13 +50,13 @@ def capa(**campos):
             "redondeo": 0, "opacidad": 100, "icono": "", "prompt_imagen": "", **campos}
 
 
-def crear(capas, tipo="post", usar_marca=True, **arriba):
+def crear(capas, tipo="post", usar_marca=True, pedido="Anuncio de pizza 2x1", estilo="auto", **arriba):
     respuesta.clear()
     respuesta.update({"titulo": "Prueba", "descripcion": "Texto para publicar", "fondo_colores": ["#0F0F13"],
                       "fondo_prompt_imagen": "", "capas": capas, **arriba})
     pedidos.clear()
     fotos.clear()
-    return diseno_ia.crear("Anuncio de pizza 2x1", tipo, usar_marca)
+    return diseno_ia.crear(pedido, tipo, usar_marca, estilo=estilo)
 
 
 def dentro(r):
@@ -106,7 +112,58 @@ assert corta is not None and [c["tipo"] for c in corta["capas"]] == ["texto", "i
 assert "PORCENTAJE" in diseno_ia.INSTRUCCIONES and "nunca píxeles" in diseno_ia.INSTRUCCIONES
 assert all(t in diseno.TAMANOS for t, _ in diseno_ia.TIPOS.values())
 assert set(diseno_ia.TIPOS) == {"anuncio", "post", "historia", "miniatura", "flyer", "logo", "tarjeta",
-                                "marca_personal", "presentacion"}
+                                "marca_personal", "presentacion", "ilustracion", "estampado"}
+# Diseño gráfico y no fotos: ni «nivel Canva» ni «fotográfico»; la regla común de faltas y la de no inventar datos
+assert set(diseno_ia.ESTILOS) == {"auto", "vector", "sticker", "tatuaje", "poster", "grabado", "foto"}
+assert diseno_ia.ESTILOS["auto"] == "" and all(v for k, v in diseno_ia.ESTILOS.items() if k != "auto")
+assert not any(p in v for k, v in diseno_ia.ESTILOS.items() if k != "foto" for p in ("photo", "realistic"))
+for instrucciones in (diseno_ia.INSTRUCCIONES, diseno_ia.INSTRUCCIONES_ENTENDER):
+    assert diseno_ia.FALTAS in instrucciones and "«abla» → habla" in instrucciones
+assert "Canva" not in diseno_ia.INSTRUCCIONES and "fotográfico" not in diseno_ia.INSTRUCCIONES
+assert "No inventes datos" in diseno_ia.INSTRUCCIONES and "[Precio]" in diseno_ia.INSTRUCCIONES
+assert "foto protagonista" not in diseno_ia.TIPOS["anuncio"][1] and "sin fotos" not in diseno_ia.TIPOS["logo"][1]
+estricto(diseno_ia.ESQUEMA_ENTENDER)
+assert diseno_ia.ESQUEMA_ENTENDER["properties"]["tipo"]["enum"] == list(diseno_ia.TIPOS)
+assert "auto" not in diseno_ia.ESQUEMA_ENTENDER["properties"]["estilo"]["enum"]
+
+# ---------- Ningún dato inventado: precios, %, webs, @, teléfonos y correos que no trae el pedido ----------
+sin_inventos = diseno_ia._sin_inventos
+assert sin_inventos("Entrada 15 € · www.x.com · +34 600 123 456", "Concierto gótico") == \
+    "Entrada [Precio] · [Web] · [Teléfono]"
+assert sin_inventos("PIZZA 2x1", "pizza 2x1") == "PIZZA 2x1"
+assert sin_inventos("Pieza artesanal con 30% OFF", "calavera") == "Pieza artesanal con [Precio] OFF"
+assert sin_inventos("100% algodón", "camiseta") == "100% algodón"  # no es una oferta
+assert sin_inventos("Escríbenos: hola@bar.com o @bar_santo", "bar") == "Escríbenos: [Contacto] o [Contacto]"
+assert sin_inventos("santolapara.com · RD$500 · $5 · 12,50€ · 3 euros", "x") == \
+    "[Web] · [Precio] · [Precio] · [Precio] · [Precio]"
+assert sin_inventos("Llama al (809) 555-1234", "x") == "Llama al [Teléfono]"
+# Lo que sí trae el pedido se queda, aunque lo escriba distinto (espacios, www, guiones)
+assert sin_inventos("Entrada 15 € · www.x.com · 809-555-1234", "entrada 15€, web x.com, tel 809 555 1234") == \
+    "Entrada 15 € · www.x.com · 809-555-1234"
+assert sin_inventos("Sábado 20 a las 21:00 · 2026 · 1.500.000 likes", "x") == \
+    "Sábado 20 a las 21:00 · 2026 · 1.500.000 likes"  # fechas, horas y cifras sueltas no son datos de contacto
+# Horarios y miles con puntos tampoco son teléfonos; un teléfono con puntos sí
+assert sin_inventos("Abierto 10.00 - 22.00", "pizzeria abierta de 10 a 22") == "Abierto 10.00 - 22.00"
+assert sin_inventos("Más de 15.000.000 de vistas", "canal de youtube") == "Más de 15.000.000 de vistas"
+assert sin_inventos("Llama al 809.555.1234", "x") == "Llama al [Teléfono]"
+# Precios y teléfonos del pedido escritos de otra forma: se comparan sus cifras
+assert sin_inventos("Pizza grande RD$500", "pizza grande a 500 pesos") == "Pizza grande RD$500"
+assert sin_inventos("Entrada 15 €", "flyer fiesta, entrada 15 euros") == "Entrada 15 €"
+assert sin_inventos("Entrada €15", "entrada 15€") == "Entrada €15"
+assert sin_inventos("Total RD$1,500.00", "1500 pesos") == "Total RD$1,500.00"
+assert sin_inventos("WhatsApp +1 809 555 1234", "whatsapp 809 555 1234") == "WhatsApp +1 809 555 1234"
+assert sin_inventos("Tel. +34 600 123 456", "tel 600123456") == "Tel. +34 600 123 456"
+# ...pero otras cifras siguen siendo inventos
+assert sin_inventos("Pizza RD$5000 · 30% OFF", "pizza a 500 pesos") == "Pizza [Precio] · [Precio] OFF"
+assert sin_inventos("WhatsApp 829 555 1234", "whatsapp 809 555 1234") == "WhatsApp [Teléfono]"
+
+# Solo se quitan las palabras de estilo fotográfico, no el motivo (una fotógrafa, un estudio de fotos)
+prompt_de = diseno_ia._prompt
+assert prompt_de("a female photographer with a camera", "vector").startswith("a female photographer with a camera, ")
+assert prompt_de("photography studio emblem, photographer silhouette", "auto", True, "#FFFFFF") == \
+    "studio emblem, photographer silhouette, isolated on plain solid background #FFFFFF" + diseno_ia._SIN_TEXTO
+assert prompt_de("photo-realistic skull, ultra-realistic photos", "vector") == \
+    "skull, " + diseno_ia.ESTILOS["vector"] + diseno_ia._SIN_TEXTO
 
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)
@@ -249,7 +306,8 @@ with tempfile.TemporaryDirectory() as d:
                   capa(texto=dato, x=16, y=52 + 8 * i, ancho=70, alto=6)]
     flyer += [capa(texto="NOCHE DE SALSA", y=4, alto=12), capa(texto="Reserva: 809-555-1234", y=88, alto=6)]
     assert len(flyer) == 16
-    r = crear(flyer, "flyer", usar_marca=False)
+    # Los datos vienen en el pedido: se quedan (sin ellos serían [Precio] y [Teléfono])
+    r = crear(flyer, "flyer", usar_marca=False, pedido="Flyer noche de salsa, entrada RD$500, reservas 809-555-1234")
     assert len(r["diseno"]["capas"]) == diseno_ia.MAX_CAPAS
     assert {"NOCHE DE SALSA", "Reserva: 809-555-1234", "Sábado 20", "10 p. m."} <= {c["texto"] for c in textos(r)}
     r = crear([capa(tipo="imagen", prompt_imagen=f"photo {i}") for i in range(20)] + [capa(texto="TITULAR")],
@@ -285,7 +343,7 @@ with tempfile.TemporaryDirectory() as d:
     r = crear([capa(texto="Sigue"), capa(tipo="imagen", prompt_imagen="FALLA capa")], fondo_prompt_imagen="FALLA fondo")
     assert r["diseno"]["fondo"] == {"tipo": "degradado", "colores": ["#123456", "#ABCDEF"], "imagen": ""}
     assert [c["tipo"] for c in r["diseno"]["capas"]] == ["texto", "imagen"]  # la foto se quitó; queda el logo
-    assert len(r["avisos"]) == 2 and all("cuota agotada" in a and "Ninguna opción" not in a for a in r["avisos"])
+    assert len(r["avisos"]) == 2 and all("servicio caído" in a and "Ninguna opción" not in a for a in r["avisos"])
     assert "fondo" in r["avisos"][0] and "Se quitó esa capa" in r["avisos"][1]
     assert diseno.abrir(Path(r["carpeta"])) == r["diseno"] and Path(r["archivo"]).is_file()
     r = crear([capa(tipo="imagen", prompt_imagen="pizza")], fondo_prompt_imagen="FALLA fondo", usar_marca=False)
@@ -402,6 +460,174 @@ with tempfile.TemporaryDirectory() as d:
         falla(lambda: diseno_ia.crear("", "post", propuesta="no es json"))
     finally:
         ia.texto_json = guardado
+
+    # ---------- Estilo: ilustraciones enteras y cuadradas, sin palabras de foto ----------
+    r = crear([capa(tipo="imagen", prompt_imagen="gothic skull, realistic detailed photography", x=10, y=20, ancho=80,
+                    alto=40), capa(texto="CALAVERA", y=70, alto=15)], usar_marca=False, pedido="calavera gótica",
+              estilo="vector")
+    prompt = fotos[0][0]
+    assert diseno_ia.ESTILOS["vector"] in prompt and prompt.endswith(diseno_ia._SIN_TEXTO) and "gothic skull" in prompt
+    assert "photo" not in prompt.lower() and "realistic" not in prompt.lower()
+    assert "isolated on plain solid background #0F0F13" in prompt  # el color del lienzo: no queda un recuadro
+    ilus = r["diseno"]["capas"][0]
+    assert ilus["ajuste"] == "contener" and ilus["ancho"] == ilus["alto"] == 432 and fotos[0][1:] == (432, 432)
+    assert (ilus["x"], ilus["y"]) == (324, 216)  # cuadrada desde el centro de la caja que pidió la IA
+    assert "Estilo de las imágenes: vector" in pedidos[0]
+    # Foto: realista, y llena su caja como antes
+    r = crear([capa(tipo="imagen", prompt_imagen="pepperoni pizza", x=0, y=40, ancho=100, alto=60)], usar_marca=False,
+              estilo="foto")
+    assert fotos == [("pepperoni pizza, " + diseno_ia.ESTILOS["foto"] + diseno_ia._SIN_TEXTO, 1080, 648)]
+    assert r["diseno"]["capas"][0]["ajuste"] == "cubrir"
+    # Ilustración, estampado y logo: ilustración entera aunque el estilo sea automático, y sin el logo de la marca
+    for tipo in ("ilustracion", "estampado", "logo"):
+        r = crear([capa(tipo="imagen", prompt_imagen="skull photo", x=5, y=10, ancho=90, alto=70)], tipo,
+                  pedido="calavera gótica")
+        ilus = r["diseno"]["capas"][0]
+        assert [c["tipo"] for c in r["diseno"]["capas"]] == ["imagen"] and r["avisos"] == [], tipo
+        assert ilus["ajuste"] == "contener" and ilus["ancho"] == ilus["alto"], tipo
+        assert fotos[0][0] == "skull, isolated on plain solid background #0F0F13" + diseno_ia._SIN_TEXTO
+    # Sobre un degradado, el color que tendrá detrás (el de su altura), no el de arriba; sobre una foto, ninguno
+    crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False,
+          estilo="vector", fondo_colores=["#000000", "#FF0000"])
+    assert "isolated on plain solid background #800000" in fotos[0][0]
+    crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False,
+          fondo_prompt_imagen="dark brick wall")
+    assert len(fotos) == 2 and "isolated" not in fotos[1][0] and fotos[1][0].startswith("skull")
+    antes = set(diseno.CARPETA.iterdir())
+    for estilo in ("VECTOR", "", None, "acuarela", ["vector"]):
+        assert "Estilo desconocido" in falla(lambda: diseno_ia.crear("pizza", "post", estilo=estilo))
+    assert set(diseno.CARPETA.iterdir()) == antes
+
+    # ---------- Datos inventados por la IA: huecos en el diseño y en la descripción ----------
+    r = crear([capa(texto="Entrada 15 € · www.x.com · +34 600 123 456", y=40, alto=20),
+               capa(texto="PIZZA 2x1", y=70, alto=15)], usar_marca=False, pedido="pizza 2x1",
+              descripcion="Ven, solo 9,99 € en santolapara.com")
+    assert [c["texto"] for c in textos(r)] == ["Entrada [Precio] · [Web] · [Teléfono]", "PIZZA 2x1"]
+    assert r["descripcion"] == "Ven, solo [Precio] en [Web]"
+    # En una propuesta también (el Director de la app la escribe él mismo): los datos reales vienen en el pedido
+    propuesta = {"titulo": "x", "descripcion": "Solo hoy: 30% OFF", "fondo_colores": ["#0F0F13"],
+                 "fondo_prompt_imagen": "", "capas": [{"tipo": "texto", "x": 8, "y": 30, "ancho": 84, "alto": 20,
+                                                       "texto": "Entrada 15 € · www.x.com · 30% OFF"}]}
+    hecho = diseno_ia.crear("", "post", False, propuesta=propuesta)
+    assert textos(hecho)[0]["texto"] == "Entrada [Precio] · [Web] · [Precio] OFF"
+    assert hecho["descripcion"] == "Solo hoy: [Precio] OFF"
+    hecho = diseno_ia.crear("fiesta, entrada 15 euros, web x.com", "post", False, propuesta=propuesta)
+    assert textos(hecho)[0]["texto"] == "Entrada 15 € · www.x.com · [Precio] OFF"
+
+    # ---------- Cuota de imágenes agotada (429): se va la foto y su marco, y no se enseña la URL ----------
+    r = crear([capa(tipo="forma", x=5, y=25, ancho=90, alto=50, color="#5A3A1A"),
+               capa(tipo="imagen", prompt_imagen="FALLA429 skull", x=8, y=28, ancho=84, alto=44),
+               capa(tipo="forma", x=5, y=85, ancho=40, alto=8, redondeo=50),
+               capa(texto="CALAVERA", y=5, alto=15)], usar_marca=False)
+    assert [c["tipo"] for c in r["diseno"]["capas"]] == ["forma", "texto"]  # el botón de abajo se queda
+    assert r["diseno"]["capas"][0]["y"] == round(1080 * 0.85)
+    assert len(r["avisos"]) == 1 and "cuota gratis" in r["avisos"][0]
+    assert "http" not in r["avisos"][0] and CUENTA not in r["avisos"][0]
+    # Una foto a lienzo completo que falla: se va ella sola; la banda y el botón que iban encima se quedan
+    r = crear([capa(tipo="imagen", prompt_imagen="FALLA429 pizza", x=0, y=0, ancho=100, alto=100),
+               capa(tipo="forma", x=0, y=60, ancho=100, alto=24, color="#000000", opacidad=50),
+               capa(tipo="forma", x=25, y=86, ancho=50, alto=8, color="#FF4D8D", redondeo=50),
+               capa(texto="PIZZA 2x1", y=64, alto=14), capa(texto="Pide ya", x=25, y=86, ancho=50, alto=8)],
+              usar_marca=False)
+    assert [c["tipo"] for c in r["diseno"]["capas"]] == ["forma", "forma", "texto", "texto"]
+    # nubes ya resume la cuota agotada («se acabó la cuota gratis de hoy»): se reconoce y no se repite
+    cuota = diseno_ia._causa(RuntimeError("Ninguna opción pudo hacerlo.\nCloudflare: se acabó la cuota gratis de hoy"))
+    assert cuota == "se acabó la cuota gratis de imágenes de hoy"
+    otro = diseno_ia._causa(RuntimeError(f"Ninguna opción pudo hacerlo.\nReplicate: 500 for url "
+                                         f"'https://api.replicate.com/v1/{CUENTA}'\nOpenAI: sin clave"))
+    assert "http" not in otro and CUENTA not in otro and "sin clave" in otro and "Ninguna opción" not in otro
+
+    # ---------- «Generar con IA» del editor: una ilustración suelta ----------
+    destino = d / "generada.png"
+    fotos.clear()
+    assert diseno_ia.ilustracion("calavera con rosas", "sticker", destino) == destino and destino.is_file()
+    assert fotos == [("calavera con rosas, " + diseno_ia.ESTILOS["sticker"] + diseno_ia._SIN_TEXTO, 1024, 1024)]
+    diseno_ia.ilustracion("  a cat photo ", "auto", str(destino))
+    assert fotos[-1][0] == "a cat photo" + diseno_ia._SIN_TEXTO  # automático: tal cual lo pidió
+    error = falla(diseno_ia.ilustracion, "FALLA429 calavera", "vector", destino, error=RuntimeError)
+    assert "cuota gratis" in error and "http" not in error and CUENTA not in error
+    falla(diseno_ia.ilustracion, "   ", "vector", destino)
+    falla(diseno_ia.ilustracion, "calavera", "acuarela", destino)
+
+    # ---------- Entender el pedido (faltas incluidas) antes de gastar imágenes ----------
+    llamadas = []
+
+    def entiende(contesta):
+        def falsa(instrucciones, pedido, esquema):
+            assert esquema is diseno_ia.ESQUEMA_ENTENDER and diseno_ia.FALTAS in instrucciones
+            llamadas.append(pedido)
+            if isinstance(contesta, Exception):
+                raise contesta
+            return copy.deepcopy(contesta)
+        return falsa
+
+    guardado = ia.texto_json
+    fotos.clear()
+    try:
+        ia.texto_json = entiende({"entendido": "una carabela gótica", "seguro": False,
+                                  "pregunta": "¿Calavera (cráneo) o carabela (barco)?",
+                                  "opciones": ["una calavera gótica", "una carabela gótica (barco)", " ", "otra",
+                                               "y otra"], "tipo": "flyer", "estilo": "tatuaje"})
+        assert diseno_ia.entender("una carabela gótica") == {
+            "entendido": "una carabela gótica", "seguro": False, "pregunta": "¿Calavera (cráneo) o carabela (barco)?",
+            "opciones": ["una calavera gótica", "una carabela gótica (barco)", "otra"], "tipo": "flyer",
+            "estilo": "tatuaje"}
+        assert llamadas == ["Pedido: una carabela gótica"]
+        # El tipo que eligió el usuario manda, y la IA lo sabe
+        assert diseno_ia.entender("una carabela gótica", "logo")["tipo"] == "logo"
+        assert "Pieza elegida por el usuario: logo" in llamadas[-1]
+        ia.texto_json = entiende({"entendido": "logo para mi barbería", "seguro": True, "pregunta": "",
+                                  "opciones": [], "tipo": "logo", "estilo": "vector"})
+        assert diseno_ia.entender("logo para mi barvería") == {
+            "entendido": "logo para mi barbería", "seguro": True, "pregunta": "", "opciones": [], "tipo": "logo",
+            "estilo": "vector"}
+        # Respuestas raras: tipo o estilo que no existen; «no seguro» sin opciones no tiene nada que preguntar
+        ia.texto_json = entiende({"entendido": "", "seguro": False, "pregunta": "¿?", "opciones": "no es lista",
+                                  "tipo": ["post"], "estilo": "acuarela"})
+        e = diseno_ia.entender("pizza")
+        assert (e["entendido"], e["seguro"], e["opciones"], e["tipo"], e["estilo"]) == (
+            "pizza", True, [], "ilustracion", "auto")
+        # Si la IA de texto falla, no bloquea: el pedido intacto
+        ia.texto_json = entiende(RuntimeError("sin IA de texto"))
+        assert diseno_ia.entender("calavera gótica") == {"entendido": "calavera gótica", "seguro": True,
+                                                         "pregunta": "", "opciones": [], "tipo": "ilustracion",
+                                                         "estilo": "auto"}
+        assert diseno_ia.entender("calavera gótica", "estampado")["tipo"] == "estampado"
+        ia.texto_json = entiende(["no", "es", "un", "objeto"])
+        assert diseno_ia.entender("x")["seguro"] is True
+    finally:
+        ia.texto_json = guardado
+    for pedido in ("", "   ", None):
+        falla(diseno_ia.entender, pedido)
+    for tipo in ("video", "", None, "AUTO", ["post"]):
+        falla(diseno_ia.entender, "pizza", tipo)
+    assert fotos == []  # entender nunca gasta imágenes
+
+    # ---------- Fuentes góticas: solo las que hay instaladas ----------
+    fuentes_reales = recursos.fuentes
+    recursos.fuentes = lambda: sorted(set(fuentes_reales()) | {"Pirata One"})
+    try:
+        crear([capa(texto="x")], usar_marca=False)
+    finally:
+        recursos.fuentes = fuentes_reales
+    linea = next(l for l in pedidos[0].splitlines() if l.startswith("Para títulos góticos"))
+    assert "Pirata One" in linea
+    crear([capa(texto="x")], usar_marca=False)
+    assert ("Para títulos góticos" in pedidos[0]) == any(f in recursos.fuentes() for f in diseno_ia._DECORATIVAS)
+
+    # ---------- La marca no se impone: solo lo que el usuario rellenó ----------
+    marca.guardar({"nombre": "santo la para"})
+    crear([capa(texto="Calavera")], "flyer", pedido="calavera gótica")
+    linea = next(l for l in pedidos[0].splitlines() if l.startswith("Marca del usuario"))
+    assert linea.startswith("Marca del usuario: nombre: santo la para.") and "nunca como «X PRESENTA»" in linea
+    assert "Montserrat" not in linea and "Poppins" not in linea and "respétala" not in pedidos[0]
+    marca.guardar({"nombre": "", "fuente_titulo": "Anton"})
+    crear([capa(texto="x")])
+    linea = next(l for l in pedidos[0].splitlines() if l.startswith("Marca del usuario"))
+    assert linea == "Marca del usuario: fuente de títulos: Anton."  # la que cambió; la de textos no
+    marca.guardar({})
+    crear([capa(texto="x")])
+    assert "Marca del usuario" not in pedidos[0] and "Elige tú los colores" in pedidos[0]
 
     # ---------- La herramienta MCP ----------
     import mcp_server  # noqa: E402

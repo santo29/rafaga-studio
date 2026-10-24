@@ -95,7 +95,9 @@ def _normalizar(datos, esquema: dict):
         import re
         return [p for p in re.split(r"[\s,]+", datos) if p]
     if tipo == "object" and isinstance(datos, dict):
-        return {k: _normalizar(v, esquema.get("properties", {}).get(k, {})) for k, v in datos.items()}
+        # Un campo opcional en null (los modelos pequeños lo hacen) es como si no viniera: no tumba la respuesta
+        return {k: _normalizar(v, esquema.get("properties", {}).get(k, {})) for k, v in datos.items()
+                if v is not None or k in esquema.get("required", [])}
     if tipo == "array" and isinstance(datos, list):
         return [_normalizar(d, esquema.get("items", {})) for d in datos]
     return datos

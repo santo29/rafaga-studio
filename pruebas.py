@@ -309,6 +309,9 @@ pedidos, dibujos, con_foto = [], [], []
 guion_ia = {"titulo": "T", "descripcion": "d", "hashtags": [], "estilo_visual": "photorealistic 3D render, Pixar-style",
             "entendido": "una calavera gótica que habla", "escenas": [
                 {"narracion": "Hola.", "imagen": "an ornate gothic skull"}] * 3}
+# «entendido» en null (modelos pequeños, agentes por MCP) es como si no viniera; un obligatorio en null sigue sin valer
+assert "entendido" not in ia.de_fuera({**guion_ia, "entendido": None}, esquema, "El guion")
+assert ia._validar({**guion_ia, "titulo": None}, esquema) is None
 
 
 def pensar(instrucciones, pedido, esquema):
@@ -393,14 +396,22 @@ def falla_http(codigo, texto):
     return tarea
 
 
-for codigo, texto, esperado in ((429, '{"errors": [{"message": "Too many"}]}', "cuota"),
-                                (400, '{"errors": [{"message": "you used your 10,000 neurons"}]}', "cuota"),
-                                (400, '{"error": "campo raro, ver https://x.example/docs"}', "400 Bad Request")):
+for proveedor, codigo, texto, esperado in (
+        ("huggingface", 429, '{"errors": [{"message": "Too many"}]}', "cuota gratis"),
+        ("huggingface", 400, '{"errors": [{"message": "you used your 10,000 neurons"}]}', "cuota gratis"),
+        ("gratis_sin_clave", 429, "Too Many Requests", "espera un poco"),  # su límite es por minuto, no del día
+        ("gratis_sin_clave", 400, '{"error": "campo raro, ver https://x.example/docs"}', "400 Bad Request")):
     try:
-        nubes.rotar("separacion", {"pc": falla_http(codigo, texto)})
+        nubes.rotar("imagen", {proveedor: falla_http(codigo, texto)})
         raise AssertionError("debió fallar")
     except RuntimeError as e:
         assert esperado in str(e) and "http" not in str(e) and cuenta_cf not in str(e), str(e)
+        assert ("cuota gratis" in str(e)) == (esperado == "cuota gratis"), str(e)
+# De pago sin saldo (OpenAI dice «quota»): que revise su saldo, no que espere a mañana
+try:
+    falla_http(429, "You exceeded your current quota, please check your plan and billing details. insufficient_quota")()
+except httpx.HTTPStatusError as e:
+    assert "saldo" in nubes._causa(e, "openai") and "cuota gratis" not in nubes._causa(e, "openai")
 
 # Shorts: fuera los de duración muy distinta a la pedida y los que repiten el mismo momento
 clips = [{"inicio": 0, "fin": 30, "puntuacion": 90}, {"inicio": 9, "fin": 39, "puntuacion": 80},  # solape del 70 %
@@ -420,7 +431,12 @@ ia.texto_json = lambda instrucciones, pedido, esquema: pedidos.append(pedido) or
 try:
     r = shorts.generar("https://www.youtube.com/watch?v=x", enfoque="los consejos de dinero")
     assert "El usuario busca: los consejos de dinero" in pedidos[0]
-    assert len(r["resultados"]) == 2 and all(c["archivo"] for c in r["resultados"])
+    assert len(r["resultados"]) == 2 and all(c["archivo"] for c in r["resultados"]) and r["avisos"] == []
+    # Si ningún momento dura lo pedido salen igual, pero avisando
+    clips = clips[2:3]
+    shorts.PROYECTOS = tmp / "proyectos_shorts2"  # otra carpeta: van en el mismo segundo
+    r = shorts.generar("https://www.youtube.com/watch?v=x")
+    assert len(r["resultados"]) == 1 and len(r["avisos"]) == 1 and "entre 20 y 60 s" in r["avisos"][0], r["avisos"]
 finally:
     shorts.descargar, video.duracion, video.ffmpeg, video.recortar, ia.transcribir, ia.texto_json = reales
 print("Pruebas de guiones fieles pasadas.")

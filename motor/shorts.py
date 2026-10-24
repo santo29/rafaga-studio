@@ -72,10 +72,15 @@ def _ajustar(clip: dict, palabras: list[dict], total: float) -> dict:
     return {**clip, "inicio": max(ini - 0.15, 0), "fin": min(fin + 0.35, total)}
 
 
+def _a_medida(clip: dict, dur_min: float, dur_max: float) -> bool:
+    return dur_min * 0.8 <= clip["fin"] - clip["inicio"] <= dur_max * 1.2
+
+
 def _elegir(clips: list[dict], cantidad: int, dur_min: float, dur_max: float) -> list[dict]:
     """Los mejores clips que duran lo pedido (con margen) y no repiten el mismo momento (solape de más de la mitad
-    del más corto). Si ninguno dura lo pedido, se usan igual: mejor eso que no sacar nada tras descargar y transcribir."""
-    clips = [c for c in clips if dur_min * 0.8 <= c["fin"] - c["inicio"] <= dur_max * 1.2] or clips
+    del más corto). Si ninguno dura lo pedido, se usan igual (generar lo avisa): mejor eso que no sacar nada tras
+    descargar y transcribir."""
+    clips = [c for c in clips if _a_medida(c, dur_min, dur_max)] or clips
     elegidos = []
     for c in sorted(clips, key=lambda c: c["puntuacion"], reverse=True):
         if all(min(c["fin"], o["fin"]) - max(c["inicio"], o["inicio"])
@@ -196,6 +201,9 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
     clips = ia.texto_json(INSTRUCCIONES, pedido, ESQUEMA)["clips"]
     clips = [_ajustar(c, palabras, total) for c in clips if 0 <= c["inicio"] < c["fin"] <= total + 1]
     clips = _elegir(clips, cantidad, dur_min, dur_max)
+    avisos = [] if not clips or _a_medida(clips[0], dur_min, dur_max) else [
+        t("Ningún momento del video duraba entre {minimo} y {maximo} s: estos shorts tienen otra duración.",
+          minimo=dur_min, maximo=dur_max)]
 
     for i, c in enumerate(clips, 1):
         aviso(t("Montando short {n} de {total}…", n=i, total=len(clips)), 0.55 + 0.43 * (i - 1) / max(len(clips), 1))
@@ -203,7 +211,7 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
                                           carpeta / f"short_{i:02d}.mp4"))
 
     proyecto = {"tipo": "shorts", "url": url, "titulo": titulo, "formato": formato,
-                "carpeta": str(carpeta), "resultados": clips}
+                "carpeta": str(carpeta), "resultados": clips, "avisos": avisos}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
     aviso(t("¡Listo!"), 1.0)
     return proyecto

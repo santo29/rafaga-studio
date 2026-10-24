@@ -125,7 +125,10 @@ def orden(uso: str) -> list[str]:
     return ([elegido] + [p for p in lista if p != elegido]) if elegido in lista else lista
 
 
-def _causa(e: Exception) -> str:
+CUOTA_DIARIA = {"cloudflare", "huggingface"}  # su 429 es la cuota gratis del día; en los demás, saldo o límite por minuto
+
+
+def _causa(e: Exception, proveedor: str) -> str:
     """Por qué falló un proveedor, dicho para el usuario: sin direcciones ni el ID de la cuenta (la URL de Cloudflare
     lo lleva dentro y el mensaje acaba en pantalla y en los avisos guardados)."""
     causa = str(e).strip() or type(e).__name__  # algunos errores no traen mensaje
@@ -133,7 +136,8 @@ def _causa(e: Exception) -> str:
         causa = (f"{e.response.status_code} {e.response.reason_phrase} — "
                  f"{' '.join(e.response.text.split())[:200]}")
     if re.search(r"\b429\b|quota|neurons", causa, re.IGNORECASE):
-        return t("se acabó la cuota gratis de hoy")
+        return t("se acabó la cuota gratis de hoy") if proveedor in CUOTA_DIARIA else \
+            t("límite de uso alcanzado: espera un poco o revisa tu saldo")
     return re.sub(r"https?://\S+|\b[0-9a-fA-F]{32}\b", "…", causa)
 
 
@@ -147,7 +151,7 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
         try:
             resultado = tareas[proveedor]()
         except Exception as e:  # cuota agotada, servicio caído…: se pasa al siguiente
-            causa = _causa(e)
+            causa = _causa(e, proveedor)
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),
                   progreso)

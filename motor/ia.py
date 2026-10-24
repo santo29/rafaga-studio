@@ -307,8 +307,9 @@ def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino:
         return destino
     # ponytail: sin edición con referencia el producto se pega encima del fondo; queda menos natural.
     from .video import ffmpeg
-    fondo = imagen(f"{prompt}, empty space in the center for a product, no product", ancho, alto,
-                   destino.with_name(destino.stem + "_fondo.png"))
+    # Pedir «the product» y a la vez «no product» se contradecía: el hueco va en la propia escena
+    escena = re.sub("the product|the subject from the reference image", "an empty spot", prompt, flags=re.IGNORECASE)
+    fondo = imagen(f"{escena}, empty space in the center", ancho, alto, destino.with_name(destino.stem + "_fondo.png"))
     ffmpeg("-i", fondo, "-i", foto, "-filter_complex",
            f"[0]scale={ancho}:{alto}:force_original_aspect_ratio=increase,crop={ancho}:{alto}[f];"
            f"[1]scale={int(ancho * 0.6)}:-1[p];[f][p]overlay=(W-w)/2:(H-h)*0.62", "-frames:v", "1", destino)

@@ -288,6 +288,143 @@ for linea in Path(__file__).with_name("Ráfaga Studio.bat").read_text(encoding="
     elif bloque and linea.lower().startswith("echo"):
         assert not re.search(r"(?<!\^)[()]", linea), f"paréntesis sin ^ en el .bat: {linea}"
 
+# ---------- Guiones fieles (Crear con IA, Anuncios, Shorts) y errores sin datos de la cuenta, sin red ----------
+import json  # noqa: E402
+
+import httpx  # noqa: E402
+
+from motor import anuncios, desde_prompt, nubes, serie  # noqa: E402
+
+tmp = Path(tempfile.mkdtemp(prefix="rafaga-guiones-"))
+claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # sin claves: nunca las del usuario
+esquema = desde_prompt.ESQUEMA
+assert "entendido" in esquema["properties"] and "entendido" not in esquema["required"]
+assert desde_prompt.FALTAS in desde_prompt.INSTRUCCIONES and desde_prompt.FALTAS in anuncios.INSTRUCCIONES
+assert "cinematic photo" not in desde_prompt.INSTRUCCIONES and "SOLA" in desde_prompt.INSTRUCCIONES
+assert "servicio" in anuncios.INSTRUCCIONES and "No inventes ofertas" in anuncios.INSTRUCCIONES
+assert desde_prompt.idioma_de("en-US-AvaNeural") == "\nIdioma de la narración: English"
+assert desde_prompt.idioma_de("eleven:abc-123") == ""  # ElevenLabs: no se sabe, no se dice
+
+pedidos, dibujos, con_foto = [], [], []
+guion_ia = {"titulo": "T", "descripcion": "d", "hashtags": [], "estilo_visual": "photorealistic 3D render, Pixar-style",
+            "entendido": "una calavera gótica que habla", "escenas": [
+                {"narracion": "Hola.", "imagen": "an ornate gothic skull"}] * 3}
+
+
+def pensar(instrucciones, pedido, esquema):
+    pedidos.append(pedido)
+    return json.loads(json.dumps(plan if esquema is anuncios.ESQUEMA else guion_ia))
+
+
+def dibujar(prompt, ancho, alto, destino):
+    dibujos.append(prompt)
+    return destino
+
+
+def con_producto(prompt, foto, ancho, alto, destino, realista=True):
+    con_foto.append((prompt, realista))
+    return destino
+
+
+reales = (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.video_desde_imagen, ia.investigar_web,
+          desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre, video.ffmpeg)
+ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.investigar_web = pensar, dibujar, con_producto, lambda q: None
+ia.video_desde_imagen = lambda *a, **k: None  # animar sería red
+desde_prompt.narrar = lambda texto, voz, destino: []
+video.duracion, video.unir, video.cierre = lambda p: 1.0, lambda partes, d: d, lambda m, texto, f, d: d
+video.escena_de_imagen = lambda img, audio, formato, palabras, escena, i: escena
+desde_prompt.PROYECTOS = anuncios.PROYECTOS = tmp / "proyectos"
+try:
+    # Crear con IA: la IA dice lo que entendió y el estilo elegido lo impone el código, no la IA
+    r = desde_prompt.generar("carabela gotica que abla", voz="en-US-AvaNeural", estilo="Cartoon 2D")
+    assert "La IA entendió: una calavera gótica que habla" in r["avisos"]
+    guardado = json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))
+    assert guardado["estilo_visual"] == serie.ESTILOS["Cartoon 2D"]
+    assert len(dibujos) == 3 and all(d.endswith(serie.ESTILOS["Cartoon 2D"]) for d in dibujos), dibujos
+    assert "Estilo visual obligatorio: " + serie.ESTILOS["Cartoon 2D"] in pedidos[-1]
+    assert "Idioma de la narración: English" in pedidos[-1]
+    # Un guion de fuera (MCP) sin «entendido» sigue valiendo, y sin estilo se queda el suyo
+    mio = {k: v for k, v in guion_ia.items() if k != "entendido"}
+    desde_prompt.PROYECTOS = tmp / "proyectos2"  # cada video en su carpeta: van en el mismo segundo
+    r = desde_prompt.generar("", guion=mio)
+    assert not any("entendió" in a for a in r["avisos"]) and len(pedidos) == 1
+    assert json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))["estilo_visual"] == \
+        mio["estilo_visual"]
+    # Con foto de partida: nada de «Photorealistic» encima del estilo elegido
+    foto = tmp / "foto.png"
+    foto.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    desde_prompt.PROYECTOS = tmp / "proyectos3"
+    desde_prompt.generar("mi perro", imagen=str(foto), guion=mio, estilo="Cómic")
+    assert len(con_foto) == 2 and all(realista is False for _, realista in con_foto)
+
+    # Anuncios: la foto solo se pega donde la escena dice «the product» (aunque el estilo lo diga)
+    plan = {"variantes": [{"angulo": "a", "gancho": "g", "titulo": "t", "texto_anuncio": "x", "hashtags": [],
+                           "estilo_visual": "UGC selfie, close-up hands using the product", "escenas": [
+                               {"narracion": "Mira.", "imagen": "a barber cutting the hair of a 25-year-old man"},
+                               {"narracion": "Pruébalo.", "imagen": "The product on a wooden shelf"},
+                               {"narracion": "Ven.", "imagen": "a barbershop street at night"}]}]}
+    dibujos.clear()
+    con_foto.clear()
+    r = anuncios.crear(str(foto), "Barbería Los Panas", "cortes", "jóvenes", "", "UGC testimonio", voz="en-US-AvaNeural",
+                       variantes=1, segundos=15)
+    assert len(dibujos) == 2 and "barber cutting" in dibujos[0] and "barbershop street" in dibujos[1]
+    assert len(con_foto) == 1 and con_foto[0][0].startswith("The product on")
+    assert any("Sin investigación en vivo" in a for a in r["avisos"])  # sin Claude no se investiga: se dice
+    assert "Idioma de la narración: English" in pedidos[-1]
+
+    # Sin IA con referencia: el fondo pide un hueco en la escena, sin «no product» que la contradiga
+    dibujos.clear()
+    video.ffmpeg = lambda *a, **k: None
+    ia.imagen_con_producto = reales[2]
+    ia.imagen_con_producto("The product on a marble table", foto, 64, 64, tmp / "escena.png")
+    assert dibujos == ["an empty spot on a marble table, empty space in the center"], dibujos
+finally:
+    (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.video_desde_imagen, ia.investigar_web, desde_prompt.narrar,
+     video.duracion, video.escena_de_imagen, video.unir, video.cierre, video.ffmpeg) = reales
+
+# Errores de las nubes: sin la URL ni el ID de la cuenta, y la cuota agotada dicha claro
+cuenta_cf = "0123456789abcdef0123456789abcdef"
+
+
+def falla_http(codigo, texto):
+    def tarea():
+        url = f"https://api.cloudflare.com/client/v4/accounts/{cuenta_cf}/ai/run/@cf/flux"
+        httpx.Response(codigo, request=httpx.Request("POST", url), text=texto).raise_for_status()
+    return tarea
+
+
+for codigo, texto, esperado in ((429, '{"errors": [{"message": "Too many"}]}', "cuota"),
+                                (400, '{"errors": [{"message": "you used your 10,000 neurons"}]}', "cuota"),
+                                (400, '{"error": "campo raro, ver https://x.example/docs"}', "400 Bad Request")):
+    try:
+        nubes.rotar("separacion", {"pc": falla_http(codigo, texto)})
+        raise AssertionError("debió fallar")
+    except RuntimeError as e:
+        assert esperado in str(e) and "http" not in str(e) and cuenta_cf not in str(e), str(e)
+
+# Shorts: fuera los de duración muy distinta a la pedida y los que repiten el mismo momento
+clips = [{"inicio": 0, "fin": 30, "puntuacion": 90}, {"inicio": 9, "fin": 39, "puntuacion": 80},  # solape del 70 %
+         {"inicio": 100, "fin": 105, "puntuacion": 99}, {"inicio": 50, "fin": 75, "puntuacion": 70}]  # 5 s con mín. 20
+assert [c["inicio"] for c in shorts._elegir(clips, 5, 20, 60)] == [0, 50]
+assert [c["inicio"] for c in shorts._elegir(clips, 1, 20, 60)] == [0]
+assert shorts._elegir(clips[2:3], 5, 20, 60) == clips[2:3]  # si ninguno dura lo pedido, mejor eso que nada
+reales = shorts.descargar, video.duracion, video.ffmpeg, video.recortar, ia.transcribir, ia.texto_json
+pedidos.clear()
+shorts.PROYECTOS = tmp / "proyectos"
+shorts.descargar = lambda url, carpeta, progreso: (carpeta / "original.mp4", "Charla")
+video.duracion, video.ffmpeg = lambda p: 200.0, lambda *a, **k: None
+video.recortar = lambda original, ini, fin, formato, modo, palabras, destino: destino
+ia.transcribir = lambda audio, progreso=None: [{"palabra": f"p{i}.", "inicio": i, "fin": i + 0.5} for i in range(200)]
+ia.texto_json = lambda instrucciones, pedido, esquema: pedidos.append(pedido) or {"clips": [
+    {**c, "titulo": "x", "descripcion": "d", "hashtags": [], "motivo": "m"} for c in clips]}
+try:
+    r = shorts.generar("https://www.youtube.com/watch?v=x", enfoque="los consejos de dinero")
+    assert "El usuario busca: los consejos de dinero" in pedidos[0]
+    assert len(r["resultados"]) == 2 and all(c["archivo"] for c in r["resultados"])
+finally:
+    shorts.descargar, video.duracion, video.ffmpeg, video.recortar, ia.transcribir, ia.texto_json = reales
+print("Pruebas de guiones fieles pasadas.")
+
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for archivo in ("pruebas_diseno_recursos.py", "pruebas_diseno.py", "pruebas_diseno_ia.py", "pruebas_diseno_ui.py",
                 "pruebas_edicion.py", "pruebas_render_edicion.py", "pruebas_edicion_ui.py", "pruebas_director.py",

@@ -14,6 +14,8 @@ class PaginaShorts(PaginaTrabajo):
                                                 "subtítulos."))
         self.url = QLineEdit()
         self.url.setPlaceholderText("https://www.youtube.com/watch?v=…")
+        self.enfoque = QLineEdit()
+        self.enfoque.setPlaceholderText(t("Qué buscar (opcional): momentos graciosos, consejos de dinero…"))
         self.formato = SelectorFormato()
         self.modo = QComboBox()
         self.modo.addItems([t("Recortar para llenar"), t("Entero, con fondo borroso")])  # como en el editor
@@ -31,7 +33,7 @@ class PaginaShorts(PaginaTrabajo):
             fila.addWidget(w)
         self.iniciar = boton(f"⚡  {t('Sacar shorts')}", "principal")
         self.iniciar.clicked.connect(self._iniciar)
-        for w in (self.url, etiqueta(t("Formato"), "sub"), self.formato):
+        for w in (self.url, self.enfoque, etiqueta(t("Formato"), "sub"), self.formato):
             self.form_lay.addWidget(w)
         self.form_lay.addLayout(fila)
         self.form_lay.addWidget(etiqueta(t("Usa videos tuyos o con permiso del autor: las redes no pagan por "
@@ -44,4 +46,5 @@ class PaginaShorts(PaginaTrabajo):
             return mensaje(self, t("Falta el enlace"), t("Pega el enlace del video largo."))
         self.lanzar(self.iniciar, shorts.generar, url=url, formato=self.formato.valor(),
                     modo="difuminar" if self.modo.currentIndex() else "recortar",
-                    cantidad=self.cantidad.value(), dur_min=min(20, self.dur_max.value()), dur_max=self.dur_max.value())
+                    cantidad=self.cantidad.value(), dur_min=min(20, self.dur_max.value()), dur_max=self.dur_max.value(),
+                    enfoque=self.enfoque.text().strip())

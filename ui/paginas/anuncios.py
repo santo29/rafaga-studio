@@ -10,9 +10,11 @@ from ui.comun import boton, mensaje, PaginaTrabajo, SelectorFormato, SelectorVoz
 
 class PaginaAnuncios(PaginaTrabajo):
     def __init__(self):
-        super().__init__(t("Anuncios realistas"), t("Sube la foto de tu producto. La IA investiga qué anuncios están "
-                                                    "funcionando, crea varias versiones con ganchos distintos (para "
-                                                    "pruebas A/B) y las monta con tu producto real, voz y subtítulos."))
+        super().__init__(t("Anuncios realistas"), t("Sube la foto de tu producto o de tu negocio. La IA crea varias "
+                                                    "versiones con ganchos distintos (para pruebas A/B) y las monta "
+                                                    "con voz y subtítulos; tu producto real sale en las escenas donde "
+                                                    "aparece. Con Claude conectado, antes investiga qué anuncios están "
+                                                    "funcionando."))
         fila_foto = QHBoxLayout()
         self.foto = None
         self.vista = QLabel(t("Sin foto"))
@@ -23,7 +25,7 @@ class PaginaAnuncios(PaginaTrabajo):
         elegir.clicked.connect(self._elegir_foto)
         datos = QVBoxLayout()
         self.producto = QLineEdit()
-        self.producto.setPlaceholderText(t("Producto (ej: Crema reafirmante Aloe+)"))
+        self.producto.setPlaceholderText(t("Producto o servicio (ej: Crema reafirmante Aloe+, Barbería Los Panas)"))
         self.detalles = QLineEdit()
         self.detalles.setPlaceholderText(t("Qué hace, beneficios, precio"))
         self.publico = QLineEdit()

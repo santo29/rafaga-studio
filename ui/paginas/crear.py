@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QSpinBox, QTextEdit
 
-from motor import desde_prompt, seguro
+from motor import desde_prompt, seguro, serie
 from motor.idioma import t
 from ui.comun import (archivo_valido, boton, campo_archivo, etiqueta, mensaje, PaginaTrabajo, SelectorFormato,
                       SelectorVoz)
@@ -21,7 +21,13 @@ class PaginaCrear(PaginaTrabajo):
         self.segundos.setRange(15, 600)
         self.segundos.setValue(45)
         self.segundos.setSuffix(f" {t('segundos')}")
+        self.estilo = QComboBox()  # el de las series: así se puede pedir dibujo animado
+        self.estilo.addItem(t("Automático"), "")
+        for nombre in serie.ESTILOS:
+            self.estilo.addItem(nombre, nombre)
         fila = QHBoxLayout()
+        fila.addWidget(etiqueta(t("Estilo")))
+        fila.addWidget(self.estilo)
         fila.addWidget(etiqueta(t("Voz")))
         fila.addWidget(self.voz, 1)
         fila.addWidget(etiqueta(t("Duración")))
@@ -66,4 +72,5 @@ class PaginaCrear(PaginaTrabajo):
                     "Google. ¿Seguir?", n=escenas, costo=f"{costo:.2f}")) != QMessageBox.Yes:
                 return
         self.lanzar(self.iniciar, desde_prompt.generar, prompt=texto, formato=self.formato.valor(),
-                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen, animado=animado)
+                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen, animado=animado,
+                    estilo=self.estilo.currentData())

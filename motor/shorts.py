@@ -34,6 +34,8 @@ Recibes la transcripción de un video largo con marcas de tiempo en segundos.
 Elige los momentos que funcionarían solos como short: gancho fuerte en los primeros 3 segundos,
 una idea completa (no cortes a mitad de frase), emoción, sorpresa, humor o un dato valioso.
 Usa los tiempos exactos de la transcripción para inicio y fin. Puntúa cada clip de 0 a 100 según su potencial viral.
+Cada clip dura entre el mínimo y el máximo pedidos, empieza al principio de una frase y termina al final de otra, y no
+se solapa con otro clip.
 Escribe título, descripción y hashtags en el mismo idioma del video."""
 
 
@@ -68,6 +70,18 @@ def _ajustar(clip: dict, palabras: list[dict], total: float) -> dict:
     ini = min(palabras, key=lambda p: abs(p["inicio"] - clip["inicio"]))["inicio"]
     fin = min(palabras, key=lambda p: abs(p["fin"] - clip["fin"]))["fin"]
     return {**clip, "inicio": max(ini - 0.15, 0), "fin": min(fin + 0.35, total)}
+
+
+def _elegir(clips: list[dict], cantidad: int, dur_min: float, dur_max: float) -> list[dict]:
+    """Los mejores clips que duran lo pedido (con margen) y no repiten el mismo momento (solape de más de la mitad
+    del más corto). Si ninguno dura lo pedido, se usan igual: mejor eso que no sacar nada tras descargar y transcribir."""
+    clips = [c for c in clips if dur_min * 0.8 <= c["fin"] - c["inicio"] <= dur_max * 1.2] or clips
+    elegidos = []
+    for c in sorted(clips, key=lambda c: c["puntuacion"], reverse=True):
+        if all(min(c["fin"], o["fin"]) - max(c["inicio"], o["inicio"])
+               <= 0.5 * min(c["fin"] - c["inicio"], o["fin"] - o["inicio"]) for o in elegidos):
+            elegidos.append(c)
+    return elegidos[:cantidad]
 
 
 LIMITE_DESCARGA = 4 * 1024 ** 3  # 4 GB: protege el disco
@@ -150,7 +164,9 @@ def descargar(url: str, carpeta: Path, progreso: Callable[[float], None] = lambd
 
 
 def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: int = 5,
-            dur_min: int = 20, dur_max: int = 60, aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
+            dur_min: int = 20, dur_max: int = 60, aviso: Callable[[str, float], None] = lambda t, f: None,
+            enfoque: str = "") -> dict:
+    """enfoque: qué momentos busca el usuario (p. ej. «los consejos de dinero»); vacío = los más virales."""
     url = seguro.enlace_web(url)  # el host se comprueba en cada salto (ver _seguir_enlace_compartido)
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-shorts")
     carpeta.mkdir(parents=True)
@@ -174,12 +190,12 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
 
     aviso(t("La IA está eligiendo los mejores momentos…"), 0.5)
     pedido = (f"Título del video: {titulo}\nDuración total: {total:.0f} s\n"
-              f"Quiero {cantidad} clips de entre {dur_min} y {dur_max} segundos, del mejor al peor.\n\n"
-              f"Transcripción:\n{_lineas(palabras)}")
+              f"Quiero {cantidad} clips de entre {dur_min} y {dur_max} segundos, del mejor al peor.\n"
+              + (f"El usuario busca: {enfoque.strip()[:300]}. Elige SOLO momentos de eso.\n" if enfoque.strip() else "")
+              + f"\nTranscripción:\n{_lineas(palabras)}")
     clips = ia.texto_json(INSTRUCCIONES, pedido, ESQUEMA)["clips"]
     clips = [_ajustar(c, palabras, total) for c in clips if 0 <= c["inicio"] < c["fin"] <= total + 1]
-    clips.sort(key=lambda c: c["puntuacion"], reverse=True)
-    clips = clips[:cantidad]
+    clips = _elegir(clips, cantidad, dur_min, dur_max)
 
     for i, c in enumerate(clips, 1):
         aviso(t("Montando short {n} de {total}…", n=i, total=len(clips)), 0.55 + 0.43 * (i - 1) / max(len(clips), 1))

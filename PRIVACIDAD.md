@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 4 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 5 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -35,6 +35,7 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Series animadas, personajes y capítulos | `datos/series/` |
 | Investigaciones de nichos | `datos/nichos/` |
 | Lo que programaste en YouTube (archivo, hora, título e id del video) | `datos/publicaciones.json` |
+| Tus preferencias que recuerda el Director (memoria del estudio: «títulos cortos», «mi marca es…») | `datos/memoria.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |
 | Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json`, con una copia `.bak-rafaga` |
@@ -52,7 +53,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Cuándo | A quién | Qué se envía |
 |---|---|---|
 | Al conectar una clave en «Claves de IA» | El proveedor que le corresponde por su formato | La clave, para comprobar que funciona |
-| Al escribir guiones, diseñar, investigar o usar el Director | La IA de texto que conectaste (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, xAI, DeepSeek o Pollinations). Sin ninguna clave, la IA gratis de Pollinations | Tu pedido y el texto necesario para hacer el trabajo; en el Director, también la conversación, lo que devolvieron sus herramientas y las rutas de los archivos que adjuntas (en ellas se ve tu nombre de usuario de Windows) |
+| Al escribir guiones, diseñar, investigar o usar el Director | La IA de texto que conectaste (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, xAI, DeepSeek o Pollinations). Sin ninguna clave, la IA gratis de Pollinations | Tu pedido y el texto necesario para hacer el trabajo; en el Director, también la conversación, lo que devolvieron sus herramientas y las rutas de los archivos que adjuntas (en ellas se ve tu nombre de usuario de Windows). Las preferencias de la memoria del estudio viajan dentro de estos pedidos: todas al Director y, a cada especialista, las de todo el estudio y las de su departamento |
 | Al crear imágenes (videos, anuncios, series, diseños) | La primera que funcione, empezando por la que elijas: Cloudflare, Pollinations, Hugging Face, Replicate, OpenAI, y Google Gemini solo si lo eliges en «Claves de IA» (de pago). Si no conectaste un token de Hugging Face, «Hugging Face» es un Space público. Al final, siempre, Pollinations sin clave. Aunque tengas claves, si la tuya falla se prueban las demás | La descripción de la imagen; con Gemini elegido, también tu foto de referencia (para mantener igual a la persona, el personaje o el producto) |
 | En videos, anuncios y series con foto de referencia | OpenAI o Pollinations, si los conectaste | Tu foto de referencia, para mantener igual el producto, la persona o el personaje |
 | Al crear videos animados con voz (si conectaste Gemini; es de pago) | Google (Gemini Omni) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Para entregar el video, Google exige guardar la petición entera (texto, foto y video): la app borra la petición y el video de Google en cuanto termina, salga bien o mal. Si ese borrado falla (por ejemplo, sin internet), Google los guarda según su política (hasta 55 días). Solo se usa si tú lo pides: en Crear, marcando «Video animado con IA» (te dice el costo antes); con el Director o un agente MCP, cuando aceptas su costo |
@@ -110,6 +111,8 @@ Tus datos están en tu PC y los controlas tú:
 - **Borrar todo:** cierra la app, desconecta el MCP en «Conexión MCP», borra la carpeta `datos` y, si quieres, las
   carpetas «Ráfaga Studio» de Videos e Imágenes y las cachés de modelos (`.cache\huggingface` y `.cache\torch`).
 - **Borrar una clave:** quítala en «Claves de IA» y, si quieres, anúlala también en la web de su proveedor.
+- **Borrar lo que recuerda el Director:** en el Director, «Memoria del estudio». Nunca guarda claves, contraseñas,
+  tarjetas ni números de cuenta: los rechaza.
 - **Desinstalar:** desconecta el MCP y luego desinstala Ráfaga Studio (o borra su carpeta).
 - Para lo que enviaste a un servicio de terceros, ejerce tus derechos (acceso, borrado, oposición) ante ese servicio.
 

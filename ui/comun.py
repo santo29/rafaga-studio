@@ -284,7 +284,9 @@ class Reproductor(QFrame):
         avisos = proyecto.get("avisos") or []
         self.avisos_txt.setText(resumen_avisos(avisos))
         self.avisos_txt.setVisible(bool(avisos))
+        self.lista.blockSignals(True)  # al vaciarse pasa por filas de antes, que no existen en los resultados nuevos
         self.lista.clear()
+        self.lista.blockSignals(False)
         for i, r in enumerate(self.resultados, 1):
             extra = f"  ·  {r['fin'] - r['inicio']:.0f}s  ·  {r['puntuacion']}/100" if "puntuacion" in r else ""
             # t(): la Cabina guarda sus títulos en español; los demás (de la IA o del usuario) quedan igual

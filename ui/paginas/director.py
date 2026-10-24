@@ -10,10 +10,10 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QThread,
 from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout,
-                               QHBoxLayout, QLineEdit, QMenu, QProgressBar, QPushButton, QScrollArea, QTextBrowser,
-                               QToolButton, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar,
+                               QPushButton, QScrollArea, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from motor import claves, director, voz
+from motor import claves, director, memoria, roles, voz
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Tarea, tarjeta, ver_imagen
 from ui.iconos import icono, poner
@@ -28,7 +28,7 @@ PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "cre
           "separar_voz_y_pista": "Cabina de grabación", "crear_diseno": "Diseño", "editar_video": "Editor de video",
           "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA",
           "crear_serie": "Dibujos animados", "crear_episodio": "Dibujos animados", "listar_series": "Dibujos animados",
-          "programar_publicacion": "Publicar"}
+          "programar_publicacion": "Publicar", "recordar_preferencia": "Director IA"}
 IMAGENES = (".png", ".jpg", ".jpeg")  # resultados que no son video: el reproductor no los enseña
 
 
@@ -301,6 +301,49 @@ def serie_de_pasos(pasos: list[dict]) -> str:
     return ""
 
 
+def ver_memoria(padre) -> QDialog:
+    """«Memoria del estudio»: lo que el Director recordó de tus gustos, por departamento, para verlo y borrarlo."""
+    ventana = QDialog(padre)
+    ventana.setAttribute(Qt.WA_DeleteOnClose)
+    ventana.setWindowTitle(t("Memoria del estudio"))
+    ventana.resize(640, 420)
+    lay = QVBoxLayout(ventana)
+    lay.addWidget(etiqueta(t("Lo que el Director recuerda de tus gustos, por departamento. Se guarda en este PC y va "
+                             "dentro de los pedidos a tu IA. Para añadir algo, díselo: «recuerda que…»."), "sub"))
+    lista = QListWidget()
+    lay.addWidget(lista, 1)
+    fila = QHBoxLayout()
+    borrar = boton(f"🗑  {t('Borrar')}")
+    fila.addWidget(borrar)
+    fila.addStretch()
+    cerrar = boton(t("Cerrar"))
+    cerrar.clicked.connect(ventana.close)
+    fila.addWidget(cerrar)
+    lay.addLayout(fila)
+
+    def llenar():
+        lista.clear()
+        for departamento, preferencias in memoria.cargar().items():
+            for p in preferencias:  # QListWidgetItem es texto plano: lo que dijo la IA nunca se lee como HTML
+                item = QListWidgetItem(f"{roles.nombre(departamento)}: {p}")
+                item.setData(Qt.UserRole, (departamento, p))
+                lista.addItem(item)
+        if not lista.count():
+            lista.addItem(t("Todavía no recuerda nada."))
+        borrar.setEnabled(bool(lista.item(0).data(Qt.UserRole)))
+        lista.setCurrentRow(0)
+
+    def quitar():
+        item = lista.currentItem()
+        if item and item.data(Qt.UserRole):
+            memoria.olvidar(*item.data(Qt.UserRole))
+            llenar()
+    borrar.clicked.connect(quitar)
+    llenar()
+    ventana.show()
+    return ventana
+
+
 class Escucha(QThread):
     """Graba hasta que terminas de hablar y lo pasa a texto, sin congelar la ventana."""
     nivel = Signal(float)
@@ -328,6 +371,8 @@ class Escucha(QThread):
 class PaginaDirector(QWidget):
     usando = Signal(str)  # la herramienta que empieza a usar el Director (desde su hilo)
     termino = Signal()
+    preguntar = Signal(str)  # el Director pide permiso antes de gastar o publicar (desde su hilo)
+    plan = Signal(str)  # lo que va a hacer, dicho en el chat antes de empezar (desde su hilo)
 
     def __init__(self, brillo=None, abrir_diseno=None, abrir_serie=None):
         """abrir_diseno(carpeta) y abrir_serie(nombre) llevan lo hecho a su página: las páginas no se conocen, lo une
@@ -339,6 +384,11 @@ class PaginaDirector(QWidget):
         self.tarea = self.escucha = self.lectura = None
         self._viejas = []  # lecturas en voz que ya no interesan pero siguen corriendo (soltarlas tumbaría la app)
         self.por_voz = False  # el pedido llegó hablando: la luz sigue mientras trabaja y contesta
+        # La pregunta de costo abierta (su ventana), su respuesta y el aviso al hilo del Director, que espera
+        self.caja, self.respuesta, self.contestada, self.intentos = None, False, threading.Event(), 0
+        self.cerrada = False  # la app se cierra: lo que cueste dinero ya no se pregunta, se deja sin hacer
+        self.preguntar.connect(self._preguntar)
+        self.plan.connect(lambda texto: self._decir("Director", texto))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(32, 28, 32, 28)
         lay.setSpacing(14)
@@ -376,6 +426,10 @@ class PaginaDirector(QWidget):
         nota.addWidget(self.en_voz)
         nota.addWidget(etiqueta(t("Solo te escucha cuando pulsas «Hablar» o Ctrl+Espacio, y se para cuando terminas. "
                                   "Tu voz se entiende en este PC."), "sub"), 1)
+        recuerdos = boton(f"🧠  {t('Memoria del estudio')}")
+        recuerdos.setToolTip(t("Lo que el Director recuerda de tus gustos: verlo y borrarlo"))
+        recuerdos.clicked.connect(lambda: ver_memoria(self))
+        nota.addWidget(recuerdos)
         caja_lay.addLayout(nota)
         lay.addWidget(caja, 1)
 
@@ -444,6 +498,7 @@ class PaginaDirector(QWidget):
         color = "#7C5CFF" if quien == "Director" else "#FF4D8D"
         cuerpo = html.escape(str(texto)).replace("\n", "<br>")  # lo que dice la IA nunca se interpreta como HTML
         self.chat.append(f"<p><b style='color:{color}'>{html.escape(quien)}</b><br>{cuerpo}</p>")
+        self.dicho = str(texto)
 
     def _adjuntar(self):
         rutas, _ = QFileDialog.getOpenFileNames(self, t("Adjuntar archivos"), "", t("Fotos, videos y audios ({tipos})",
@@ -471,7 +526,8 @@ class PaginaDirector(QWidget):
         self.progreso.setValue(0)
         if self.brillo and por_voz:
             self.brillo.poner("pensando")
-        self.tarea = Tarea(director.dirigir, pedido=pedido, historial=list(self.historial), al_usar=self.usando.emit)
+        self.tarea = Tarea(director.dirigir, pedido=pedido, historial=list(self.historial), al_usar=self.usando.emit,
+                           confirmar=self._confirmar, al_decir=self.plan.emit)
         self.historial.append({"rol": "usuario", "texto": pedido})
         self.tarea.progreso.connect(lambda txt, f: (self.estado.setText(txt), self.progreso.setValue(int(f * 100))))
         self.tarea.listo.connect(self._listo)
@@ -521,12 +577,83 @@ class PaginaDirector(QWidget):
                 self.altavoz.playbackState() != QMediaPlayer.PlayingState:
             self.brillo.poner(None)
 
+    # ---------- Permiso antes de gastar o publicar ----------
+
+    def _confirmar(self, pregunta: str) -> bool:
+        """En el hilo del Director: la app pregunta y el trabajo espera la respuesta. Sin un sí, no se hace."""
+        self.contestada.clear()
+        self.respuesta = False
+        if self.cerrada:
+            return False
+        self.preguntar.emit(pregunta)
+        self.contestada.wait()
+        return self.respuesta
+
+    def _preguntar(self, pregunta: str):
+        """La pregunta con su costo, en el chat y en una ventana con «Sí» y «No». Si el pedido llegó hablando, también
+        en voz alta, y luego escucha «sí» o «no»."""
+        self._decir("Director", pregunta.removeprefix(self.dicho).strip() or pregunta)  # el plan ya está en el chat
+        self.caja = caja = QMessageBox(QMessageBox.Question, t("¿Lo hago?"), pregunta,
+                                       QMessageBox.Yes | QMessageBox.No, self)
+        caja.setTextFormat(Qt.PlainText)  # parte del texto lo escribió la IA: nunca se interpreta como HTML
+        caja.setDefaultButton(QMessageBox.No)  # un Enter por despiste no gasta
+        caja.finished.connect(lambda _: self._contestar(
+            caja.clickedButton() is not None and caja.standardButton(caja.clickedButton()) == QMessageBox.Yes))
+        caja.open()
+        if self.por_voz:
+            self.intentos = 3
+            self._leer_en_voz(pregunta)  # al terminar de decirla (_fin_de_voz), o si no pudo, escucha la respuesta
+
+    def _escuchar_respuesta(self):
+        if not self.caja or (self.escucha and self.escucha.isRunning()):
+            return
+        self.escucha = Escucha()
+        self.escucha.nivel.connect(lambda v: self.brillo and self.brillo.oir(v))
+        self.escucha.texto.connect(self._respuesta_oida)
+        self.escucha.fallo.connect(
+            lambda _: self.estado.setText(t("No pude usar el micrófono: contesta en la ventana.")))
+        self.escucha.start()
+        self.estado.setText(t("Te escucho: di «sí» o «no»."))
+        if self.brillo:
+            self.brillo.poner("escuchando")
+
+    def _respuesta_oida(self, texto: str):
+        self.escucha.wait()  # ya dijo lo que oyó: que termine antes de volver a escuchar
+        if not self.caja:
+            return
+        si = voz.si_o_no(texto)
+        if si is not None:  # como un clic en su botón: la ventana se cierra y el Director sigue
+            self.caja.button(QMessageBox.Yes if si else QMessageBox.No).click()
+            return
+        self.intentos -= 1
+        if self.intentos > 0:
+            self._leer_en_voz(t("No te entendí. Di «sí» o «no»."))
+        else:
+            self.estado.setText(t("No te entendí: contesta en la ventana."))
+
+    def _contestar(self, si: bool):
+        self.caja = None
+        if self.escucha and self.escucha.isRunning():  # contestó con un clic: lo que siga oyendo ya no cuenta
+            self.escucha.cerrando = True
+            self.escucha.detener.set()
+        self._soltar_lectura()
+        self.altavoz.stop()
+        if self.brillo and self.por_voz:
+            self.brillo.poner("pensando")
+        self.respuesta = si
+        self.contestada.set()
+
     # ---------- Voz ----------
 
     def alternar_voz(self):
-        """Empieza a escuchar; si ya escucha, para y entiende lo dicho hasta ahí; si está hablando, se calla."""
+        """Empieza a escuchar; si ya escucha, para y entiende lo dicho hasta ahí; si está hablando, se calla. Mientras
+        pregunta «¿Lo hago?», sirve para contestar con la voz (y no corta la respuesta que ya escucha)."""
         if self.altavoz.playbackState() == QMediaPlayer.PlayingState:
             self.altavoz.stop()
+        if self.caja:
+            self._soltar_lectura()  # la pregunta que aún se preparaba no suena encima de su respuesta
+            self.intentos = max(self.intentos, 1)
+            return self._escuchar_respuesta()
         if self.escucha and self.escucha.isRunning():
             self.escucha.detener.set()
             return
@@ -573,7 +700,8 @@ class PaginaDirector(QWidget):
         self.lectura = Tarea(lambda texto, aviso: {"archivo": str(voz.hablar(texto))}, texto=texto)
         self.lectura.listo.connect(lambda r: (self.altavoz.setSource(QUrl.fromLocalFile(r["archivo"])),
                                               self.altavoz.play()))
-        self.lectura.fallo.connect(lambda _: self.brillo and self.brillo.poner(None))
+        self.lectura.fallo.connect(lambda _: (self.brillo and self.brillo.poner(None),
+                                              self.caja and self._escuchar_respuesta()))  # la pregunta, sin voz
         self.lectura.start()
 
     def _fin_de_voz(self, estado):
@@ -581,6 +709,8 @@ class PaginaDirector(QWidget):
             self.brillo.poner("hablando" if estado == QMediaPlayer.PlayingState else
                               "escuchando" if self.escucha and self.escucha.isRunning() else
                               "pensando" if self.ocupado() and self.por_voz else None)
+        if estado == QMediaPlayer.StoppedState and self.caja and self.por_voz:  # terminó de decir la pregunta
+            self._escuchar_respuesta()
 
     def cerrar(self):
         """Al cerrar la app: deja de escuchar y de hablar, y nada de lo que termine después hace nada."""
@@ -591,5 +721,7 @@ class PaginaDirector(QWidget):
         if self.escucha and self.escucha.isRunning():
             self.escucha.cerrando = True
             self.escucha.detener.set()
+        self.cerrada, self.respuesta = True, False  # el Director esperaba un sí para gastar: se va sin hacerlo
+        self.contestada.set()
         for hilo in hilos:
             hilo.wait(10_000)  # ponytail: una herramienta del Director a medias no se puede parar; pasado esto se cierra

@@ -35,7 +35,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
   Director asks before using it.
 - **An AI Director you can talk to.** Push to talk, say *"make an ad for my barbershop and a post"*, and the Director
   uses the whole studio for you. Your voice is understood **on your PC** (Whisper); nothing to pay.
-- **Drive it from Claude.** A built-in [MCP](https://modelcontextprotocol.io) server exposes 16 tools, so Claude Code,
+- **Drive it from Claude.** A built-in [MCP](https://modelcontextprotocol.io) server exposes 17 tools, so Claude Code,
   Claude Desktop or any MCP agent can produce videos, ads, songs, designs and series for you.
 - **Free first, bring your own keys.** Paste any key and the studio detects the provider. Images and video rotate
   through free daily quotas, your PC, credits and only then paid services; for text and transcription you choose the
@@ -81,7 +81,7 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 flowchart LR
     U["You<br/>text or voice"] --> D["AI Director<br/>(any text model)"]
     C["Claude / MCP agents"] --> M["MCP server"]
-    D --> T["16 studio tools<br/>motor/herramientas.py"]
+    D --> T["17 studio tools<br/>motor/herramientas.py"]
     M --> T
     T --> E["Engine (MIT)<br/>script · images · video · voice<br/>subtitles · music · design · edit"]
     E --> R["Cloud rotation<br/>free quota → your PC → credits → paid"]

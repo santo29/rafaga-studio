@@ -7,7 +7,7 @@ from typing import Callable
 
 import yt_dlp
 
-from . import claves, ia
+from . import claves, ia, memoria
 from .idioma import actual, IDIOMAS, t
 from .shorts import PROYECTOS
 
@@ -120,7 +120,7 @@ def investigar(tema: str = "", redes: str = "YouTube, TikTok, Instagram y Facebo
               # La IA gratis sin clave es pequeña: con menos que escribir no se deja campos vacíos.
               + ("\n\nDame 5 nichos." if con_clave else
                  "\n\nDame 2 nichos, con 2 ideas cada uno. Todo breve: prompts de máximo 30 palabras."))
-    resultado = ia.texto_json(INSTRUCCIONES, pedido, ESQUEMA)
+    resultado = ia.texto_json(INSTRUCCIONES, pedido + memoria.para("nichos"), ESQUEMA)
     resultado["nichos"].sort(key=lambda n: n["potencial"], reverse=True)
 
     carpeta = PROYECTOS.parent / "nichos"

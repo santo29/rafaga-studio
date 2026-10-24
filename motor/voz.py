@@ -1,6 +1,7 @@
 """Asistente de voz del Director: escucha SOLO mientras lo activas (botón del micro o Ctrl+Espacio) y se para solo
 cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, aunque tengas Groq u
 OpenAI conectados) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
+import re
 import tempfile
 import threading
 import time
@@ -68,6 +69,25 @@ def entender(audio: np.ndarray) -> str:
         sf.write(str(wav), audio, SR)
         palabras = ia.transcribir(wav, idioma=actual(), en_pc=True)
     return " ".join(p["palabra"] for p in palabras).strip()
+
+
+# Un sí claro es corto y solo dice que sí: «dale un segundo», «ok, espérate» o «sí, pero ¿cuánto?» no lo son
+SI_CLARO = re.compile(r"[\s¡]*(s[ií]|claro|dale|hazlo|adelante|acepto|yes|sim|oui)"
+                      r"([\s,]+(s[ií]|claro|dale|hazlo|adelante|por favor))*[\s.!,]*")
+SI = {"si", "sí", "claro", "dale", "hazlo", "vale", "ok", "okay", "adelante", "acepto", "yes", "yeah", "sure", "sim",
+      "oui"}
+NO = {"no", "nop", "nope", "cancela", "cancelar", "para", "espera", "espérate", "esperate", "aguanta", "momento",
+      "déjame", "dejame", "pensar", "pensarlo", "nunca", "non", "não", "nao"}
+
+
+def si_o_no(texto: str) -> bool | None:
+    """La respuesta a «¿Lo hago?»: True solo con un sí claro, False con un no (o un «espera») sin ningún sí, y None
+    si no está clara. Sin un sí claro no se gasta."""
+    texto = str(texto).lower()
+    if SI_CLARO.fullmatch(texto):
+        return True
+    palabras = set(re.findall(r"\w+", texto))
+    return False if palabras & NO and not palabras & SI else None
 
 
 def hablar(texto: str) -> Path:

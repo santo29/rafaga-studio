@@ -32,14 +32,15 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
                 animado: bool = False) -> str:
     """Crea un video completo desde un pedido: la IA escribe la narración y hace imágenes, voz, subtítulos y montaje.
     animado: true = cada escena es un video de IA con su propia voz: los personajes hablan con los labios
-    sincronizados (una fruta que habla, un anuncio con actor…). Usa Gemini y es DE PAGO: ~US$1 por escena de 8 s
-    (una escena cada ~8 s, tope de 15 por video). Úsalo solo si el usuario aceptó ese costo. Por defecto false:
-    imágenes animadas con narración (gratis).
+    sincronizados (una fruta que habla, un anuncio con actor…). Lo hace la IA que el usuario eligió para las escenas
+    que hablan (Gemini, Kling o Seedance) y es DE PAGO: unos US$1-2 por escena de 8 s según cuál (una escena cada
+    ~8 s, tope de 15 por video). Úsalo solo si el usuario aceptó ese costo. Por defecto false: imágenes animadas con
+    narración (gratis, salvo que el usuario haya elegido una IA de video de pago para animarlas).
     formato: 9:16, 16:9, 1:1 o 4:5. voz: el id de una de estas: {voces} (o una de ElevenLabs de listar_opciones).
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube
     a la IA de video: en Automático, primero a un Space público y gratis de Hugging Face; solo si el usuario eligió
-    «Mi nube Modal» en Claves de IA, únicamente a su nube.
+    otra en Claves de IA («Mi nube Modal», o Kling o Seedance, de pago), únicamente a esa.
     Devuelve la ruta del video y el texto para publicar. Tarda varios minutos.
 
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:

@@ -1,6 +1,6 @@
 # Términos de uso de Ráfaga Studio
 
-**Versión 3 · 24 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 4 · 24 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 Al instalar o usar Ráfaga Studio aceptas estos términos y el [Aviso de privacidad](PRIVACIDAD.md). Si no estás de
 acuerdo, no uses la app.
@@ -24,8 +24,12 @@ Ráfaga Studio es un estudio creativo con IA que funciona en tu PC.
 Ráfaga Studio trabaja con tus propias claves de servicios de IA (BYOK). Sin clave, la app usa servicios gratis de
 terceros (Spaces públicos de Hugging Face y Pollinations), que reciben lo que les envías y tienen sus propias
 condiciones. Algunas funciones son de pago en tu cuenta: por ejemplo, el video animado con voz de Gemini cuesta unos
-US$0,10 por segundo de video. Nunca se usa sin que lo pidas: la pantalla Crear te dice el costo antes, y el Director te
-pregunta antes de usarlo; un agente conectado por MCP lo usa cuando él lo pide (tope de 15 escenas por video). Esas
+US$0,10 por segundo de video, y animar escenas o hacer escenas que hablan con Kling o Seedance se cobra por cada clip
+(de unos centavos a unos US$2, según el modelo). Kling y Seedance solo se usan si los eliges en «Claves de IA», nunca en
+«Automático», y si uno falla la app no prueba otro que te cobre otra vez. Nada de pago se hace sin que lo aceptes: la
+app te dice antes lo más que puede costar cada trabajo, el Director te pregunta antes de usarlo, y un agente conectado
+por MCP recibe primero la pregunta con el costo y solo sigue si confirma que lo aceptaste (topes de 15 escenas con voz
+por video y de 15 clips de pago por trabajo). Esas
 cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
 opciones gratis; para el texto y la transcripción usa el proveedor que conectes. Tiene topes para no gastar de más, pero eres
 responsable de vigilar el uso y los límites de tus cuentas. Puedes quitar una clave cuando quieras.
@@ -64,8 +68,9 @@ Lo que creas con Ráfaga Studio es tuyo, con estas condiciones:
   de pago (el plan gratis no permite uso comercial).
 - Los modelos abiertos que usa la app (FLUX.1 schnell, Z-Image Turbo y Wan 2.2, con licencia Apache 2.0) permiten el
   uso comercial de lo que generan. Cuando la imagen o el video se hace en un servicio (Pollinations, Hugging Face,
-  Cloudflare, Replicate, Modal, Google Gemini) o con un modelo cerrado (por ejemplo, FLUX.1 Kontext [pro] para los
-  anuncios con Pollinations, o Gemini Omni para el video con voz), también se aplican las condiciones de ese servicio.
+  Cloudflare, Replicate, Modal, Google Gemini, Kling AI, BytePlus) o con un modelo cerrado (por ejemplo, FLUX.1 Kontext
+  [pro] para los anuncios con Pollinations, Gemini Omni para el video con voz, o Kling y Seedance para animar), también
+  se aplican las condiciones de ese servicio. Seedance no acepta imágenes con caras de personas reales.
 
 El titular no reclama ningún derecho sobre tu contenido.
 

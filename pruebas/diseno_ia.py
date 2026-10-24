@@ -675,7 +675,7 @@ with tempfile.TemporaryDirectory() as d:
     herramientas = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert len(herramientas) == 17 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
     assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta",
-                                                                            "estilo", "calidad"}
+                                                                            "estilo", "calidad", "confirmar_gasto"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción
 assert "crear_diseno" in conexion_mcp.probar()  # el servidor arranca y la lista
 

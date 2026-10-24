@@ -12,7 +12,7 @@ First public version · Primera versión.
 - **Design studio** with editable layers and an AI designer; **video editor** with beat-synced effects, filters,
   subtitle styles and templates; **animated series** with original characters and voices.
 - **MCP server** with 17 tools shared with the Director.
-- Free-first cloud rotation for images and video, and bring-your-own-keys for 13 AI providers.
+- Free-first cloud rotation for images and video, and bring-your-own-keys for 15 AI providers.
 - Interface in Spanish, English, Portuguese and French.
 - Privacy notice, terms and third-party notices; Hugging Face and Gradio telemetry turned off.
 - **Design that understands you:** the AI first works out what you meant (typos included, it asks when unsure),
@@ -33,3 +33,8 @@ First public version · Primera versión.
 - **Publish:** schedule videos on YouTube with your own Google app (OAuth with PKCE, resumable upload).
 - **Music:** Gemini Lyria first (about US$0.08 per song), ElevenLabs as the second option, with clear errors.
 - **Windows installer** (Inno Setup): official portable Python and hash-verified libraries, per-user, no admin rights.
+- **Kling and Seedance** (paid video, opt-in only): animate scenes and make talking scenes with their own audio.
+  Connected with their own «Connect» button (a key is never guessed to be theirs), never used in Automatic, no
+  fallback that could charge twice, the maximum cost is shown before every job, a cap of 15 paid clips per job, and
+  scenes already animated are never paid again. The MCP server now asks the agent to confirm any paid step
+  (`confirmar_gasto`) before spending.

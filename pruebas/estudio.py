@@ -153,7 +153,8 @@ assert f"el {esperada}. ¿Lo hago?" in director.costo("programar_publicacion", {
 _para, _cargar = claves.para, claves.cargar
 try:
     claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"}}
-    claves.para = lambda uso: {"proveedor": "gemini", "clave": "AIzaPrueba"} if uso in ("musica", "imagen") else None
+    claves.para = lambda uso: {"proveedor": "gemini", "clave": "AIzaPrueba"} if uso in ("musica", "imagen",
+                                                                                         "video_voz") else None
     precio = max(p["1K"] for p in ia.PRECIO_IMAGEN_GEMINI.values())  # modelo aún sin elegir: el más caro
     animado = director.costo("crear_video", {"prompt": "x", "animado": True, "segundos": 45})
     # 6 escenas de 8 s a ~US$1, y por lo alto sus 6 imágenes (las que fallen en Omni se hacen con imagen)

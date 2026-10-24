@@ -4,6 +4,7 @@ Conectarlo a Claude Code:
     claude mcp add rafaga-studio -- "<carpeta>\\.venv\\Scripts\\python.exe" "<carpeta>\\mcp_server.py"
 """
 import functools
+import inspect
 import os
 from pathlib import Path
 
@@ -21,7 +22,8 @@ def _ruta(ruta: str) -> str:
     quedan igual (el motor rechaza las de red)."""
     return os.path.join(ORIGEN, ruta) if ruta else ruta
 
-from motor import diseno, herramientas
+from motor import director, diseno, herramientas
+from motor.idioma import t
 
 # Las herramientas corren en otros hilos: la QApplication sin ventana que dibuja los diseños nace aquí, en el hilo
 # principal, como pide Qt
@@ -39,13 +41,30 @@ mcp = MCPServer("rafaga-studio", instructions=(
 
 def herramienta(funcion):
     """@mcp.tool() que deja ver al agente el porqué de los fallos esperados (ValueError, RuntimeError, con su mensaje
-    en español): de cualquier otra excepción el SDK solo le dice «Error executing tool»."""
+    en español): de cualquier otra excepción el SDK solo le dice «Error executing tool».
+    Lo que cuesta dinero, publica o se guarda en la memoria (director.costo, lo mismo que pregunta la app) no se hace
+    sin confirmar_gasto=true: la primera llamada devuelve la pregunta para que el agente se la haga al usuario."""
+    firma = inspect.signature(funcion)
+
     @functools.wraps(funcion)
-    def envoltura(*args, **kwargs):
+    def envoltura(*args, confirmar_gasto: bool = False, **kwargs):
+        try:
+            datos = firma.bind(*args, **kwargs).arguments
+        except TypeError:  # argumentos que no tiene: que falle la herramienta con su propio error
+            datos = None
+        pregunta = director.costo(funcion.__name__, datos) if datos is not None else None
+        if pregunta and confirmar_gasto is not True:
+            raise ToolError(t("Antes de hacerlo, pregúntale al usuario: «{pregunta}» Si dice que sí, vuelve a llamar "
+                              "con los mismos argumentos y confirmar_gasto=true. Si dice que no, no lo hagas.",
+                              pregunta=pregunta))
         try:
             return funcion(*args, **kwargs)
         except (ValueError, RuntimeError) as e:
             raise ToolError(str(e)) from None
+    # El agente ve confirmar_gasto en el esquema de la herramienta; las de herramientas.py no cambian (el Director
+    # de la app pregunta por su cuenta)
+    envoltura.__signature__ = firma.replace(parameters=[*firma.parameters.values(), inspect.Parameter(
+        "confirmar_gasto", inspect.Parameter.KEYWORD_ONLY, default=False, annotation=bool)])
     return mcp.tool()(envoltura)
 
 

@@ -30,9 +30,9 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 - **One prompt → a finished video.** Script, images, voice, animation, CapCut-style karaoke subtitles and editing, in
   one click. Vertical for TikTok/Reels/Shorts or horizontal for YouTube.
 - **Characters that really talk.** Ask for "a talking apple" and the apple talks, with its own voice and lip sync
-  (Gemini Omni, paid: ~US$1 per 8-second scene). The studio asks your API key which video models it has, picks the
-  newest one with a known price, and never spends without asking: the Create screen shows the cost first and the
-  Director asks before using it.
+  (Gemini Omni, or Kling or Seedance if you choose them; paid: ~US$1-2 per 8-second scene). The studio picks the best
+  model your key can use, with a known price, and never spends without asking: every job shows the maximum cost
+  first, the Director asks before using it and MCP agents must confirm the cost with you.
 - **An AI Director you can talk to.** Push to talk, say *"make an ad for my barbershop and a post"*, and the Director
   uses the whole studio for you, like a studio with departments (script, design, music, cartoons, ads, editing,
   publishing) that each follow their own quality rules. Before anything that costs money or publishes, it shows the
@@ -88,7 +88,7 @@ flowchart LR
     M --> T
     T --> E["Engine (MIT)<br/>script · images · video · voice<br/>subtitles · music · design · edit"]
     E --> R["Cloud rotation<br/>free quota → your PC → credits → paid"]
-    R --> P["Providers you connect<br/>Gemini · Claude · OpenAI · Groq<br/>Cloudflare · Hugging Face · Modal…"]
+    R --> P["15 providers you connect<br/>Gemini · Claude · OpenAI · Groq<br/>Cloudflare · Hugging Face · Modal<br/>Kling · Seedance…"]
     E --> F["FFmpeg render<br/>on your PC"]
 ```
 
@@ -124,8 +124,8 @@ yourself: `ISCC instalador\rafaga.iss` ([Inno Setup](https://jrsoftware.org/isin
 |---|---|---|
 | Text / scripts | Groq, Gemini, Pollinations (no key) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
 | Images | Cloudflare Workers AI (~100/day), Pollinations, FLUX on Hugging Face | OpenAI, Replicate, Gemini Nano Banana (only if you choose it: ~US$0.07 per image, keeps characters and products identical) |
-| Image → video | Hugging Face ZeroGPU (Wan 2.2) | Your own Modal cloud ($30 free/month), Pollinations |
-| Talking video with lip sync | — | Gemini Omni (~US$0.10 per second; Create shows the cost first and the Director asks before using it) |
+| Image → video | Hugging Face ZeroGPU (Wan 2.2) | Your own Modal cloud ($30 free/month), Pollinations, Kling and Seedance (only if you choose them: ~US$0.02-0.24 per second, the maximum cost is shown before each job and there is a cap of 15 paid clips per job) |
+| Talking video with lip sync | — | Gemini Omni (~US$0.10 per second), or Kling or Seedance if you choose them for «Talking scenes» (Create shows the cost first and the Director asks before using it) |
 | Voice | Microsoft Edge voices | ElevenLabs |
 | Transcription | Your PC (Whisper), Groq | OpenAI |
 | Stem separation | Your PC (Demucs) | — |
@@ -158,7 +158,7 @@ issue? See [SECURITY.md](SECURITY.md).
 
 - [x] Prompt-to-video, shorts, ads, music, design, video editor, cartoons (animated series)
 - [x] AI Director with local voice control, MCP server
-- [x] Talking characters with lip sync (Gemini Omni)
+- [x] Talking characters with lip sync (Gemini Omni, Kling, Seedance)
 - [x] Windows installer
 - [ ] Free talking characters on your own GPU cloud (open speech-to-video models)
 - [ ] macOS and Linux builds

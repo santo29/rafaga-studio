@@ -232,7 +232,7 @@ def bajar(url, cabeceras, **k):
 http_real = ia.httpx.get, ia.httpx.post, ia.httpx.delete, claves.cargar, ia.seguro.descargar
 ia.httpx.get, ia.httpx.post, ia.seguro.descargar = get, post, bajar
 ia.httpx.delete = lambda url, **k: red.append(("DELETE", url, k))
-claves.cargar = lambda: {"gemini": {"clave": "AIzaPrueba"}}
+claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"}}
 try:
     foto = tmp / "foto.png"
     dibujar("", 64, 64, foto)
@@ -282,7 +282,7 @@ def omni(prompt, formato, destino, referencia=None):
 omni_real, transcribir_real, animar_real = ia.video_hablado, ia.transcribir, ia.video_desde_imagen
 ia.video_hablado, ia.video_desde_imagen = omni, lambda *a, **k: None  # la escena que falla: sin animar (sería red)
 ia.transcribir = lambda audio, idioma=None, pista=None, **k: [{"palabra": "Hola.", "inicio": 0.2, "fin": 1.0}]
-claves.cargar = lambda: {"gemini": {"clave": "AIzaPrueba"}}
+claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"}}
 try:
     assert not desde_prompt.con_voz_propia()  # la IA de video en «No usar»: tampoco con voz
     claves.elegir_por_defecto("video", "auto")

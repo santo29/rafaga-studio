@@ -19,14 +19,14 @@ USO = Path(__file__).resolve().parent.parent / "datos" / "uso_nubes.json"
 # Del más barato al más caro. "pc" = este ordenador (gratis, más lento).
 ORDEN = {
     "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai", "gemini", "gratis_sin_clave"],
-    "video": ["huggingface", "modal", "pollinations"],
+    "video": ["huggingface", "modal", "pollinations", "kling", "seedance"],
     # Privacidad: tus canciones y tu voz no salen de tu PC (Demucs local; ver _separar_pc).
     "separacion": ["pc"],
 }
 NOMBRES = {"huggingface": t("Hugging Face (cuota gratis)"), "modal": t("tu nube Modal"), "pollinations": "Pollinations",
            "pc": t("este PC"), "cloudflare": t("Cloudflare (gratis diario)"), "openai": "OpenAI",
            "replicate": "Replicate", "gratis_sin_clave": t("Pollinations sin clave"),
-           "gemini": t("Gemini (de pago)")}
+           "gemini": t("Gemini (de pago)"), "kling": t("Kling (de pago)"), "seedance": t("Seedance (de pago)")}
 # Opciones que funcionan sin clave. Los Spaces de Hugging Face se usan sin token (cuota anónima: ~2 min de GPU al día).
 SIEMPRE = {"pc", "gratis_sin_clave", "huggingface"}
 ESPERA_HF = 300  # segundos máximos en la cola gratis antes de pasar a la siguiente opción
@@ -122,6 +122,8 @@ def orden(uso: str) -> list[str]:
         return [p for p in ("pollinations", "cloudflare", "huggingface", "gratis_sin_clave") if p in lista]
     # De pago con una clave que muchos conectan por otra cosa: solo si el usuario lo eligió (claves.SOLO_ELIGIENDO)
     lista = [p for p in lista if p not in claves.SOLO_ELIGIENDO.get(uso, []) or p == elegido]
+    if uso == "video" and elegido in claves.SOLO_ELIGIENDO["video"] and elegido in lista:
+        return [elegido]  # video de pago (Kling, Seedance): sin respaldo, que un fallo nunca se pague dos veces
     if uso == "video" and elegido in ("modal", "pollinations"):
         # Eligió dónde animar sus fotos: si esa nube falla, nunca se suben por detrás a un Space público de terceros.
         lista = [p for p in lista if p != "huggingface"]
@@ -154,6 +156,9 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
         try:
             resultado = tareas[proveedor]()
         except Exception as e:  # cuota agotada, servicio caído…: se pasa al siguiente
+            from .ia import Cobrado
+            if isinstance(e, Cobrado):  # ya se pagó: sigue hacia arriba para la nota de gasto, sin probar otra opción
+                raise
             causa = _causa(e, proveedor)
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),

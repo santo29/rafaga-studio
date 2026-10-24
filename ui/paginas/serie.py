@@ -38,9 +38,11 @@ class PaginaSerie(PaginaTrabajo):
         # Lo que de verdad saldrá con la IA conectada hoy: no se promete lo que no se cumple
         self.iguales, self.movimiento = etiqueta(""), etiqueta("")
         indicadores = QHBoxLayout()
-        for w in (self.iguales, self.movimiento):
+        for w in (self.iguales, self.movimiento):  # fichas de vidrio, como las tarjetas (#tarjeta de ESTILO)
             w.setWordWrap(False)
-            w.setStyleSheet("background: #17171D; border: 1px solid #2C2C36; border-radius: 8px; padding: 4px 10px; "
+            w.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.08), "
+                            "stop:1 rgba(255, 255, 255, 0.03)); border: 1px solid rgba(255, 255, 255, 0.08); "
+                            "border-top-color: rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 4px 10px; "
                             "font-size: 14px;")
             indicadores.addWidget(w)
         indicadores.addStretch()
@@ -52,9 +54,16 @@ class PaginaSerie(PaginaTrabajo):
         fila.addWidget(etiqueta(t("Serie")))
         fila.addWidget(self.series, 1)
         self.form_lay.addLayout(fila)
+        # El halo de «Crear serie» y «Crear capítulo» necesita sitio en su caja (ver _Halo de ui.comun): sus cajas
+        # llevan 16 px a la derecha y abajo, que se quitan del margen de la tarjeta para que todo siga alineado
+        sitio = 16
+        izq, arriba, der, abajo = self.form_lay.getContentsMargins()
+        self.form_lay.setContentsMargins(izq, arriba, der - sitio, abajo - sitio)
+        fila.setContentsMargins(0, 0, sitio, 0)
 
         # Serie nueva
         self.nueva, lay = _caja()
+        lay.setContentsMargins(0, 0, sitio, sitio)
         self.titulo = QLineEdit()
         self.titulo.setPlaceholderText(t("Título (opcional: si no, lo elige la IA)"))
         self.idea = QTextEdit()
@@ -86,6 +95,7 @@ class PaginaSerie(PaginaTrabajo):
 
         # Serie elegida: personajes, capítulo nuevo y capítulos hechos
         self.elegida, lay = _caja()
+        lay.setContentsMargins(0, 0, sitio, sitio)
         self.sinopsis = etiqueta("", "sub")
         lay.addWidget(self.sinopsis)
         lay.addWidget(etiqueta(t("Personajes (clic en uno para cambiar su imagen: tu dibujo o un fotograma de tu "
@@ -214,8 +224,11 @@ class PaginaSerie(PaginaTrabajo):
             b.setText(p["nombre"])
             b.setToolTip(p["personalidad"])
             b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet("QToolButton { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 10px; "
-                            "padding: 6px; font-size: 14px; } QToolButton:hover { border: 1px solid #7C5CFF; }")
+            b.setStyleSheet("QToolButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "  # vidrio, como #acceso
+                            "stop:0 rgba(255, 255, 255, 0.08), stop:1 rgba(255, 255, 255, 0.03)); "
+                            "border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.18); "
+                            "border-radius: 10px; padding: 6px; font-size: 14px; } QToolButton:hover { "
+                            "border-color: rgba(124, 92, 255, 0.70); border-top-color: rgba(205, 190, 255, 0.85); }")
             b.clicked.connect(lambda _, nombre=p["nombre"]: self._cambiar_lamina(nombre))
             lay.addWidget(b)
             if not p["lamina"]:  # no salió al crear la serie (p. ej. sin cuota): se puede volver a pedir

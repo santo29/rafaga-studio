@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox,
 
 from motor import claves, diseno, ia, marca, recursos, seguro
 from motor.idioma import t
-from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, resumen_avisos, Tarea
+from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, REFLEJO_FINO, resumen_avisos, Tarea
 from ui.iconos import COLOR, icono
 
 FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Línea")}
@@ -51,7 +51,8 @@ ESCALAS = {1: "1x", 2: "2x", 4: "4x", "4k": t("4K (3840 px)"), "portada": t("Por
 FILTRO_IMAGENES = t("Imágenes ({tipos})", tipos=" ".join("*" + e for e in sorted(seguro.IMAGENES)))
 # ESTILO no pinta diálogos ni menús: con Windows en modo claro saldrían claros con el texto claro de la app
 OSCURO = ("QDialog, QMenu { background: #17171D; } QMenu { border: 1px solid #2C2C36; padding: 4px; }"
-          "QMenu::item { padding: 8px 18px; border-radius: 6px; } QMenu::item:selected { background: #2A2340; }")
+          "QMenu::item { padding: 8px 18px; border-radius: 6px; } QMenu::item:selected { background: qlineargradient("
+          "x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.42), stop:1 rgba(124, 92, 255, 0.20)); }")
 LIMITE = 20000  # el rango de x/y que admite motor/diseno.validar
 ZOOM_MIN, ZOOM_MAX = 0.05, 8
 ALINEAR = {"izquierda": ("align-start-vertical", t("Alinear a la izquierda")),
@@ -71,16 +72,24 @@ QComboBox { padding-right: 22px; }
 QComboBox::drop-down { width: 20px; }
 QComboBox QAbstractItemView::item { min-height: 24px; }
 #secundario { padding: 4px 10px; border-radius: 6px; }
-#principal { padding: 5px 16px; border-radius: 6px; }
-#barra_sup, #barra_ia, #herr, #panel, QScrollArea#lateral { background: #17171D; }
+#principal { padding: 4px 16px; border-radius: 6px; }
+#herr, #panel, QScrollArea#lateral { background: #17171D; }
+#barra_sup, #barra_ia { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1C1C24, stop:1 #15151B); }
 #barra_sup { border-bottom: 1px solid #24242C; }
 #barra_ia { border-top: 1px solid #24242C; }
 #herr { border-right: 1px solid #24242C; }
 QScrollArea#lateral { border-left: 1px solid #24242C; }
-#herr QToolButton { border: none; border-radius: 6px; padding: 6px; }
-#herr QToolButton:hover, #panel QToolButton:hover, #barra_estado QToolButton:hover { background: #2A2A36; }
-#herr QToolButton:checked { background: #2A2340; }
-#panel QToolButton { background: #1F1F27; border: 1px solid #2C2C36; border-radius: 5px; padding: 4px; }
+#herr QToolButton { border: 1px solid transparent; border-radius: 8px; padding: 5px; }
+#panel QToolButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.08),
+                                                 stop:1 rgba(255, 255, 255, 0.03));
+                     border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.16);
+                     border-radius: 5px; padding: 4px; }
+#herr QToolButton:hover, #panel QToolButton:hover, #barra_estado QToolButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.12), stop:1 rgba(255, 255, 255, 0.05));
+    border-color: rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.18); }
+#herr QToolButton:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(168, 146, 255, 0.55),
+                                                        stop:1 rgba(118, 86, 250, 0.20));
+                            border-color: rgba(150, 125, 255, 0.45); border-top-color: rgba(225, 215, 255, 0.60); }
 #seccion { color: #FFFFFF; font-weight: 700; padding-top: 4px; }
 #barra_estado { background: #111116; border-top: 1px solid #24242C; }
 #barra_estado QLabel, #barra_estado QToolButton { color: #9A9AA8; font-size: 12px; }
@@ -89,6 +98,12 @@ QListWidget { padding: 2px; border-radius: 6px; }
 QListWidget::item { padding: 4px 6px; border-radius: 5px; }
 QCheckBox::indicator { width: 15px; height: 15px; border-radius: 4px; }
 QProgressBar { height: 8px; font-size: 10px; }
+"""
+# El reflejo fino en los botones bajos de esta página. Esta hoja gana a la de la app sea cual sea la especificidad: el
+# reflejo se quita aquí también al pulsar o desactivar (en ESTILO lo quita el atajo «background:» de esos estados)
+COMPACTO += f"""
+#principal, #secundario, #herr QToolButton:checked {{ {REFLEJO_FINO} }}
+#principal:pressed, #principal:disabled, #secundario:pressed, #secundario:disabled {{ background-image: none; }}
 """
 
 

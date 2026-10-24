@@ -102,6 +102,7 @@ class Ventana(QMainWindow):
             botones.addWidget(b)
             # Cada página con su barra de desplazamiento, para pantallas pequeñas.
             desplazable = QScrollArea()
+            desplazable.setObjectName("pagina")  # transparente: deja ver la luz de ambiente de #contenido (ESTILO)
             desplazable.setWidgetResizable(True)
             desplazable.setFrameShape(QFrame.NoFrame)
             desplazable.setWidget(pagina)

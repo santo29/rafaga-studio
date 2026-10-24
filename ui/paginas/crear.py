@@ -1,6 +1,6 @@
 """Página «Crear con IA»: video completo desde un pedido (con foto de partida opcional)."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QSpinBox, QTextEdit
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QSpinBox, QTextEdit
 
 from motor import desde_prompt, ia, seguro, serie
 from motor.idioma import t
@@ -78,14 +78,7 @@ class PaginaCrear(PaginaTrabajo):
         if imagen and self.modo.currentIndex() == 1:
             return self.lanzar(self.iniciar, desde_prompt.animar_imagen, imagen=imagen, prompt=texto,
                                formato=self.formato.valor())
-        animado = self.animado.isChecked()
-        if animado:  # es de pago: se dice cuánto antes de gastar
-            escenas, costo = desde_prompt.costo_hablado(self.segundos.value())
-            if QMessageBox.question(self, t("Video animado con voz"), t(
-                    "Se harán {n} escena(s) animadas con voz en {proveedor}: hasta unos US${costo} según su precio. "
-                    "¿Seguir?", n=escenas, proveedor=ia.nombre_video(desde_prompt.proveedor_voz() or "gemini"),
-                    costo=f"{costo:.2f}")) != QMessageBox.Yes:
-                return
+        # Animado es de pago: lanzar pregunta antes cuánto, junto con lo que cueste animar (ver _pagar_video)
         self.lanzar(self.iniciar, desde_prompt.generar, prompt=texto, formato=self.formato.valor(),
-                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen, animado=animado,
-                    estilo=self.estilo.currentData())
+                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen,
+                    animado=self.animado.isChecked(), estilo=self.estilo.currentData())

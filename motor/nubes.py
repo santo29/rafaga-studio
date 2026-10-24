@@ -143,7 +143,9 @@ def _causa(e: Exception, proveedor: str) -> str:
     if re.search(r"\b429\b|quota|neurons", causa, re.IGNORECASE):
         return t("se acabó la cuota gratis de hoy") if proveedor in CUOTA_DIARIA else \
             t("límite de uso alcanzado: espera un poco o revisa tu saldo")
-    return re.sub(r"https?://\S+|\b[0-9a-fA-F]{32}\b", "…", causa)
+    from . import kling, seedance  # sus consolas son fijas: el usuario las necesita para recargar o sacar la clave
+    fijas = (kling.CONSOLA, seedance.CONSOLA)
+    return re.sub(r"https?://\S+|\b[0-9a-fA-F]{32}\b", lambda m: m[0] if m[0].startswith(fijas) else "…", causa)
 
 
 def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[str, float], None] = lambda t, f: None,

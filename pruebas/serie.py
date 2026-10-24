@@ -270,7 +270,7 @@ assert len(list(desde_prompt.PROYECTOS.iterdir())) == hechos  # se avisa antes d
 pedidos_omni = []
 
 
-def omni(prompt, formato, destino, referencia=None):
+def omni(prompt, formato, destino, referencia=None, quien=None):
     pedidos_omni.append(prompt)
     if "sunset" in prompt:
         raise ia.Cobrado("se cortó la descarga")  # Google lo hizo (y lo cobró) pero no llegó

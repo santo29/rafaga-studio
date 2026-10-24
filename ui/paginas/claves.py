@@ -49,9 +49,9 @@ SERVICIOS = [
     ("replicate", "Replicate", t("Imágenes"), t("De pago"), "https://replicate.com/account/api-tokens"),
     # Sin formato de clave reconocible: se conectan con su botón. El enlace (CONSOLA) lo da su módulo
     ("kling", "Kling", t("Animar escenas y escenas que hablan con su propio audio"),
-     t("De pago (~US$0,04-0,16 por segundo)"), None),
+     t("De pago (~US$0.04-0.13 por segundo)"), None),
     ("seedance", "Seedance (BytePlus)", t("Animar escenas y escenas que hablan con su propio audio"),
-     t("De pago (~US$0,02-0,24 por segundo)"), None),
+     t("De pago (~US$0.02-0.24 por segundo)"), None),
 ]
 
 
@@ -234,17 +234,20 @@ class PaginaClaves(QWidget):
             clave = self.entrada.text().strip()
         if not clave:
             return
-        self.conectar.setEnabled(False)
-        self.conectar.setText(t("Comprobando…"))
+        botones = [self.conectar] + ([self.botones_pago[proveedor]] if proveedor else [])  # el de su fila, a la vista
+        for b in botones:
+            b.setEnabled(False)
+            b.setText(t("Comprobando…"))
         self.tarea = Tarea(lambda clave, aviso: claves.detectar(clave, proveedor or None), clave=clave)
-        self.tarea.listo.connect(self._conectada)
+        self.tarea.listo.connect(lambda info: self._conectada(info, limpiar=not proveedor))
         self.tarea.fallo.connect(lambda e: mensaje_error(self, t("Clave no válida"), e))
-        self.tarea.finished.connect(lambda: (self.conectar.setEnabled(True), self.conectar.setText(t("Conectar"))))
+        self.tarea.finished.connect(lambda: [(b.setEnabled(True), b.setText(t("Conectar"))) for b in botones])
         self.tarea.start()
 
-    def _conectada(self, info):
+    def _conectada(self, info, limpiar=True):
         claves.guardar(info)
-        self.entrada.clear()
+        if limpiar:  # la de Kling o Seedance se pegó en su ventana: lo que haya en el cuadro de arriba se queda
+            self.entrada.clear()
         self._refrescar()
 
     def _quitar(self):

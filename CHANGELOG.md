@@ -36,5 +36,7 @@ First public version · Primera versión.
 - **Kling and Seedance** (paid video, opt-in only): animate scenes and make talking scenes with their own audio.
   Connected with their own «Connect» button (a key is never guessed to be theirs), never used in Automatic, no
   fallback that could charge twice, the maximum cost is shown before every job, a cap of 15 paid clips per job, and
-  scenes already animated are never paid again. The MCP server now asks the agent to confirm any paid step
-  (`confirmar_gasto`) before spending.
+  scenes already animated are never paid again. The paid service is fixed when a job starts: choosing another one
+  mid-job never pays anything that was not asked. Kling 4.0 is left out until its launch price is official. The MCP
+  server now answers any paid step with the cost and a one-time code (`confirmar_gasto`) tied to that tool, those
+  arguments and that cost.

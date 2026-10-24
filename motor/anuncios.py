@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import ia, memoria, seguro, video
-from .desde_prompt import FALTAS, idioma_de, montar
+from .desde_prompt import FALTAS, idioma_de, montar, relanzar_con_gasto
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -60,6 +60,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
           voz: str = "es-DO-RamonaNeural", variantes: int = 3, segundos: int = 25,
           aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
     foto = str(seguro.archivo_medio(foto, seguro.IMAGENES, t("foto del producto")))
+    pago = ia.video_de_pago()  # fijado al empezar: lo que se preguntó (ver desde_prompt.montar)
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-anuncio")
     carpeta.mkdir(parents=True)
     foto_local = Path(shutil.copy(foto, carpeta / f"producto{Path(foto).suffix.lower()}"))
@@ -95,13 +96,16 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         # La foto solo va en las escenas que la piden («the product»; el estilo no cuenta): en un servicio, o en una
         # escena sin el producto, pegarla taparía la escena.
         notas_k = []
-        montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
-                         hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados,
-                         crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d)
-                         if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
+        try:
+            montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
+                             hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados, pago=pago,
+                             crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d)
+                             if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
+            archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4") \
+                if (oferta or producto).strip() else montado
+        except Exception as error:  # lo ya pagado (también en las variantes anteriores) no se pierde de vista
+            relanzar_con_gasto(error, notas + notas_k, carpeta)
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]
-        archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4") \
-            if (oferta or producto).strip() else montado
         resultados.append({"archivo": str(archivo), "titulo": f"{k}. {v['angulo']} — {v['titulo']}",
                            "descripcion": t("Gancho: {gancho}\n\n{texto}", gancho=v["gancho"],
                                             texto=v["texto_anuncio"]),

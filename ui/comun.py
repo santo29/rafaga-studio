@@ -543,19 +543,33 @@ class PaginaTrabajo(QWidget):
             area.ensureWidgetVisible(self.estado)
 
     def _pagar_video(self, funcion, datos) -> bool:
-        """Si el trabajo anima escenas con una IA de video de pago (Kling o Seedance, elegida en Claves de IA), lo
-        pregunta antes con lo más que puede costar. True si se puede seguir."""
+        """Si el trabajo usa video de pago (escenas que hablan, o Kling o Seedance para animar, elegidos en Claves de
+        IA), lo pregunta antes con lo más que puede costar, todo en una sola pregunta. True si se puede seguir."""
         from motor import anuncios, director, ia, serie, video_musical
         pago = ia.video_de_pago()
         unico = funcion in (desde_prompt.animar_imagen, serie.rehacer_plano)  # un solo clip
         nombre = {desde_prompt.generar: "crear_video", anuncios.crear: "crear_anuncios",
                   serie.crear_episodio: "crear_episodio", video_musical.crear: "crear_video_musical"}.get(funcion)
-        if not pago or not (unico or nombre):
+        clips = (1 if unico else director.clips(nombre, datos)) if pago and (unico or nombre) else 0
+        mudos = clips * ia.precio_video(pago) if clips else 0.0
+        if funcion is desde_prompt.generar and datos.get("animado") is True:  # escenas que hablan (de pago)
+            escenas, costo = desde_prompt.costo_hablado(datos.get("segundos", 45))
+            quien = ia.nombre_video(desde_prompt.proveedor_voz() or "gemini")
+            titulo = t("Video animado con voz")
+            if clips:  # el clip mudo de las que no salgan con voz, por lo alto: una sola cifra, como el Director
+                texto = t("Se harán {n} escena(s) animadas con voz en {proveedor}; las que no salgan con voz se "
+                          "animarán con {video}: hasta unos US${costo} en total según sus precios. ¿Seguir?",
+                          n=escenas, proveedor=quien, video=ia.nombre_video(pago), costo=f"{costo + mudos:.2f}")
+            else:
+                texto = t("Se harán {n} escena(s) animadas con voz en {proveedor}: hasta unos US${costo} según su "
+                          "precio. ¿Seguir?", n=escenas, proveedor=quien, costo=f"{costo:.2f}")
+        elif clips:
+            titulo, texto = t("IA de video de pago"), t(
+                "Se animarán hasta {n} escena(s) con {proveedor}: hasta unos US${costo} según su precio. ¿Seguir?",
+                n=clips, proveedor=ia.nombre_video(pago), costo=f"{mudos:.2f}")
+        else:
             return True
-        clips = 1 if unico else director.clips(nombre, datos)
-        return QMessageBox.question(self, t("IA de video de pago"), t(
-            "Se animarán hasta {n} escena(s) con {proveedor}: hasta unos US${costo} según su precio. ¿Seguir?",
-            n=clips, proveedor=ia.nombre_video(pago), costo=f"{clips * ia.precio_video(pago):.2f}")) == QMessageBox.Yes
+        return QMessageBox.question(self, titulo, texto) == QMessageBox.Yes
 
     def lanzar(self, boton_iniciar, funcion, **datos) -> bool:
         """False si ya hay un trabajo en marcha (soltar un hilo que corre tumba la app cuando termina) o si el usuario

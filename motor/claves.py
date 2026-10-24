@@ -68,6 +68,9 @@ AJUSTES = ARCHIVO.with_name("ajustes.json")
 
 TOKEN_CF = r"(?:[A-Za-z0-9_-]{40}|cf[ua]t_[A-Za-z0-9_-]{40,60})"  # clásico, o cfut_/cfat_ (formato de 2026)
 STRIPE = ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "pk_test_")  # claves de pagos: a nadie
+# Secretos de otros servicios que candidatos() no conoce (GitHub, GitLab, Slack, AWS, JWT): el botón «Conectar» de
+# Kling o Seedance no se los manda. ponytail: si una clave de Kling resulta empezar por «eyJ», quita la parte del JWT.
+AJENAS = r"gh[opusr]_|github_pat_|glpat-|xox[abeprs]-|AKIA|ASIA|eyJ[\w-]+\.[\w-]+\."
 
 
 def modulo_video(proveedor: str):
@@ -335,7 +338,7 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
             raise ValueError(t("Pega solo la clave, sin espacios ni texto alrededor."))
         # ponytail: si las claves de Kling resultan medir 40 caracteres (como el token clásico de Cloudflare), esta
         # regla las rechaza: entonces hay que dejar pasar ese caso aquí.
-        if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE):
+        if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE) or re.match(AJENAS, clave):
             raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
                                "la reconoce sola.", proveedor=proveedor.capitalize()))
         opciones = [proveedor]

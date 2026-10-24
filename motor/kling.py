@@ -17,13 +17,14 @@ SEGUNDOS_CLIP = 5  # mudo: el estudio lo repite en bucle
 SEGUNDOS_VOZ = 8
 # Del mejor al más barato: el orden en que se prueban. US$ por segundo a 720p, precio de lista de kling.ai/dev/pricing
 # (24-10-2026), sin el descuento de los paquetes de prueba: el aviso nunca se queda corto. None = no habla a 720p.
-MODELOS = [{"id": "kling-4.0", "mudo": 0.157, "voz": 0.157},  # precio de estreno; abre a todos el 28-10-2026
-           {"id": "kling-3.0", "mudo": 0.084, "voz": 0.126},
+# ponytail: Kling 4.0 no está porque su precio aún es provisional («for preview purposes only»); cuando Kling publique
+# el de lanzamiento, va el primero con ese precio y su fecha (dura de 3 a 30 s y suena siempre, sin settings.audio).
+MODELOS = [{"id": "kling-3.0", "mudo": 0.084, "voz": 0.126},
            {"id": "kling-3.0-turbo", "mudo": 0.112, "voz": 0.112},  # cobra siempre con audio
            {"id": "kling-2.6", "mudo": 0.042, "voz": None},  # su audio solo sale a 1080p
            {"id": "kling-2.5-turbo", "mudo": 0.042, "voz": None}]
-_AJUSTE_AUDIO = {"kling-3.0", "kling-2.6"}  # los únicos con settings.audio (4.0 y 3.0 Turbo suenan siempre)
-_DURACIONES = {"kling-4.0": range(3, 31), "kling-2.6": (5, 10), "kling-2.5-turbo": (5, 10)}  # los demás, 3 a 15 s
+_AJUSTE_AUDIO = {"kling-3.0", "kling-2.6"}  # los únicos con settings.audio (3.0 Turbo suena siempre)
+_DURACIONES = {"kling-2.6": (5, 10), "kling-2.5-turbo": (5, 10)}  # los demás, 3 a 15 s
 ESPERA, PLAZO = 5, 12 * 60  # cada cuánto se mira la tarea y hasta cuándo (tarda de 1 a 5 min)
 PAUSA, REINTENTOS = 1, 5  # ante el límite de pedidos: primera espera (se dobla cada vez) y vueltas
 
@@ -133,6 +134,7 @@ def _generar(info: dict, imagen: Path, prompt: str, destino: Path, segundos: flo
     base = info.get("base") if info.get("base") in BASES else BASES[0]  # la clave solo viaja a la API de Kling
     cabecera = {"Authorization": f"Bearer {info['clave']}"}
     foto = base64.b64encode(imagen.read_bytes()).decode()  # en crudo, sin «data:»
+    sin_saldo = None  # la respuesta de un modelo cuyo paquete se acabó (1102), por si ninguno puede
     for m in _modelos(info, voz):
         modelo = m["id"]
         ajustes = {"resolution": "720p", "duration": _duracion(modelo, segundos)}
@@ -142,7 +144,10 @@ def _generar(info: dict, imagen: Path, prompt: str, destino: Path, segundos: flo
             "contents": [{"type": "prompt", "text": prompt[:2500]}, {"type": "first_frame", "url": foto}],
             "settings": ajustes, "options": {"watermark_info": {"enabled": False}}})
         codigo = _codigo(r)
-        if codigo in (1103, 1203):  # la cuenta no tiene este modelo (o aún no abrió): el siguiente, sin pagar
+        # La cuenta no tiene este modelo (o aún no abrió), o su paquete no lo cubre o se acabó (cada paquete vale
+        # para ciertos modelos): el siguiente, sin pagar (sin tarea no hay cobro)
+        if codigo in (1102, 1103, 1203):
+            sin_saldo = r if codigo == 1102 else sin_saldo
             continue
         if r.is_error or codigo:
             raise RuntimeError(_motivo(r, codigo, info["clave"]))
@@ -168,6 +173,8 @@ def _generar(info: dict, imagen: Path, prompt: str, destino: Path, segundos: flo
             return modelo
         except Exception as error:  # la tarea ya existe y Kling la cobra
             raise ia.Cobrado(str(error) or type(error).__name__) from error
+    if sin_saldo is not None:  # ninguno pudo y alguno por saldo: ese es el motivo que hay que contar
+        raise RuntimeError(_motivo(sin_saldo, 1102, info["clave"]))
     raise RuntimeError(t("Tu cuenta de Kling no puede usar ninguno de sus modelos de video; revisa tus paquetes en "
                          "{consola}.", consola=CONSOLA))
 
@@ -179,7 +186,7 @@ def animar(info: dict, imagen: Path, prompt: str, destino: Path, segundos: float
 
 def hablar(info: dict, imagen: Path | None, prompt: str, destino: Path, segundos: float = SEGUNDOS_VOZ) -> str:
     """Clip CON audio propio: el prompt ya trae el diálogo en español entre comillas. La imagen es el primer
-    fotograma."""
-    if imagen is None:  # las escenas del estudio siempre tienen imagen
+    fotograma (desde_prompt.clips_hablados hace la de cada escena antes de pedirlo)."""
+    if imagen is None:  # red de seguridad: sin imagen Kling no lo hace, y así no se pide nada
         raise ValueError(t("Kling necesita la imagen de la escena para hacerla hablar."))
     return _generar(info, imagen, prompt, destino, segundos, voz=True)

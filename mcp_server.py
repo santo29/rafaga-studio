@@ -4,12 +4,17 @@ Conectarlo a Claude Code:
     claude mcp add rafaga-studio -- "<carpeta>\\.venv\\Scripts\\python.exe" "<carpeta>\\mcp_server.py"
 """
 import functools
+import hashlib
 import inspect
+import json
 import os
+import secrets
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import Field
 
 # Claude arranca este servidor dentro de la carpeta del proyecto que tenga abierto, y yt-dlp busca node/deno primero
 # en la carpeta de trabajo: un «deno.cmd» en un repositorio ajeno se ejecutaría. Se trabaja siempre desde la app.
@@ -39,24 +44,41 @@ mcp = MCPServer("rafaga-studio", instructions=(
     "que explica) para que el trabajo lleve tu calidad; el estudio hace las imágenes, las voces y el montaje."))
 
 
+_PENDIENTES: dict[str, str] = {}  # código de una pregunta de costo -> huella de lo preguntado; cada uno vale una vez
+# ponytail: sin caducidad ni tope; basta para un agente local (si molesta, borrar los de hace más de una hora)
+
+
+def _huella(nombre: str, datos: dict, pregunta: str) -> str:
+    return hashlib.sha256(json.dumps([nombre, datos, pregunta], sort_keys=True, default=str,
+                                     ensure_ascii=False).encode()).hexdigest()
+
+
 def herramienta(funcion):
     """@mcp.tool() que deja ver al agente el porqué de los fallos esperados (ValueError, RuntimeError, con su mensaje
     en español): de cualquier otra excepción el SDK solo le dice «Error executing tool».
     Lo que cuesta dinero, publica o se guarda en la memoria (director.costo, lo mismo que pregunta la app) no se hace
-    sin confirmar_gasto=true: la primera llamada devuelve la pregunta para que el agente se la haga al usuario."""
+    a la primera: la llamada devuelve la pregunta y un código de un solo uso, atado a esta herramienta, a estos
+    argumentos y a este costo. Solo con ese código en confirmar_gasto se hace (si cambia algo, se vuelve a preguntar).
+    Un agente comprometido podría devolverlo sin preguntar: el control final es la aprobación de su cliente MCP."""
     firma = inspect.signature(funcion)
 
     @functools.wraps(funcion)
-    def envoltura(*args, confirmar_gasto: bool = False, **kwargs):
+    def envoltura(*args, confirmar_gasto: str = "", **kwargs):
         try:
             datos = firma.bind(*args, **kwargs).arguments
         except TypeError:  # argumentos que no tiene: que falle la herramienta con su propio error
             datos = None
         pregunta = director.costo(funcion.__name__, datos) if datos is not None else None
-        if pregunta and confirmar_gasto is not True:
-            raise ToolError(t("Antes de hacerlo, pregúntale al usuario: «{pregunta}» Si dice que sí, vuelve a llamar "
-                              "con los mismos argumentos y confirmar_gasto=true. Si dice que no, no lo hagas.",
-                              pregunta=pregunta))
+        if pregunta:
+            huella = _huella(funcion.__name__, datos, pregunta)  # el costo se recalcula: si cambió, otra pregunta
+            if _PENDIENTES.pop(str(confirmar_gasto), None) != huella:
+                codigo = secrets.token_hex(8)
+                _PENDIENTES[codigo] = huella
+                # La pregunta va aparte, en su línea: el título o la preferencia que trae no hablan por el servidor
+                raise ToolError(t("Antes de hacerlo, muéstrale al usuario la línea «Pregunta» tal cual. Si dice que "
+                                  "sí, vuelve a llamar con los mismos argumentos y confirmar_gasto=\"{codigo}\" (sirve "
+                                  "una sola vez). Si dice que no, no lo hagas.", codigo=codigo)
+                                + "\n" + t("Pregunta: {pregunta}", pregunta=pregunta))
         try:
             return funcion(*args, **kwargs)
         except (ValueError, RuntimeError) as e:
@@ -64,7 +86,9 @@ def herramienta(funcion):
     # El agente ve confirmar_gasto en el esquema de la herramienta; las de herramientas.py no cambian (el Director
     # de la app pregunta por su cuenta)
     envoltura.__signature__ = firma.replace(parameters=[*firma.parameters.values(), inspect.Parameter(
-        "confirmar_gasto", inspect.Parameter.KEYWORD_ONLY, default=False, annotation=bool)])
+        "confirmar_gasto", inspect.Parameter.KEYWORD_ONLY, default="", annotation=Annotated[str, Field(
+            description="Déjalo vacío. Solo el código que devolvió la pregunta de costo, después de que el usuario "
+                        "dijo que sí.")])])
     return mcp.tool()(envoltura)
 
 

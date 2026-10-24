@@ -491,9 +491,12 @@ def cloudflare_partes(clave: str) -> tuple[str, str]:
     return cuenta, token
 
 
-def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: float, destino: Path) -> Path | None:
+def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: float, destino: Path,
+                       pago: str | None = None) -> Path | None:
     """Anima una imagen con IA de video, probando primero lo gratis (ver nubes.ORDEN; Hugging Face va incluso sin
-    clave). None solo si el usuario eligió «No usar» IA de video."""
+    clave). None solo si el usuario eligió «No usar» IA de video.
+    pago: el video de pago (video_de_pago) que se preguntó al empezar el trabajo; solo ese se puede usar. Si el
+    usuario elige otro a mitad del trabajo, esa escena no se paga (falla y va con zoom suave): vale para el siguiente."""
     from . import nube, nubes
     if claves.ajustes().get("video") == "ninguno":
         return None
@@ -526,7 +529,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         "huggingface": huggingface,
         "modal": lambda: nube.animar(imagen_png, movimiento, formato, segundos, destino),
         "pollinations": pollinations,
-        **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO},
+        **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO if p == pago},  # solo el que se preguntó
     })
     return resultado
 
@@ -578,11 +581,14 @@ def nota_pago(proveedor: str, clips: int) -> str:
 
 def _recordar_modelo(proveedor: str, campo: str, modelo: str) -> None:
     """Guarda con la clave el modelo que acaba de funcionar: la próxima vez se empieza por él, sin perder tiempo con
-    los que la cuenta no puede usar."""
-    with _cerrojo_modelos:
-        info = claves.cargar().get(proveedor)
-        if info and modelo and info.get(campo) != modelo:
-            claves.guardar({**info, campo: modelo})
+    los que la cuenta no puede usar. Nunca tumba el clip ya pagado (p. ej. claves.json abierto por otro proceso)."""
+    try:
+        with _cerrojo_modelos:
+            info = claves.cargar().get(proveedor)
+            if info and modelo and info.get(campo) != modelo:
+                claves.guardar({**info, campo: modelo})
+    except Exception:  # es solo para empezar antes la próxima vez
+        pass
 
 
 def _modelo_de_la_clave(clave: str, elegir: Callable[[list[str]], str | None], defecto: str) -> str:
@@ -661,15 +667,21 @@ def _borrar(url: str, cabecera: dict) -> None:
         pass
 
 
-def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None = None) -> Path:
+def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None = None,
+                  quien: str | None = None) -> Path:
     """Un video de IA con su propio sonido: los personajes hablan con los labios sincronizados (de pago). Lo hace la
     IA elegida en «Escenas que hablan»: Gemini Omni (en Automático), Kling o Seedance.
-    referencia: imagen del sujeto (tu foto o producto) que el video debe mantener."""
-    elegido = claves.para("video_voz") or {}
-    if elegido.get("proveedor") in claves.VIDEO_DE_PAGO:
-        modulo = claves.modulo_video(elegido["proveedor"])
-        _recordar_modelo(elegido["proveedor"], "modelo_voz",
-                         modulo.hablar(elegido, referencia, prompt, destino, modulo.SEGUNDOS_VOZ))
+    referencia: imagen del sujeto (tu foto o producto) que el video debe mantener; con Kling y Seedance, su primer
+    fotograma. quien: el que se fijó (y se preguntó) al empezar el trabajo; sin él, el elegido ahora. Así, cambiar
+    «Escenas que hablan» a mitad de un trabajo nunca paga con otro servicio."""
+    quien = quien or (claves.para("video_voz") or {}).get("proveedor")
+    if quien in claves.VIDEO_DE_PAGO:
+        elegido = claves.cargar().get(quien)
+        if not elegido:  # quitó la clave a mitad del trabajo
+            raise SinClave(t("Para videos animados con voz conecta Gemini, Kling o Seedance en «Claves de IA» (Kling y "
+                             "Seedance, elígelos en «Escenas que hablan»), o desmarca «Video animado con IA»."))
+        modulo = claves.modulo_video(quien)
+        _recordar_modelo(quien, "modelo_voz", modulo.hablar(elegido, referencia, prompt, destino, modulo.SEGUNDOS_VOZ))
         return destino
     c = claves.cargar().get("gemini")
     if not c:

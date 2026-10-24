@@ -86,7 +86,7 @@ gastar. Para el texto y la transcripción eliges tú el proveedor.
 | Texto / guiones | Groq, Gemini, Pollinations (sin clave) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
 | Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate, Gemini Nano Banana (solo si lo eliges: ~US$0,07 por imagen; mantiene iguales personajes y productos) |
 | Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal ($30 gratis/mes), Pollinations, Kling y Seedance (solo si los eliges: ~US$0,02-0,24 por segundo; antes de cada trabajo la app te dice lo más que puede costar, con un tope de 15 clips de pago por trabajo) |
-| Video animado con voz (los personajes hablan, labios sincronizados) | — | Gemini Omni (~US$0,10 por segundo; la app usa el modelo más nuevo de precio conocido de tu clave), o Kling o Seedance si los eliges en «Escenas que hablan». Crear te dice el costo antes, el Director te pregunta antes de usarlo y un agente MCP tiene que confirmar el costo contigo |
+| Video animado con voz (los personajes hablan, labios sincronizados) | — | Gemini Omni (~US$0,10 por segundo; la app usa el modelo más nuevo de precio conocido de tu clave), o Kling o Seedance si los eliges en «Escenas que hablan». Crear te dice el costo antes, el Director te pregunta antes de usarlo y un agente MCP recibe el costo y un código de un solo uso, válido solo para ese trabajo y ese costo, para seguir después de preguntarte (el control final es la aprobación de herramientas de tu cliente MCP) |
 | Voz | Voces de Edge | ElevenLabs |
 | Transcripción | Este PC (Whisper), Groq | OpenAI |
 | Separar voz y pista | Este PC (Demucs): tu música no sale de tu PC | — |

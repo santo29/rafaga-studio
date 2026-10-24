@@ -28,8 +28,11 @@ US$0,10 por segundo de video, y animar escenas o hacer escenas que hablan con Kl
 (de unos centavos a unos US$2, según el modelo). Kling y Seedance solo se usan si los eliges en «Claves de IA», nunca en
 «Automático», y si uno falla la app no prueba otro que te cobre otra vez. Nada de pago se hace sin que lo aceptes: la
 app te dice antes lo más que puede costar cada trabajo, el Director te pregunta antes de usarlo, y un agente conectado
-por MCP recibe primero la pregunta con el costo y solo sigue si confirma que lo aceptaste (topes de 15 escenas con voz
-por video y de 15 clips de pago por trabajo). Esas
+por MCP recibe primero la pregunta con el costo y la orden de hacértela, y solo puede seguir con el código de un solo
+uso de esa pregunta, que vale solo para ese trabajo y ese costo (topes de 15 escenas con voz por video y de 15 clips de
+pago por trabajo). La app no puede ver si el agente de verdad te preguntó: el control final es la aprobación de
+herramientas de tu cliente MCP. Si eliges otra IA de pago en «Claves de IA» con un trabajo en marcha, ese trabajo no la
+usa: vale para el siguiente, que te vuelve a preguntar. Esas
 cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
 opciones gratis; para el texto y la transcripción usa el proveedor que conectes. Tiene topes para no gastar de más, pero eres
 responsable de vigilar el uso y los límites de tus cuentas. Puedes quitar una clave cuando quieras.

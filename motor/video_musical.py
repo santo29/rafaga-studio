@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import claves, ia, memoria, seguro, video
+from .desde_prompt import relanzar_con_gasto
 from .idioma import actual, IDIOMAS, t
 from .shorts import PROYECTOS
 
@@ -35,6 +36,7 @@ INSTRUCCIONES = """Eres director de videoclips. Diseña las escenas visuales de 
 def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", formato: str = "9:16",
           idea: str = "", aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
     cancion = str(seguro.archivo_medio(cancion, seguro.AUDIOS, t("canción")))
+    pago = ia.video_de_pago()  # fijado al empezar: lo que se preguntó (ver desde_prompt.montar)
     if video.duracion(Path(cancion)) > 900:  # como la Cabina: un audio de horas daría escenas de horas
         raise ValueError(t("Canción: dura más de 15 minutos; córtala antes de hacer el video musical."))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-videomusical")
@@ -69,45 +71,49 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     ancho, alto = video.FORMATOS[formato]
 
     partes, animar_ia, ultima, notas, de_donde = [], True, None, [], ""
-    pago, pagados = ia.video_de_pago(), 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)
-    for i, descripcion in enumerate(escenas):
-        paso = 0.25 + 0.6 * i / n
-        aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso)
-        nueva = False  # solo se anima una imagen recién creada: repetir una sería gastar cuota en lo mismo
-        try:
-            img = ultima = ia.imagen(f"{descripcion}, {plan['estilo_visual']}", ancho, alto,
-                                     carpeta / f"imagen_{i:02d}.png")
-            nueva, de_donde = True, t("la imagen anterior")
-        except Exception as error:
-            if ultima is None:  # ni una imagen todavía: fondo de color para que el videoclip salga igual
-                ultima, de_donde = video.fondo(formato, carpeta / "fondo.png", i), t("un fondo de color")
-            causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-            notas.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1, causa=causa,
-                           origen=de_donde))
-            aviso(notas[-1], paso)
-            img = ultima  # se repite la última imagen que sí existe para no parar el video
-        clip, cobrado = None, False
-        if animar_ia and nueva:
+    pagados = 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)
+    try:
+        for i, descripcion in enumerate(escenas):
+            paso = 0.25 + 0.6 * i / n
+            aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso)
+            nueva = False  # solo se anima una imagen recién creada: repetir una sería gastar cuota en lo mismo
             try:
-                aviso(t("Escena {n} de {total}: animando…", n=i + 1, total=n), paso + 0.3 / n)
-                clip = ia.video_desde_imagen(img, descripcion, formato, tramo, carpeta / f"clip_ia_{i:02d}.mp4")
-            except Exception as error:  # cupo de la nube agotado o servicio caído: el resto con zoom suave
-                cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
+                img = ultima = ia.imagen(f"{descripcion}, {plan['estilo_visual']}", ancho, alto,
+                                         carpeta / f"imagen_{i:02d}.png")
+                nueva, de_donde = True, t("la imagen anterior")
+            except Exception as error:
+                if ultima is None:  # ni una imagen todavía: fondo de color para que el videoclip salga igual
+                    ultima, de_donde = video.fondo(formato, carpeta / "fondo.png", i), t("un fondo de color")
                 causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-                notas.append(t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom suave.",
-                               n=i + 1, causa=causa))
-                aviso(notas[-1], paso + 0.3 / n)
-                animar_ia = False
-            pagados += bool(pago and (clip or cobrado))
-        segundos = tramo + (1 if i == n - 1 else 0)  # el último sobra un poco: el video nunca acaba antes que la canción
-        partes.append(video.segmento_mudo(img, segundos, formato, carpeta / f"tramo_{i:02d}.mp4", i, clip))
+                notas.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1,
+                               causa=causa, origen=de_donde))
+                aviso(notas[-1], paso)
+                img = ultima  # se repite la última imagen que sí existe para no parar el video
+            clip, cobrado = None, False
+            if animar_ia and nueva:
+                try:
+                    aviso(t("Escena {n} de {total}: animando…", n=i + 1, total=n), paso + 0.3 / n)
+                    clip = ia.video_desde_imagen(img, descripcion, formato, tramo,
+                                                 carpeta / f"clip_ia_{i:02d}.mp4", pago)
+                except Exception as error:  # cupo de la nube agotado o servicio caído: el resto con zoom suave
+                    cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
+                    causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                    notas.append(t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom "
+                                   "suave.", n=i + 1, causa=causa))
+                    aviso(notas[-1], paso + 0.3 / n)
+                    animar_ia = False
+                pagados += bool(pago and (clip or cobrado))
+            segundos = tramo + (1 if i == n - 1 else 0)  # el último sobra un poco: nunca acaba antes que la canción
+            partes.append(video.segmento_mudo(img, segundos, formato, carpeta / f"tramo_{i:02d}.mp4", i, clip))
 
-    if pagados:
-        notas.append(ia.nota_pago(pago, pagados))
-    aviso(t("Uniendo escenas…"), 0.88)
-    visual = video.unir(partes, carpeta / "visual.mp4")
-    aviso(t("Poniendo la canción, las ondas y la letra…"), 0.93)
-    final = video.con_cancion(visual, audio, formato, palabras, carpeta / "video_musical.mp4")
+        if pagados:
+            notas.append(ia.nota_pago(pago, pagados))
+        aviso(t("Uniendo escenas…"), 0.88)
+        visual = video.unir(partes, carpeta / "visual.mp4")
+        aviso(t("Poniendo la canción, las ondas y la letra…"), 0.93)
+        final = video.con_cancion(visual, audio, formato, palabras, carpeta / "video_musical.mp4")
+    except Exception as error:  # los clips de pago ya hechos se dicen: reintentar los pagaría otra vez
+        relanzar_con_gasto(error, [ia.nota_pago(pago, pagados)] if pagados else [], carpeta)
 
     proyecto = {"tipo": "videomusical", "formato": formato, "carpeta": str(carpeta), "titulo": titulo,
                 "avisos": notas, "resultados": [{"archivo": str(final), "titulo": titulo,

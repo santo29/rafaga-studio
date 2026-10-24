@@ -379,6 +379,7 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
     guion: ya escrito (forma de ESQUEMA_EPISODIO) por quien maneja el estudio; entonces no se usa la IA de texto.
     dibujar=False: al rehacer no pide ningún dibujo; solo vuelve a montar los planos que no tienen escena."""
     escrito = ia.de_fuera(guion, ESQUEMA_EPISODIO, t("El guion del capítulo")) if guion is not None else None
+    pago = ia.video_de_pago()  # fijado al empezar: lo que se preguntó (ver desde_prompt.montar)
     carpeta, datos = _abrir(serie)
     planos = max(3, min(int(planos), MAX_PLANOS))
     anteriores = _episodios(carpeta)
@@ -429,8 +430,12 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
             raise RuntimeError(t("se dibuja con «Dibujar lo que falta»"))
         return _dibujar(carpeta, escenas[int(destino.stem.rsplit("_", 1)[1])], prompt, ancho, alto, destino)
     notas = []
-    final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
-                                datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas, hablados=hechas)
+    try:
+        final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
+                                    datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas, hablados=hechas,
+                                    pago=pago)
+    except Exception as error:  # lo ya pagado no se pierde de vista (al rehacer, lo ya animado no se paga otra vez)
+        desde_prompt.relanzar_con_gasto(error, notas, ep)
     dibujos = sum(_imagen(ep, i).is_file() for i in range(len(escenas)))
     estado = _estado(ep, len(escenas))
     capitulo = {"numero": numero, "titulo": _texto(guion.get("titulo"), 120),

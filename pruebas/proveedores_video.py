@@ -53,6 +53,7 @@ def modulo_falso(nombre: str, consola: str, modelos: list[dict]):
     m = types.ModuleType(f"motor.{nombre.lower()}")
     m.NOMBRE, m.CONSOLA, m.SEGUNDOS_CLIP, m.SEGUNDOS_VOZ, m.MODELOS = nombre, consola, 5, 8, modelos
     m.llamadas, m.valida, m.falla, m.hecho_con = [], {}, None, modelos[0]["id"]
+    m.falla_voz = None  # falla_voz(prompt) -> el error de esa escena que habla (o None)
 
     def validar(clave):
         m.llamadas.append(("validar", clave))
@@ -76,8 +77,9 @@ def modulo_falso(nombre: str, consola: str, modelos: list[dict]):
 
     def hablar(info, imagen, prompt, destino, segundos=8):
         m.llamadas.append(("hablar", info.get("modelo_voz"), imagen, prompt, Path(destino), segundos))
-        if m.falla:
-            raise m.falla
+        error = m.falla or (m.falla_voz and m.falla_voz(prompt))
+        if error:
+            raise error
         Path(destino).write_bytes(MP4)
         return m.hecho_con
     m.validar, m.estimar, m.animar, m.hablar = validar, estimar, animar, hablar
@@ -114,12 +116,18 @@ assert kling.llamadas == [("validar", KLING)] and info["base"] == "https://api-s
 assert info["proveedor"] == "kling" and info["clave"] == KLING and info["modelo_video"] == "kling-a"
 assert info["modelo_voz"] == "kling-a"  # el primero que habla
 kling.llamadas.clear()
-# Con su botón no se le manda una clave que parece de otro servicio, ni texto pegado
+# Con su botón no se le manda una clave que parece de otro servicio (tampoco secretos que candidatos() no conoce:
+# GitHub, GitLab, Slack, AWS, JWT), ni texto pegado
+SECRETOS = ("ghp_" + "a1B2" * 9, "github_pat_11ABCDEFG0" + "x" * 40, "glpat-" + "x" * 20, "xoxb-1234-5678-abcdEFGH",
+            "AKIAIOSFODNN7EXAMPLE", "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2lnbmF0dXJl")
 for ajena, motivo in (("AIzaSyXXXXXXXXXXXXXXXX", "otro servicio"), ("sk_live_" + "a" * 24, "otro servicio"),
                       ("sk-ant-api03-xxxxxxxx", "otro servicio"), (ARK, "otro servicio"),
+                      *((s, "otro servicio") for s in SECRETOS),
                       (f"{KLING} {KLING}", "sin espacios"), ("corta", "sin espacios")):
     assert motivo in falla(claves.detectar, ajena, "kling"), ajena
-assert not kling.llamadas
+for ajena in SECRETOS:
+    assert "otro servicio" in falla(claves.detectar, ajena, "seedance"), ajena
+assert not kling.llamadas and len(seedance.llamadas) == 1  # solo la validación de ARK de arriba
 falla(claves.detectar, KLING, "gemini")  # por aquí solo van Kling y Seedance
 kling.valida = no_autorizada("https://api-singapore.klingai.com/tasks?task_ids=0")
 assert "no funcionó" in falla(claves.detectar, KLING, "kling")
@@ -163,19 +171,39 @@ claves.borrar("cloudflare")
 foto = tmp / "escena.png"
 foto.write_bytes(PNG)
 kling.hecho_con = "kling-b"  # la cuenta no tenía kling-a: su módulo lo saltó sin pagar
-clip = ia.video_desde_imagen(foto, "a cat dancing", "9:16", 7.3, tmp / "clip.mp4")
+clip = ia.video_desde_imagen(foto, "a cat dancing", "9:16", 7.3, tmp / "clip.mp4", pago="kling")
 assert clip == tmp / "clip.mp4" and clip.read_bytes() == MP4
 _, modelo, imagen, prompt, destino, segundos = kling.llamadas[-1]
 assert modelo == "kling-a" and imagen == foto and "a cat dancing" in prompt and segundos == kling.SEGUNDOS_CLIP
 assert claves.cargar()["kling"]["modelo_video"] == "kling-b"  # la próxima vez empieza por el que funcionó
-ia.video_desde_imagen(foto, "otra", "9:16", 3, tmp / "clip2.mp4")
+ia.video_desde_imagen(foto, "otra", "9:16", 3, tmp / "clip2.mp4", pago="kling")
 assert kling.llamadas[-1][1] == "kling-b"
 assert abs(ia.precio_video("kling") - 0.05 * 5) < 1e-9  # desde kling-b: sus respaldos (ninguno) no son más caros
 kling.falla = ia.Cobrado("la descarga se cortó")
-assert "se cortó" in falla(ia.video_desde_imagen, foto, "x", "9:16", 3, tmp / "c3.mp4", error=ia.Cobrado)
+assert "se cortó" in falla(ia.video_desde_imagen, foto, "x", "9:16", 3, tmp / "c3.mp4", "kling", error=ia.Cobrado)
 kling.falla = RuntimeError("Kling: no te queda saldo")
-assert "no te queda saldo" in falla(ia.video_desde_imagen, foto, "x", "9:16", 3, tmp / "c4.mp4", error=RuntimeError)
+assert "no te queda saldo" in falla(ia.video_desde_imagen, foto, "x", "9:16", 3, tmp / "c4.mp4", "kling",
+                                    error=RuntimeError)
 kling.falla = None
+# Kling elegido a mitad de un trabajo que empezó sin video de pago (pago=None): esa escena no se paga ni se pide
+antes = len(kling.llamadas)
+assert "No hay ninguna conectada" in falla(ia.video_desde_imagen, foto, "x", "9:16", 3, tmp / "c0.mp4",
+                                           error=RuntimeError) and len(kling.llamadas) == antes
+# Guardar el modelo que funcionó nunca tira el clip ya pagado (claves.json abierto por otro proceso, p. ej. el MCP)
+guardar_real, kling.hecho_con = claves.guardar, "kling-a"
+claves.guardar = lambda info: (_ for _ in ()).throw(PermissionError("claves.json en uso"))
+try:
+    assert ia.video_desde_imagen(foto, "x", "9:16", 3, tmp / "c5.mp4", pago="kling") == tmp / "c5.mp4"
+    kling.hecho_con = "kling-b"  # su modelo_voz guardado es kling-a: también intenta guardarlo
+    assert ia.video_hablado("x", "9:16", tmp / "c6.mp4", foto, quien="kling") == tmp / "c6.mp4"
+finally:
+    claves.guardar, kling.hecho_con = guardar_real, "kling-b"
+# Las consolas fijas de Kling y Seedance siguen en el error que ve el usuario (para recargar); las demás URL, no
+causa = nubes._causa(RuntimeError(f"Recarga en {kling.CONSOLA} y vuelve; ve a {seedance.CONSOLA}; "
+                                  f"https://api.cloudflare.com/client/v4/accounts/{'a' * 32}/ai (se consigue en "
+                                  f"{kling.CONSOLA})."), "kling")
+assert f"en {kling.CONSOLA} y" in causa and f"{seedance.CONSOLA};" in causa and f"en {kling.CONSOLA})." in causa
+assert "cloudflare" not in causa and "a" * 32 not in causa
 
 # ---------- Escenas que hablan con Seedance (elegido); Gemini sigue siendo el de Automático ----------
 seedance.llamadas.clear()
@@ -194,6 +222,13 @@ assert "Kling o Seedance" in falla(desde_prompt.generar, "", guion={"titulo": "t
                                    "estilo_visual": "e", "escenas": [{"narracion": "n", "imagen": "i"}]},
                                    animado=True, error=ia.SinClave)
 assert abs(ia.precio_video("gemini", voz=True) - 10 * ia.PRECIO_OMNI) < 1e-9 and ia.precio_video("huggingface") == 0
+# Fijado al empezar el trabajo: elegir otro en «Escenas que hablan» a mitad no paga con otro servicio
+claves.elegir_por_defecto("video_voz", "kling")
+kling.llamadas.clear()
+ia.video_hablado("x", "9:16", tmp / "voz3.mp4", foto, quien="seedance")
+assert len(seedance.llamadas) == 2 and not kling.llamadas
+falla(ia.video_hablado, "x", "9:16", tmp / "voz4.mp4", quien="gemini", error=ia.SinClave)  # Gemini, nunca Kling
+assert not kling.llamadas and len(seedance.llamadas) == 2
 claves.elegir_por_defecto("video_voz", "seedance")
 
 # ---------- Montar: tope de clips de pago por trabajo, nota de gasto y nada se paga dos veces ----------
@@ -212,43 +247,138 @@ def dibujar(prompt, ancho, alto, destino):  # como en serie: lo que ya está dib
 
 
 guion = {"estilo_visual": "cartoon", "escenas": [{"narracion": f"n{i}", "imagen": f"scene {i}"} for i in range(20)]}
+VOZ = "es-DO-EmilioNeural"
 try:
     kling.llamadas.clear()
     carpeta, notas = tmp / "trabajo", []
     carpeta.mkdir()
-    desde_prompt.montar(guion, carpeta, "9:16", "es-DO-EmilioNeural", lambda *a: None, crear_imagen=dibujar,
-                        notas=notas)
+    desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, notas=notas, pago="kling")
     assert len(kling.llamadas) == desde_prompt.MAX_CLIPS_PAGO == 15  # el resto, zoom suave
     assert any("tope de gasto" in n for n in notas)
     assert f"Kling hizo 15 clip(s) de video: hasta unos US${15 * 0.25:.2f}" in " ".join(notas), notas
     # Reintento en la misma carpeta: las 15 ya animadas desde esa misma imagen no se pagan otra vez (solo las 5 que
     # quedaron con zoom, en este trabajo nuevo)
     notas.clear()
-    desde_prompt.montar(guion, carpeta, "9:16", "es-DO-EmilioNeural", lambda *a: None, crear_imagen=dibujar,
-                        notas=notas)
+    desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, notas=notas, pago="kling")
     assert len(kling.llamadas) == 20 and {ll[3].split(",")[0] for ll in kling.llamadas[15:]} == {
         f"scene {i}" for i in range(15, 20)} and any("Kling hizo 5 clip(s)" in n for n in notas), notas
     # Un plano redibujado (más nuevo que su clip viejo) sí se anima de nuevo: es otra imagen
     os.utime(carpeta / "video_final_imagen_03.png", (time.time() + 60, time.time() + 60))
-    desde_prompt.montar(guion, carpeta, "9:16", "es-DO-EmilioNeural", lambda *a: None, crear_imagen=dibujar)
+    desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, pago="kling")
     assert len(kling.llamadas) == 21 and kling.llamadas[-1][3].startswith("scene 3,")
     # Varios montajes de un mismo trabajo (anuncios: uno por variante) comparten el tope; lo cobrado sin llegar cuenta
     kling.llamadas.clear()
     pagados, notas = {"clips": 0}, []
     for k in range(2):
         (tmp / f"anuncio{k}").mkdir()
-        desde_prompt.montar({**guion, "escenas": guion["escenas"][:10]}, tmp / f"anuncio{k}", "9:16",
-                            "es-DO-EmilioNeural", lambda *a: None, crear_imagen=dibujar, notas=notas,
-                            pagados=pagados, nombre="base")
+        desde_prompt.montar({**guion, "escenas": guion["escenas"][:10]}, tmp / f"anuncio{k}", "9:16", VOZ,
+                            lambda *a: None, crear_imagen=dibujar, notas=notas, pagados=pagados, nombre="base",
+                            pago="kling")
     assert len(kling.llamadas) == 15 and pagados["clips"] == 15
     kling.llamadas.clear()
     kling.falla = ia.Cobrado("se cortó la descarga")
     notas, carpeta = [], tmp / "cobrado"
     carpeta.mkdir()
-    desde_prompt.montar({**guion, "escenas": guion["escenas"][:3]}, carpeta, "9:16", "es-DO-EmilioNeural",
-                        lambda *a: None, crear_imagen=dibujar, notas=notas)
+    desde_prompt.montar({**guion, "escenas": guion["escenas"][:3]}, carpeta, "9:16", VOZ, lambda *a: None,
+                        crear_imagen=dibujar, notas=notas, pago="kling")
     assert len(kling.llamadas) == 1 and any("Kling hizo 1 clip(s)" in n for n in notas), notas  # y no reintenta
     kling.falla = None
+
+    # El trabajo empezó con la IA de video en «No usar» (no se preguntó nada) y el usuario elige Kling en Claves de IA
+    # a mitad: ni una escena se paga (el trabajo siguiente sí pregunta)
+    claves.elegir_por_defecto("video", "ninguno")
+    kling.llamadas.clear()
+
+    def cambia_a_kling(prompt, ancho, alto, destino):
+        claves.elegir_por_defecto("video", "kling")
+        return dibujar(prompt, ancho, alto, destino)
+    notas, carpeta = [], tmp / "cambio"
+    carpeta.mkdir()
+    desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=cambia_a_kling, notas=notas,
+                        pago=None)
+    assert ia.video_de_pago() == "kling" and not kling.llamadas and not any("US$" in n for n in notas), notas
+
+    # Escenas que hablan con Kling (generar entero): cada una arranca en la imagen de SU escena, también sin foto de
+    # partida; la que se cobró sin llegar no se paga otra vez con un clip mudo (va con imagen y narración); la que
+    # falló sin cobro sí se anima con el Kling que se preguntó al empezar
+    reales_generar = desde_prompt.escena_hablada, desde_prompt.PROYECTOS, ia.imagen, ia.imagen_con_producto
+    pedidas = []
+    desde_prompt.escena_hablada = lambda clip, texto, formato, destino: destino
+    ia.imagen = lambda p, w, h, d: pedidas.append(d.name) or dibujar(p, w, h, d)
+    ia.imagen_con_producto = lambda p, f, w, h, d, realista=True: pedidas.append(d.name) or dibujar(p, w, h, d)
+    corto = {"titulo": "t", "descripcion": "d", "hashtags": [], "estilo_visual": "cartoon",
+             "escenas": [{"narracion": f"n{i}", "imagen": f"scene {i}"} for i in range(3)]}
+    claves.elegir_por_defecto("video_voz", "kling")
+    try:
+        for k, (imagen, falla_voz) in enumerate(((None, None), ("foto", None), (None, lambda p: (
+                ia.Cobrado("la descarga se cortó") if "scene 0" in p else
+                RuntimeError("filtro de contenido") if "scene 1" in p else None)))):
+            desde_prompt.PROYECTOS = tmp / f"proyectos_{k}"  # van en el mismo segundo
+            kling.llamadas.clear(), pedidas.clear()
+            kling.falla_voz = falla_voz
+            r = desde_prompt.generar("x", segundos=24, guion=json.loads(json.dumps(corto)), animado=True,
+                                     imagen=str(foto) if imagen else "")
+            habladas = sorted((ll for ll in kling.llamadas if ll[0] == "hablar"), key=lambda ll: ll[3])
+            assert len(habladas) == 3 and all(isinstance(ll[2], Path) and ll[2].is_file() for ll in habladas)
+            assert [ll[2].name for ll in habladas][1:] == ["video_final_imagen_01.png", "video_final_imagen_02.png"]
+            assert len(pedidas) == (2 if imagen else 3), pedidas  # una por escena (la 1ª con foto es la foto), sin repetir
+            # la 1ª escena con foto arranca en la foto (con su formato); sin foto, en su imagen
+            assert habladas[0][2].read_bytes() == foto.read_bytes() if imagen else \
+                habladas[0][2].name == "video_final_imagen_00.png"
+            mudas = [ll[3].split(",")[0] for ll in kling.llamadas if ll[0] == "animar"]
+            assert mudas == (["scene 1"] if falla_voz else []), mudas
+            if falla_voz:
+                assert any("Kling hizo 2 escena(s) animadas con voz" in a for a in r["avisos"]), r["avisos"]
+                assert any("Kling hizo 1 clip(s) de video" in a for a in r["avisos"]), r["avisos"]
+        # Seedance sin foto: solo del texto (sus 2.x no aceptan caras reales en la imagen)
+        kling.falla_voz = None
+        claves.elegir_por_defecto("video_voz", "seedance")
+        desde_prompt.PROYECTOS = tmp / "proyectos_seedance"
+        seedance.llamadas.clear()
+        desde_prompt.generar("x", segundos=24, guion=json.loads(json.dumps(corto)), animado=True)
+        assert [ll[2] for ll in seedance.llamadas if ll[0] == "hablar"] == [None] * 3
+
+        # Si el trabajo falla después de pagar clips, el error dice lo gastado y la carpeta (reintentar lo pagaría)
+        assert "x" == falla(desde_prompt.relanzar_con_gasto, ValueError("x"), ["La IA entendió: y"], tmp)
+        e = falla(desde_prompt.relanzar_con_gasto, ValueError("x"), ["Kling a fait 2 clip(s) vidéo : jusqu'à environ "
+                                                                     "0.50 $ US selon ses tarifs."], tmp,
+                  error=RuntimeError)
+        assert e.startswith("x · ") and "0.50 $ US" in e and str(tmp) in e  # también las notas en francés
+        # Solo animar: el clip cobrado que no llegó, o que llegó y falló al ajustarlo, se dice con su costo
+        for k, (falla_kling, segmento) in enumerate(((ia.Cobrado("Kling no terminó el video a tiempo"), None),
+                                                    (None, RuntimeError("ffmpeg falló")),
+                                                    (RuntimeError("Kling: no te queda saldo"), None))):
+            desde_prompt.PROYECTOS, kling.falla = tmp / f"proyectos_animar{k}", falla_kling
+            segmento_real = video.segmento_mudo
+            video.segmento_mudo = lambda *a, s=segmento: (_ for _ in ()).throw(s) if s else a[3]
+            try:
+                e = falla(desde_prompt.animar_imagen, str(foto), "x", error=RuntimeError)
+            finally:
+                video.segmento_mudo, kling.falla = segmento_real, None
+            assert ("Kling hizo 1 clip(s)" in e and str(desde_prompt.PROYECTOS) in e) == (k < 2), e  # sin tarea, no
+        # Anuncios: falla el cierre de la 2ª variante; el error cuenta los clips de pago de las dos
+        from motor import anuncios
+        reales_anuncios = ia.investigar_web, ia.texto_json, video.cierre, anuncios.PROYECTOS
+
+        def variante(k):
+            return {"angulo": f"a{k}", "gancho": "g", "titulo": "t", "texto_anuncio": "x", "hashtags": [],
+                    "estilo_visual": "ugc", "escenas": [{"narracion": "n", "imagen": f"ad {k} {i}"} for i in range(3)]}
+
+        def cierre(montado, texto, formato, destino):
+            if destino.name == "anuncio_2.mp4":
+                raise RuntimeError("ffmpeg falló al poner el cierre")
+            return destino
+        ia.investigar_web, video.cierre, anuncios.PROYECTOS = lambda pedido: "", cierre, tmp / "proyectos_anuncio"
+        ia.texto_json = lambda instrucciones, pedido, esquema: {"variantes": [variante(1), variante(2)]}
+        kling.llamadas.clear()
+        try:
+            e = falla(anuncios.crear, str(foto), "p", "d", "p", "oferta", "ugc", segundos=10, error=RuntimeError)
+        finally:
+            ia.investigar_web, ia.texto_json, video.cierre, anuncios.PROYECTOS = reales_anuncios
+        assert len(kling.llamadas) == 6 and "cierre" in e and e.count("Kling hizo 3 clip(s)") == 2, e
+    finally:
+        desde_prompt.escena_hablada, desde_prompt.PROYECTOS, ia.imagen, ia.imagen_con_producto = reales_generar
+        kling.falla_voz = None
 finally:
     desde_prompt.narrar, video.duracion, video.escena_de_clip, video.escena_de_imagen, video.unir = reales
 
@@ -264,10 +394,26 @@ animado = director.costo("crear_video", {"prompt": "x", "segundos": 16, "animado
 assert f"US${2 * 0.25 * 8 + 2 * precio_clip:.2f}" in animado, animado  # 2 escenas que hablan y, por lo alto, animadas
 assert "DE PAGO" in director.INSTRUCCIONES and "US$1 por cada 8 s" not in director.INSTRUCCIONES
 
-# ---------- MCP: lo que cuesta no se hace sin confirmar_gasto=true ----------
+# ---------- MCP: lo que cuesta no se hace sin el código de un solo uso de su pregunta ----------
+import re  # noqa: E402
+
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
 import mcp_server  # noqa: E402
+
+
+def codigo_de(error: str) -> str:
+    return re.search(r'confirmar_gasto="([0-9a-f]+)"', error)[1]
+
+
+def por_protocolo(nombre: str, argumentos: dict) -> str:
+    """Como llega de un agente de verdad. El error (la pregunta) si no se hizo; "" si se hizo."""
+    try:
+        asyncio.run(mcp_server.mcp.call_tool(nombre, argumentos))
+        return ""
+    except ToolError as e:
+        return str(e)
+
 
 hechos = []
 generar_real, animar_real = desde_prompt.generar, desde_prompt.animar_imagen
@@ -275,25 +421,39 @@ desde_prompt.generar = lambda *a, **k: hechos.append(k) or {"tipo": "video", "re
 desde_prompt.animar_imagen = lambda *a, **k: hechos.append(a) or {"tipo": "animacion", "resultados": []}
 try:
     error = falla(mcp_server.crear_video, "un gato", error=ToolError)
-    assert "confirmar_gasto=true" in error and f"US${10 * precio_clip:.2f}" in error and not hechos, error
+    assert f"\nPregunta: Esto cuesta unos US${10 * precio_clip:.2f}" in error and not hechos, error  # en su línea
     assert "US$" in falla(mcp_server.crear_video, "x", "9:16", 45, "es-DO-EmilioNeural", str(foto), True,
                           error=ToolError) and not hechos  # también con los argumentos por posición
-    json.loads(mcp_server.crear_video("un gato", confirmar_gasto=True))
+    codigo = codigo_de(error)
+    json.loads(mcp_server.crear_video("un gato", confirmar_gasto=codigo))
     assert len(hechos) == 1
-    try:  # como llega de un agente de verdad: por el protocolo
-        asyncio.run(mcp_server.mcp.call_tool("crear_video", {"prompt": "un gato"}))
-        raise AssertionError("debió pedir confirmación")
-    except ToolError as e:
-        assert "confirmar_gasto=true" in str(e)
-    asyncio.run(mcp_server.mcp.call_tool("crear_video", {"prompt": "un gato", "confirmar_gasto": True}))
+    # Un solo uso: el mismo código otra vez vuelve a preguntar (con otro código)
+    otra = falla(mcp_server.crear_video, "un gato", confirmar_gasto=codigo, error=ToolError)
+    assert codigo_de(otra) != codigo and len(hechos) == 1
+    # El agente no se salta la pregunta: «true» de entrada, o un código inventado, no gastan
+    assert por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": True}) and len(hechos) == 1
+    assert "Pregunta:" in falla(mcp_server.crear_video, "un gato", confirmar_gasto="true", error=ToolError)
+    assert "Pregunta:" in por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": "0123456789abcdef"})
+    assert len(hechos) == 1
+    # El sí a una llamada barata no sirve para otra más cara (ni para otra herramienta)
+    barata = por_protocolo("crear_video", {"prompt": "un gato", "segundos": 15})
+    cara = por_protocolo("crear_video", {"prompt": "un gato", "segundos": 600, "confirmar_gasto": codigo_de(barata)})
+    assert "Pregunta:" in cara and len(hechos) == 1
+    assert not por_protocolo("crear_video", {"prompt": "un gato", "segundos": 600, "confirmar_gasto": codigo_de(cara)})
     assert len(hechos) == 2
-    asyncio.run(mcp_server.mcp.call_tool("crear_video", {"prompt": "x", "imagen": str(foto), "solo_animar": True,
-                                                         "confirmar_gasto": True}))
+    otro = codigo_de(por_protocolo("crear_video", {"prompt": "y"}))
+    assert "Pregunta:" in por_protocolo("crear_anuncios", {"foto": str(foto), "producto": "p", "detalles": "d",
+                                                           "publico": "p", "oferta": "o", "estilo": "e",
+                                                           "confirmar_gasto": otro}) and len(hechos) == 2
+    solo = {"prompt": "x", "imagen": str(foto), "solo_animar": True}
+    assert not por_protocolo("crear_video", {**solo, "confirmar_gasto": codigo_de(por_protocolo("crear_video", solo))})
     assert len(hechos) == 3
     # Lo gratis va directo; guardar en la memoria también se le pregunta al usuario
     assert "proveedores" in json.loads(mcp_server.listar_opciones())
     assert "memoria" in falla(mcp_server.recordar_preferencia, "general", "títulos cortos", error=ToolError)
     herramientas_mcp = {h.name: h for h in asyncio.run(mcp_server.mcp.list_tools())}
+    esquema = herramientas_mcp["crear_video"].input_schema["properties"]["confirmar_gasto"]
+    assert esquema["type"] == "string" and esquema["default"] == "" and "código" in esquema["description"]
     assert all("confirmar_gasto" in h.input_schema["properties"] for h in herramientas_mcp.values())
     assert "confirmar_gasto" not in str(director.catalogo())  # el Director de la app pregunta por su cuenta
     claves.elegir_por_defecto("video", "auto")  # animar gratis: el MCP no pregunta nada
@@ -322,10 +482,14 @@ QInputDialog.getText = lambda *a: pedidas.append(a) or (f" {KLING} ", True)
 QDesktopServices.openUrl = lambda url: abiertas.append(url.toString())
 try:
     kling.llamadas.clear()
+    pagina.entrada.setText("a medio pegar")
     pagina.botones_pago["kling"].click()
+    fila = pagina.botones_pago["kling"]  # mientras comprueba, lo dice su propio botón (el de arriba queda lejos)
+    assert not fila.isEnabled() and fila.text() == "Comprobando…" and not pagina.conectar.isEnabled()
     esperar(lambda: "kling" in claves.cargar())
     assert pedidas[0][3] == pagina_claves.QLineEdit.Password and kling.llamadas == [("validar", KLING)]
-    esperar(lambda: not pagina.tarea.isRunning())
+    esperar(lambda: not pagina.tarea.isRunning() and fila.isEnabled())
+    assert fila.text() == "Conectar" and pagina.entrada.text() == "a medio pegar"  # su clave no se pegó ahí
     assert "kling" in [pagina.selectores["video"].itemData(i) for i in range(pagina.selectores["video"].count())]
     pagina._abrir_consola(None, "seedance")
     assert abiertas == [seedance.CONSOLA]
@@ -347,6 +511,17 @@ try:
     assert f"US${precio_clip:.2f}" in preguntas[-1]
     assert crear._pagar_video(desde_prompt.generar, {"segundos": 45}) is False
     assert f"hasta 10 escena(s) con Kling: hasta unos US${10 * precio_clip:.2f}" in preguntas[-1]
+    # Animado con voz y animar con Kling: una sola pregunta con el total (las mismas escenas, no unas más)
+    antes = len(preguntas)
+    _, hablado = desde_prompt.costo_hablado(45)
+    total = hablado + director.clips("crear_video", {"segundos": 45, "animado": True}) * precio_clip
+    assert crear._pagar_video(desde_prompt.generar, {"segundos": 45, "animado": True}) is False
+    assert len(preguntas) == antes + 1 and "en Seedance; las que no salgan con voz se animarán con Kling" in \
+        preguntas[-1] and f"US${total:.2f} en total" in preguntas[-1], preguntas[-1]
+    claves.elegir_por_defecto("video", "auto")
+    assert crear._pagar_video(desde_prompt.generar, {"segundos": 45, "animado": True}) is False
+    assert f"en Seedance: hasta unos US${hablado:.2f}" in preguntas[-1] and "Kling" not in preguntas[-1]
+    claves.elegir_por_defecto("video", "kling")
     antes = len(preguntas)
     assert crear._pagar_video(musica.crear, {"idea": "x"})  # no anima escenas: ni se pregunta
     respuesta[0] = QMessageBox.Yes

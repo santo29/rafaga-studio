@@ -86,14 +86,15 @@ try:
     assert len(red) == 1
 
     # Lo máximo que puede costar: el más caro de lo que queda por probar, por los segundos que se piden de verdad
-    assert cerca(kling.estimar({}, 5), 0.157 * 5)
-    assert cerca(kling.estimar({"modelo_video": "kling-3.0"}, 5), 0.112 * 5)  # el respaldo Turbo cuesta más que 3.0
+    assert cerca(kling.estimar({}, 5), 0.112 * 5)  # el respaldo Turbo cuesta más que 3.0
+    assert cerca(kling.estimar({"modelo_video": "kling-3.0"}, 5), 0.112 * 5)
     assert cerca(kling.estimar({"modelo_video": "kling-2.6"}, 8), 0.042 * 10)  # 2.6 y 2.5 Turbo: 5 o 10 s
     assert cerca(kling.estimar({"modelo_voz": "kling-3.0"}, 8, voz=True), 0.126 * 8)
     assert cerca(kling.estimar({"modelo_video": "kling-3.0-turbo"}, 20), 0.112 * 15)  # hasta 15 s
-    assert cerca(kling.estimar({"modelo_voz": "kling-2.6"}, 8, voz=True), 0.157 * 8)  # 2.6 no habla: desde el mejor
-    assert [m["id"] for m in kling.MODELOS] == ["kling-4.0", "kling-3.0", "kling-3.0-turbo", "kling-2.6",
-                                                "kling-2.5-turbo"]
+    assert cerca(kling.estimar({"modelo_voz": "kling-2.6"}, 8, voz=True), 0.126 * 8)  # 2.6 no habla: desde el mejor
+    # Kling 4.0 no, mientras su precio sea provisional: una clave que lo tenía guardado empieza por el mejor de la lista
+    assert [m["id"] for m in kling.MODELOS] == ["kling-3.0", "kling-3.0-turbo", "kling-2.6", "kling-2.5-turbo"]
+    assert cerca(kling.estimar({"modelo_video": "kling-4.0", "modelo_voz": "kling-4.0"}, 8, voz=True), 0.126 * 8)
 
     # Animar: los modelos que la cuenta no tiene se saltan sin pagar; la clave solo va a la API, el video a la CDN
     tarea = (200, {"code": 0, "data": {"id": "860393985781006412", "status": "submitted"}})
@@ -101,17 +102,17 @@ try:
     hecha = (200, {"code": 0, "data": [{"id": "860393985781006412", "status": "succeeded", "outputs": [
         {"type": "image", "url": "https://cdn.ejemplo.com/portada.png"}, {"type": "video", "url": CDN}],
         "billing": [{"charge_type": "unit", "amount": "4"}]}]})
-    escenario({("POST", f"{SG}/image-to-video/kling-4.0"): [(403, {"code": 1103, "message": "no permission"})],
-               ("POST", f"{SG}/image-to-video/kling-3.0"): [tarea],
+    escenario({("POST", f"{SG}/image-to-video/kling-3.0"): [(403, {"code": 1103, "message": "no permission"})],
+               ("POST", f"{SG}/image-to-video/kling-3.0-turbo"): [tarea],
                lista: [(200, {"code": 0, "data": [{"status": "processing"}]}), httpx.ReadTimeout("corte"), hecha]})
-    assert kling.animar(info, foto, "un gato salta", tmp / "k1.mp4") == "kling-3.0"
+    assert kling.animar(info, foto, "un gato salta", tmp / "k1.mp4") == "kling-3.0-turbo"
     assert (tmp / "k1.mp4").read_bytes() == MP4 and bajadas == [(CDN, None)]  # sin cabeceras: la clave no va a la CDN
     assert all(u.startswith(f"{SG}/") and h == {"Authorization": f"Bearer {CLAVE}"} for _, u, h, _ in red)
     cuerpo = red[1][3]
     assert cuerpo["contents"] == [{"type": "prompt", "text": "un gato salta"}, {"type": "first_frame", "url": FOTO64}]
-    assert cuerpo["settings"] == {"resolution": "720p", "duration": 5, "audio": "off"}
+    assert red[0][3]["settings"] == {"resolution": "720p", "duration": 5, "audio": "off"}
     assert cuerpo["options"] == {"watermark_info": {"enabled": False}}
-    assert "audio" not in red[0][3]["settings"]  # 4.0 no tiene ese ajuste
+    assert cuerpo["settings"] == {"resolution": "720p", "duration": 5}  # 3.0 Turbo no tiene ese ajuste
     escenario({("POST", f"{SG}/image-to-video/kling-2.6"): [tarea], lista: [hecha]})
     assert kling.animar({**info, "modelo_video": "kling-2.6"}, foto, "x", tmp / "k2.mp4", segundos=8) == "kling-2.6"
     assert red[0][3]["settings"] == {"resolution": "720p", "duration": 10, "audio": "off"}
@@ -129,22 +130,39 @@ try:
     assert kling.hablar({**info, "modelo_voz": "kling-3.0"}, foto, 'Ana dice: "Hola"', tmp / "k5.mp4") == "kling-3.0"
     assert red[0][3]["settings"] == {"resolution": "720p", "duration": 8, "audio": "native"}
     sin_permiso = [(403, {"code": 1103})]
-    escenario({("POST", f"{SG}/image-to-video/{m}"): sin_permiso
-               for m in ("kling-4.0", "kling-3.0", "kling-3.0-turbo")})
+    escenario({("POST", f"{SG}/image-to-video/{m}"): sin_permiso for m in ("kling-3.0", "kling-3.0-turbo")})
     assert "ninguno" in str(falla(kling.hablar, info, foto, "x", tmp / "k6.mp4"))
-    assert len(red) == 3  # ni 2.6 ni 2.5 Turbo
-    escenario({("POST", f"{SG}/image-to-video/kling-4.0"): [(404, {"code": 1203})],
-               ("POST", f"{SG}/image-to-video/kling-3.0"): [tarea], lista: [hecha]})
-    assert kling.hablar(info, foto, "x", tmp / "k7.mp4") == "kling-3.0"
-    assert "audio" not in red[0][3]["settings"] and red[0][3]["settings"]["duration"] == 8
-    falla(kling.hablar, info, None, "x", tmp / "k8.mp4", error=ValueError)
+    assert len(red) == 2  # ni 2.6 ni 2.5 Turbo
+    escenario({("POST", f"{SG}/image-to-video/kling-3.0"): [(404, {"code": 1203})],
+               ("POST", f"{SG}/image-to-video/kling-3.0-turbo"): [tarea], lista: [hecha]})
+    assert kling.hablar(info, foto, "x", tmp / "k7.mp4") == "kling-3.0-turbo"
+    assert red[0][3]["settings"] == {"resolution": "720p", "duration": 8, "audio": "native"}
+    assert "audio" not in red[1][3]["settings"] and red[1][3]["settings"]["duration"] == 8
+    escenario({})
+    falla(kling.hablar, info, None, "x", tmp / "k8.mp4", error=ValueError)  # red de seguridad: sin imagen, ni se pide
+    assert not red
+
+    # Un paquete que no cubre un modelo (1102 en ese modelo): el siguiente, sin pagar; «sin saldo» solo si ninguno pudo
+    k3 = ("POST", f"{SG}/image-to-video/kling-3.0")
+    k3t = ("POST", f"{SG}/image-to-video/kling-3.0-turbo")
+    escenario({k3: [(429, {"code": 1102, "message": "pack does not cover this model"})], k3t: [tarea], lista: [hecha]})
+    assert kling.animar(info, foto, "x", tmp / "k8b.mp4") == "kling-3.0-turbo"
+    assert [u for m, u, _, _ in red if m == "POST"] == [k3[1], k3t[1]] and len(bajadas) == 1  # una sola tarea pagada
+    escenario({k3: [(429, {"code": 1102})], k3t: [tarea], lista: [hecha]})
+    assert kling.hablar(info, foto, "x", tmp / "k8c.mp4") == "kling-3.0-turbo"
+    info3 = {**info, "modelo_video": "kling-3.0"}
+    escenario({("POST", f"{SG}/image-to-video/{m}"): [(429, {"code": 1102, "message": f"pack used up {CLAVE}"})]
+               for m in ("kling-3.0", "kling-3.0-turbo", "kling-2.6", "kling-2.5-turbo")})
+    e = falla(kling.animar, info3, foto, "x", tmp / "k9.mp4")
+    assert type(e) is RuntimeError and "saldo" in str(e) and kling.CONSOLA in str(e) and CLAVE not in str(e)
+    assert len(red) == 4 and not bajadas  # todos probados, ninguno creó tarea
+    escenario({k3: [(403, {"code": 1103})], k3t: [(429, {"code": 1102})]})
+    assert "saldo" in str(falla(kling.hablar, info, foto, "x", tmp / "k9b.mp4")) and len(red) == 2
 
     # Errores con causa clara, sin pagar ni probar otro modelo
-    k3 = ("POST", f"{SG}/image-to-video/kling-3.0")
-    info3 = {**info, "modelo_video": "kling-3.0"}
-    escenario({k3: [(429, {"code": 1102, "message": f"pack used up {CLAVE}"})]})
-    e = falla(kling.animar, info3, foto, "x", tmp / "k9.mp4")
-    assert type(e) is RuntimeError and "saldo" in str(e) and kling.CONSOLA in str(e) and len(red) == 1
+    escenario({k3: [(429, {"code": 1101, "message": "account in arrears"})]})  # la cuenta entera debe: se para aquí
+    e = falla(kling.animar, info3, foto, "x", tmp / "k9c.mp4")
+    assert type(e) is RuntimeError and "saldo" in str(e) and len(red) == 1
     escenario({k3: [(400, {"code": 1301, "message": f"risk control {CLAVE}"})]})
     e = falla(kling.animar, info3, foto, "x", tmp / "k9.mp4")
     assert "normas de contenido" in str(e) and "no se cobró" in str(e) and CLAVE not in str(e) and len(red) == 1

@@ -1,9 +1,11 @@
 """Llamadas a IA usando la clave que el usuario haya conectado (ver claves.py)."""
 import base64
 import json
+import math
 import re
 import time
 import urllib.parse
+from fractions import Fraction
 from typing import Callable
 from pathlib import Path
 
@@ -346,8 +348,9 @@ def investigar_web(pregunta: str) -> str | None:
     return "\n".join(b.text for b in r.content if b.type == "text")
 
 
-def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
-    """Genera una imagen y la guarda en `destino`, probando primero lo gratis (ver nubes.ORDEN["imagen"])."""
+def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
+    """Genera una imagen y la guarda en `destino`, probando primero lo gratis (ver nubes.ORDEN["imagen"]).
+    calidad (1K, 2K o 4K, ver PRECIO_IMAGEN_GEMINI): solo la usa Gemini; las demás IA dan su tamaño de siempre."""
     from . import nubes
     todas = claves.cargar()
     vertical, horizontal = alto > ancho, ancho > alto
@@ -419,7 +422,8 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
         return base64.b64decode(d["b64_json"]) if d.get("b64_json") else seguro.descargar(d["url"])
 
     tareas = {"cloudflare": cloudflare, "pollinations": pollinations, "huggingface": huggingface, "replicate": replicate,
-              "openai": openai, "gemini": lambda: _imagen_gemini(todas["gemini"], prompt, ancho, alto),
+              "openai": openai, "gemini": lambda: _imagen_gemini(todas["gemini"], prompt, ancho, alto,
+                                                                  calidad=calidad),
               "gratis_sin_clave": lambda: pollinations(con_clave=False)}
     tareas ={p: (lambda f=f: _imagen_real(f())) for p, f in tareas.items()}
     datos, _ = nubes.rotar("imagen", tareas)
@@ -471,8 +475,12 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
-IMAGEN_GEMINI = "gemini-3.1-flash-image"  # Nano Banana 2, si la API no dice cuál hay
-PRECIO_IMAGEN_GEMINI = 0.067  # US$ por imagen de 1024 px según Google (sin cuota gratis)
+IMAGEN_GEMINI = "gemini-nano-banana-2.1"  # Nano Banana 2.1, si la API no dice cuál hay
+# US$ por imagen según el modelo y su calidad (imageSize), según Google el 22-10-2026 (sin cuota gratis): el Flash
+# Image de respaldo (claves sin Nano Banana) cuesta casi el doble
+PRECIO_IMAGEN_GEMINI = {IMAGEN_GEMINI: {"1K": 0.0336, "2K": 0.0504, "4K": 0.113},
+                        "gemini-3.1-flash-image": {"1K": 0.067, "2K": 0.101, "4K": 0.151}}
+PROPORCIONES_GEMINI = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")  # las que acepta
 _elegidos = {}  # modelo elegido por clave y por uso, una vez por sesión
 
 
@@ -497,18 +505,28 @@ def modelo_imagen_gemini(clave: str) -> str:
     return _modelo_de_la_clave(clave, claves.elegir_modelo_imagen_gemini, IMAGEN_GEMINI)
 
 
-def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path | None = None) -> bytes:
+def precio_imagen_gemini(clave: str, calidad: str) -> float:
+    """US$ por imagen con el modelo ya elegido para esa clave; si aún no se sabe (o no se conoce su precio), el más
+    caro de los conocidos: el aviso de costo nunca se queda corto. No pregunta a la red."""
+    precios = PRECIO_IMAGEN_GEMINI.get(_elegidos.get((clave, claves.elegir_modelo_imagen_gemini)))
+    return precios[calidad] if precios else max(p[calidad] for p in PRECIO_IMAGEN_GEMINI.values())
+
+
+def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path | None = None,
+                   calidad: str = "1K") -> bytes:
     """Una imagen con Gemini (Nano Banana, de pago): solo si el usuario lo eligió para las imágenes. Con
-    `referencia`, la edita manteniendo igual a quien sale en ella."""
+    `referencia`, la edita manteniendo igual a quien sale en ella. calidad: 1K, 2K o 4K (PRECIO_IMAGEN_GEMINI)."""
     partes = [{"text": prompt}]
     if referencia:
         tipo = {".png": "image/png", ".webp": "image/webp"}.get(referencia.suffix.lower(), "image/jpeg")
         partes.insert(0, {"inline_data": {"mime_type": tipo, "data": base64.b64encode(referencia.read_bytes()).decode()}})
-    relacion = "9:16" if alto > ancho else "16:9" if ancho > alto else "1:1"
+    # La más cercana de las que acepta: un post 4:5 ya no sale recortado de un 9:16
+    relacion = min(PROPORCIONES_GEMINI, key=lambda r: abs(math.log(ancho / alto / Fraction(r.replace(":", "/")))))
     r = httpx.post(f"{API_GEMINI}/models/{modelo_imagen_gemini(c['clave'])}:generateContent", timeout=300,
                    headers={"x-goog-api-key": c["clave"]}, json={
                        "contents": [{"parts": partes}],
-                       "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": relacion}}})
+                       "generationConfig": {"responseModalities": ["IMAGE"],
+                                            "imageConfig": {"aspectRatio": relacion, "imageSize": calidad}}})
     if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
                              detalle=" ".join(r.text.split())[:300]))

@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from motor import claves, conexion_mcp, diseno, diseno_ia, ia, marca, nubes, recursos, seguro  # noqa: E402
 
 diseno.asegurar_qt()
-respuesta, pedidos, fotos = {}, [], []
+respuesta, pedidos, fotos, calidades = {}, [], [], []
 imagen_real = ia.imagen
 
 
@@ -27,8 +27,9 @@ def texto_json(instrucciones, pedido, esquema):
 CUENTA = "0123456789abcdef0123456789abcdef"  # el ID de la cuenta de Cloudflare va en la URL de sus errores
 
 
-def imagen(prompt, ancho, alto, destino):
+def imagen(prompt, ancho, alto, destino, calidad="1K"):
     fotos.append((prompt, ancho, alto))
+    calidades.append(calidad)
     if "FALLA429" in prompt:
         raise RuntimeError("Ninguna opción pudo hacerlo.\nCloudflare: Client error '429 Too Many Requests' for url "
                            f"'https://api.cloudflare.com/client/v4/accounts/{CUENTA}/ai/run/@cf/flux' — {CUENTA}")
@@ -114,9 +115,15 @@ assert all(t in diseno.TAMANOS for t, _ in diseno_ia.TIPOS.values())
 assert set(diseno_ia.TIPOS) == {"anuncio", "post", "historia", "miniatura", "flyer", "logo", "tarjeta",
                                 "marca_personal", "presentacion", "ilustracion", "estampado"}
 # Diseño gráfico y no fotos: ni «nivel Canva» ni «fotográfico»; la regla común de faltas y la de no inventar datos
-assert set(diseno_ia.ESTILOS) == {"auto", "vector", "sticker", "tatuaje", "poster", "grabado", "foto"}
+assert set(diseno_ia.ESTILOS) == {"auto", "vector", "sticker", "tatuaje", "poster", "grabado", "render3d",
+                                  "neon_oscuro", "animado3d", "urbano", "foto"}
 assert diseno_ia.ESTILOS["auto"] == "" and all(v for k, v in diseno_ia.ESTILOS.items() if k != "auto")
 assert not any(p in v for k, v in diseno_ia.ESTILOS.items() if k != "foto" for p in ("photo", "realistic"))
+# Los estilos 3D y de arte digital: luz volumétrica, sin marcas (Pixar, Octane, Unreal) y los oscuros sin sangre
+assert all("volumetric" in diseno_ia.ESTILOS[e] for e in ("render3d", "neon_oscuro", "urbano"))
+assert not any(m in v.lower() for v in diseno_ia.ESTILOS.values() for m in ("pixar", "disney", "octane", "unreal"))
+assert all(diseno_ia.ESTILOS[e].endswith("no gore") for e in ("neon_oscuro", "urbano"))
+assert all(e in diseno_ia.INSTRUCCIONES_ENTENDER for e in diseno_ia.ESTILOS if e != "auto")  # la IA los conoce
 for instrucciones in (diseno_ia.INSTRUCCIONES, diseno_ia.INSTRUCCIONES_ENTENDER):
     assert diseno_ia.FALTAS in instrucciones and "«abla» → habla" in instrucciones
 assert "Canva" not in diseno_ia.INSTRUCCIONES and "fotográfico" not in diseno_ia.INSTRUCCIONES
@@ -542,8 +549,9 @@ with tempfile.TemporaryDirectory() as d:
     fotos.clear()
     assert diseno_ia.ilustracion("calavera con rosas", "sticker", destino) == destino and destino.is_file()
     assert fotos == [("calavera con rosas, " + diseno_ia.ESTILOS["sticker"] + diseno_ia._SIN_TEXTO, 1024, 1024)]
-    diseno_ia.ilustracion("  a cat photo ", "auto", str(destino))
+    diseno_ia.ilustracion("  a cat photo ", "auto", str(destino), "4K")
     assert fotos[-1][0] == "a cat photo" + diseno_ia._SIN_TEXTO  # automático: tal cual lo pidió
+    assert calidades[-2:] == ["1K", "4K"]  # la calidad elegida llega a la IA de imágenes
     error = falla(diseno_ia.ilustracion, "FALLA429 calavera", "vector", destino, error=RuntimeError)
     assert "cuota gratis" in error and "http" not in error and CUENTA not in error
     falla(diseno_ia.ilustracion, "   ", "vector", destino)
@@ -671,12 +679,30 @@ import base64  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-gemini-"))
 diseno.CARPETA = tmp / "disenos"
-assert claves.elegir_modelo_imagen_gemini(["models/gemini-2.5-flash-image", "models/gemini-3.1-flash-image",
-                                           "models/gemini-3-pro-image", "models/gemini-3.1-flash-lite-image",
-                                           "models/gemini-3.2-flash-image-preview"]) == "gemini-3.1-flash-image"
-cargar_real, ajustes_real, post_real = claves.cargar, claves.ajustes, ia.httpx.post
+sin_nano = ["models/gemini-2.5-flash-image", "models/gemini-3.1-flash-image", "models/gemini-3-pro-image",
+            "models/gemini-3.1-flash-lite-image", "models/gemini-3.2-flash-image-preview", "models/nano-banana-pro-preview"]
+assert claves.elegir_modelo_imagen_gemini(sin_nano) == "gemini-3.1-flash-image"
+# Nano Banana (mejor y más barato) antes que Flash Image, en su versión estable más alta; Pro, Lite y preview no
+assert claves.elegir_modelo_imagen_gemini(sin_nano + ["models/gemini-nano-banana-2.1", "models/gemini-nano-banana-2",
+                                                      "models/gemini-nano-banana-2.9-preview",
+                                                      "models/gemini-nano-banana-pro-3"]) == "gemini-nano-banana-2.1"
+assert claves.elegir_modelo_imagen_gemini(["gemini-nano-banana-2.9", "gemini-nano-banana-2.10"]) == "gemini-nano-banana-2.10"
+assert claves.elegir_modelo_imagen_gemini(["gemini-3-pro-image", "gemini-2.5-flash"]) is None
+# Precio por modelo: el que elige elegir_modelo_imagen_gemini (Nano Banana o el Flash Image de respaldo)
+assert set(ia.PRECIO_IMAGEN_GEMINI) == {ia.IMAGEN_GEMINI, "gemini-3.1-flash-image"} == {
+    claves.elegir_modelo_imagen_gemini(sin_nano), ia.IMAGEN_GEMINI}
+assert ia.IMAGEN_GEMINI == "gemini-nano-banana-2.1"
+assert all(p["1K"] < p["2K"] < p["4K"] for p in ia.PRECIO_IMAGEN_GEMINI.values())
+# El aviso de costo usa el modelo ya elegido para la clave; si aún no se sabe (o su precio no), el más caro conocido
+flash, nano = ia.PRECIO_IMAGEN_GEMINI["gemini-3.1-flash-image"], ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]
+assert all(ia.precio_imagen_gemini("AIzaNueva", c) == flash[c] > nano[c] for c in nano)
+for elegido, precios in ((ia.IMAGEN_GEMINI, nano), ("gemini-3.1-flash-image", flash), ("gemini-nano-banana-2.10", flash)):
+    ia._elegidos[("AIzaNueva", claves.elegir_modelo_imagen_gemini)] = elegido
+    assert ia.precio_imagen_gemini("AIzaNueva", "2K") == precios["2K"], elegido
+cargar_real, ajustes_real, post_real, uso_real = claves.cargar, claves.ajustes, ia.httpx.post, nubes.USO
+nubes.USO = tmp / "uso.json"  # el contador de hoy, fuera de datos/
 claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"},
-                         "cloudflare": {"proveedor": "cloudflare", "clave": "x"}}
+                         "cloudflare": {"proveedor": "cloudflare", "clave": f"{CUENTA} token"}}
 try:
     claves.ajustes = lambda: {}
     assert "gemini" not in nubes.orden("imagen") and "gemini" in claves.opciones("imagen")  # se ofrece, no se usa solo
@@ -696,6 +722,9 @@ try:
         def json(self):
             return self.cuerpo
 
+        def raise_for_status(self):
+            pass
+
     def post_gemini(url, **k):
         pedidos_gemini.append((url, k["json"]))
         datos = base64.b64encode(hecho.read_bytes()).decode()
@@ -707,13 +736,27 @@ try:
     assert salida == hecho.read_bytes()
     url, cuerpo = pedidos_gemini[-1]
     assert url.endswith("/models/gemini-3.1-flash-image:generateContent")
-    assert cuerpo["generationConfig"]["imageConfig"]["aspectRatio"] == "9:16"
+    assert cuerpo["generationConfig"]["imageConfig"] == {"aspectRatio": "9:16", "imageSize": "1K"}
     assert cuerpo["contents"][0]["parts"][0]["inline_data"]["mime_type"] == "image/png"  # la referencia va primero
+    # La proporción más cercana de las 10 que acepta: un post 4:5 o un flyer A4 ya no salen de un 9:16
+    for ancho, alto, relacion in ((1080, 1350, "4:5"), (1240, 1754, "2:3"), (1080, 1080, "1:1"), (1500, 500, "21:9"),
+                                  (1280, 720, "16:9"), (1050, 600, "16:9"), (1000, 1300, "3:4"), (64, 64000, "9:16")):
+        ia._imagen_gemini(claves.cargar()["gemini"], "x", ancho, alto)
+        assert pedidos_gemini[-1][1]["generationConfig"]["imageConfig"]["aspectRatio"] == relacion, (ancho, alto)
+    # ia.imagen pasa la calidad solo a Gemini, que la manda como imageSize
+    imagen_real("gothic skull", 1080, 1350, tmp / "4k.png", calidad="4K")
+    assert pedidos_gemini[-1][1]["generationConfig"]["imageConfig"] == {"aspectRatio": "4:5", "imageSize": "4K"}
+    claves.ajustes = lambda: {"imagen": "cloudflare"}
+    ia.httpx.post = lambda url, **k: Contesta({"result": {"image": base64.b64encode(hecho.read_bytes()).decode()}})
+    n = len(pedidos_gemini)
+    assert imagen_real("skull", 1024, 1024, tmp / "cf.png", calidad="4K").read_bytes() == hecho.read_bytes()
+    assert len(pedidos_gemini) == n  # las demás la ignoran
 finally:
-    claves.cargar, claves.ajustes, ia.httpx.post = cargar_real, ajustes_real, post_real
+    claves.cargar, claves.ajustes, ia.httpx.post, nubes.USO = cargar_real, ajustes_real, post_real, uso_real
 
 # La ilustración sobre el fondo liso: el fondo toma el color de su borde y no se ve el recuadro
-def dibujo_morado(prompt, ancho, alto, destino):
+def dibujo_morado(prompt, ancho, alto, destino, calidad="1K"):
+    calidades.append(calidad)
     destino.parent.mkdir(parents=True, exist_ok=True)
     imagen = QImage(64, 64, QImage.Format_RGB32)
     imagen.fill(QColor("#2a1b3d"))
@@ -728,8 +771,10 @@ ia.texto_json = lambda *a, **k: {"titulo": "Calavera", "descripcion": "d", "fond
                                      {"tipo": "imagen", "x": 20, "y": 20, "ancho": 60, "alto": 60,
                                       "prompt_imagen": "gothic skull"}]}
 try:
-    r = diseno_ia.crear("calavera gótica", "ilustracion", False, estilo="tatuaje")
+    calidades.clear()
+    r = diseno_ia.crear("calavera gótica", "ilustracion", False, estilo="tatuaje", calidad="2K")
     assert r["diseno"]["fondo"]["colores"] == ["#2A1B3D"], r["diseno"]["fondo"]
+    assert calidades == ["2K"]  # cada foto del diseño, con la calidad elegida
 finally:
     ia.imagen, ia.texto_json = imagen_real, texto_real
 print("Pruebas de la IA diseñadora pasadas.")

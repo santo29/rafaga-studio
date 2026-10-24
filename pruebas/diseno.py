@@ -227,7 +227,7 @@ with tempfile.TemporaryDirectory() as d:
     assert titulo.texto.textWidth() - 2 * titulo.texto.document().documentMargin() == 900  # salta de línea al ancho
     assert titulo.flags() & QGraphicsItem.ItemClipsChildrenToShape  # el texto desbordado no llega a la sombra
     # La sombra se escala con el zoom: dibujada a la mitad, desenfoque y desplazamiento a la mitad (90/6 y 90/20)
-    diseno._pintar(s, QImage(540, 540, QImage.Format_ARGB32_Premultiplied))
+    diseno._pintar(s, QImage(540, 540, QImage.Format_ARGB32_Premultiplied), s.sceneRect())
     assert (titulo.graphicsEffect().blurRadius(), titulo.graphicsEffect().yOffset()) == (7.5, 2.25)
     tel = next(i for i in items if i.data(0) == "tel")
     assert tel.pos() == QPointF(60, 700) and tel.rotation() == 15 and abs(tel.opacity() - 0.9) < 1e-6
@@ -292,9 +292,24 @@ with tempfile.TemporaryDirectory() as d:
     assert b"<script" not in contenido and b"<b>" not in contenido  # el texto no se cuela como código en el SVG
     # SVG 1.1: lleva las esquinas redondeadas de la foto, y a 96 ppp mide 1080 px (285,75 mm) y no 1440
     assert b"<clipPath" in contenido and b'width="285.75mm"' in contenido
+    # Tamaños fijos: 4K (lado largo de 3840 px, sin el tope de escala) y la portada de música (3000×3000 con el centro
+    # del diseño: de una historia se quedan fuera arriba y abajo)
+    cuatro_k = diseno.exportar({"ancho": 1500, "alto": 500}, carpeta, d / "salida" / "4k.png", "png", "4k")
+    assert QImage(str(cuatro_k)).size().toTuple() == (3840, 1280)
+    assert QImage(str(diseno.exportar({"ancho": 600, "alto": 900}, carpeta, d / "salida" / "4k_alto.png", "png",
+                                      "4k"))).size().toTuple() == (2560, 3840)
+    historia = {"ancho": 1080, "alto": 1920, "fondo": {"tipo": "color", "colores": ["#000000"], "imagen": ""},
+                "capas": [{"tipo": "forma", "x": 0, "y": 0, "ancho": 1080, "alto": 400, "relleno": "#FF0000"},
+                          {"tipo": "forma", "x": 0, "y": 900, "ancho": 1080, "alto": 120, "relleno": "#00FF00"}]}
+    portada = QImage(str(diseno.exportar(historia, carpeta, d / "salida" / "portada", "jpg", "portada")))
+    assert portada.size().toTuple() == (3000, 3000)
+    assert parecido(portada.pixelColor(1500, 5), "#000000") and parecido(portada.pixelColor(1500, 1500), "#00FF00")
+    caja = re.search(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]",
+                     diseno.exportar(historia, carpeta, d / "salida" / "portada.pdf", "pdf", "portada").read_bytes())
+    assert caja[1] == caja[2] and caja[1].startswith(b"518"), caja  # también en vectores
     for formato in ("gif", "exe", "", None, "PNG"):
         falla(diseno.exportar, limpio, carpeta, d / "x.png", formato)
-    for escala in (0, -1, 100, float("nan"), float("inf"), "2", True):
+    for escala in (0, -1, 100, float("nan"), float("inf"), "2", True, "8k", ["4k"]):
         falla(diseno.exportar, limpio, carpeta, d / "x.png", "png", escala)
     falla(diseno.exportar, {"ancho": 5000, "alto": 5000}, carpeta, d / "x.png", "png", 4)  # 400 MP: no
     falla(diseno.exportar, limpio, carpeta, r"\\atacante.example\s\x.png")

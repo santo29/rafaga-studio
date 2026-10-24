@@ -7,9 +7,10 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
-from PySide6.QtCore import QUrl  # noqa: E402
-from PySide6.QtGui import QColor, QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, QPropertyAnimation, Qt, QUrl  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QMovie, QWheelEvent  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QLabel, QMenu, QMessageBox, QPushButton,  # noqa: E402
+                               QToolButton, QWidget)
 
 from motor import claves, diseno, edicion, marca, nubes, serie, shorts  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
@@ -196,6 +197,143 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     director_ancho = pagina_director.PaginaDirector()
     assert director_ancho.minimumSizeHint().width() <= 1106, director_ancho.minimumSizeHint()
     del ancha, director_ancho
+
+    # ---------- Inicio vivo: los ejemplos con GIF se mueven solos (MAX_VIVAS a la vista y el del ratón) ----------
+    # Un GIF de 1x1 en bucle hecho a mano (no hay Pillow); uno roto se queda con su miniatura fija
+    gif = bytes.fromhex("47494638396101000100800000000000ffffff21ff0b4e45545343415045322e30030100000021f904000a00"
+                        "00002c00000000010001000002024401003b")
+    vivos = [{"id": f"vivo-{n}", "titulo": f"V{n}", "pedido": f"Pedido {n}"} for n in range(12)] + [
+        {"id": "roto", "titulo": "Roto"}]  # 13 no caben a lo ancho: la fila se desplaza
+    (pagina_director.EJEMPLOS / "ejemplos.json").write_text(json.dumps(vivos), encoding="utf-8")
+    (pagina_director.EJEMPLOS / "disenos.json").write_text(json.dumps([{"id": "cartel", "titulo": "Cartel",
+                                                                         "pedido": "Un cartel"}]), encoding="utf-8")
+    for e in vivos + [{"id": "cartel"}]:
+        (pagina_director.EJEMPLOS / f"{e['id']}.mp4").write_bytes(b"\0" * 64)
+        assert foto.save(str(pagina_director.EJEMPLOS / f"{e['id']}.jpg"))
+        (pagina_director.EJEMPLOS / f"{e['id']}.gif").write_bytes(b"GIF89a roto" if e["id"] == "roto" else gif)
+    (pagina_director.EJEMPLOS / "cartel.gif").unlink()
+    pedidos = []
+    viva = inicio.PaginaInicio(navegado.append, editadas.append, series.append, pedidos.append)
+    viva.resize(1106, 1700)
+    viva.show()
+    viva.activateWindow()
+    esperar(viva.isActiveWindow)
+    tarjetas = viva.galeria.tarjetas
+    assert [b.text() for b in tarjetas] == [f"V{n}" for n in range(12)] + ["Roto", "Cartel"]
+    roto, cartel = tarjetas[12:]
+    assert all(b.peli for b in tarjetas[:13]) and cartel.peli is None  # el diseño no tiene GIF
+
+    def moviendose(lista):
+        return [b.text() for b in lista if b.peli and b.peli.state() != QMovie.NotRunning]
+
+    vistas = [b.text() for b in tarjetas if not b.visibleRegion().isEmpty()]
+    assert len(vistas) > 4 and "V11" not in vistas, vistas  # unas se ven y otras quedan fuera, a la derecha
+    pagina_director.animar(tarjetas)
+    assert moviendose(tarjetas) == ["V0", "V1", "V2"]  # se ven más, pero como mucho MAX_VIVAS
+    tarjetas[4].setAttribute(Qt.WA_UnderMouse, True)  # el ratón encima: esa también
+    tarjetas[11].setAttribute(Qt.WA_UnderMouse, True)  # fuera de la vista no cuenta
+    pagina_director.animar(tarjetas)
+    assert moviendose(tarjetas) == ["V0", "V1", "V2", "V4"]
+    tarjetas[4].setAttribute(Qt.WA_UnderMouse, False)
+    tarjetas[11].setAttribute(Qt.WA_UnderMouse, False)
+    pagina_director.animar(tarjetas)
+    assert moviendose(tarjetas) == ["V0", "V1", "V2"] and tarjetas[4].icon().cacheKey() == tarjetas[4].foto.cacheKey()
+    tarjetas[3].setAttribute(Qt.WA_UnderMouse, True)  # el reloj de la galería lo nota solo
+    esperar(lambda: "V3" in moviendose(tarjetas))
+    tarjetas[3].setAttribute(Qt.WA_UnderMouse, False)
+    fila = tarjetas[0].parentWidget().parentWidget().parentWidget().parentWidget()  # contenido>visor>carrusel>fila
+    carrusel, barra = fila.carrusel, fila.carrusel.horizontalScrollBar()
+    carrusel.ensureWidgetVisible(roto)
+    roto.setAttribute(Qt.WA_UnderMouse, True)  # el GIF roto falla al empezar: miniatura fija y no se reintenta
+    pagina_director.animar(tarjetas)
+    assert roto.peli is None and roto.icon().cacheKey() == roto.foto.cacheKey()
+    roto.setAttribute(Qt.WA_UnderMouse, False)
+    assert "V0" not in moviendose(tarjetas)  # la fila se desplazó: la que salió de la vista, quieta
+    barra.setValue(0)
+    # Otra ventana delante: todo quieto (y vuelve al volver)
+    delante = QWidget()
+    delante.show()
+    delante.activateWindow()
+    esperar(lambda: not viva.isActiveWindow())
+    pagina_director.animar(tarjetas)
+    assert moviendose(tarjetas) == [] and all(b.icon().cacheKey() == b.foto.cacheKey() for b in tarjetas)
+    delante.close()
+    viva.activateWindow()
+    esperar(viva.isActiveWindow)
+    # La casilla «Animar vistas previas»: apaga todo, se guarda y las demás casillas de la app la siguen
+    otro_director = pagina_director.PaginaDirector()
+    casillas = [p.findChildren(QCheckBox, options=Qt.FindChildrenRecursively) for p in (viva.galeria, otro_director)]
+    casilla, casilla_director = (next(c for c in lista if c.text() == "Animar vistas previas") for lista in casillas)
+    assert casilla.isChecked() and casilla_director.isChecked()
+    casilla.setChecked(False)
+    assert not casilla_director.isChecked() and claves.ajustes()["animar_vistas"] == "no"
+    pagina_director.animar(tarjetas)
+    assert moviendose(tarjetas) == []
+    pagina_director._animar = None  # como al abrir la app otra vez: se lee de ajustes.json
+    assert not pagina_director.accion_animar().isChecked()
+    del otro_director
+    pagina_director.accion_animar().setChecked(True)
+    assert claves.ajustes()["animar_vistas"] == "si"
+    # Las flechas solo salen en la fila que no cabe, y la desplazan una pantalla con animación
+    def flechas(de):
+        return [b for b in de.findChildren(QPushButton) if b.accessibleName() in ("Ver anteriores", "Ver siguientes")]
+    fila_disenos = cartel.parentWidget().parentWidget().parentWidget().parentWidget()
+    assert len(flechas(fila)) == 2 and all(not f.isHidden() for f in flechas(fila)) and barra.maximum() > 0
+    assert len(flechas(fila_disenos)) == 2 and all(f.isHidden() for f in flechas(fila_disenos))
+    flechas(fila)[1].click()
+    esperar(lambda: carrusel.animacion.state() == QPropertyAnimation.Stopped)
+    assert barra.value() == min(barra.maximum(), barra.pageStep()) > 0
+    flechas(fila)[0].click()
+    esperar(lambda: carrusel.animacion.state() == QPropertyAnimation.Stopped and barra.value() == 0)
+    # La rueda mueve la fila de lado; en el borde, la deja pasar (la página sigue bajando)
+    def rueda(dy):
+        evento = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, dy), Qt.NoButton, Qt.NoModifier,
+                             Qt.NoScrollPhase, False)
+        carrusel.wheelEvent(evento)
+        return evento.isAccepted()
+    assert rueda(-120) and barra.value() == min(120, barra.maximum())
+    barra.setValue(barra.maximum())
+    assert not rueda(-120) and barra.value() == barra.maximum()
+    assert rueda(120) and barra.value() == barra.maximum() - 120
+    barra.setValue(0)
+    # «Usar este pedido» (clic derecho): lleva su pedido; sin pedido no se ofrece
+    assert [a.text() for a in tarjetas[0].findChild(QMenu).actions()] == ["Usar este pedido"]
+    assert "Clic derecho" in tarjetas[0].toolTip()
+    assert roto.findChild(QMenu) is None and "Clic derecho" not in roto.toolTip()
+    tarjetas[0].findChild(QMenu).actions()[0].trigger()
+    cartel.findChild(QMenu).actions()[0].trigger()
+    assert pedidos == ["Pedido 0", "Un cartel"]
+    # «Ver todo»: la rejilla con todos, con filtros; solo se mueve el del ratón y elegir uno cierra la ventana
+    def abrir_todo():
+        next(b for b in viva.galeria.findChildren(QPushButton) if b.text() == "Ver todo").click()
+        ventana_todo = [v for v in viva.findChildren(QDialog) if v.isVisible()][-1]
+        ventana_todo.activateWindow()
+        esperar(ventana_todo.isActiveWindow)
+        return ventana_todo, [b for b in ventana_todo.findChildren(QToolButton) if b.objectName() == "ejemplo"]
+    todo, rejilla = abrir_todo()
+    assert todo.windowTitle() == "Hecho con Ráfaga Studio" and len(rejilla) == 14
+    chips = [b for b in todo.findChildren(QPushButton) if b.objectName() == "formato"]
+    assert [c.text() for c in chips] == ["Todo", "Videos", "Diseños"]
+    chips[2].click()
+    assert [b.text() for b in rejilla if b.isVisibleTo(todo)] == ["Cartel"]
+    chips[0].click()
+    assert len([b for b in rejilla if b.isVisibleTo(todo)]) == 14
+    pagina_director.animar(tarjetas)
+    pagina_director.animar(rejilla, 0)
+    assert moviendose(tarjetas) == [] and moviendose(rejilla) == []  # Inicio, detrás: quieto
+    rejilla[3].setAttribute(Qt.WA_UnderMouse, True)
+    pagina_director.animar(rejilla, 0)
+    assert moviendose(rejilla) == ["V3"]
+    rejilla[1].click()
+    esperar(lambda: not todo.isVisible())
+    assert not viva.reproductor.isHidden() and viva.reproductor.lista.item(0).text() == "1. V1"
+    viva.reproductor.player.stop()
+    viva.reproductor.player.setSource(QUrl())
+    todo, rejilla = abrir_todo()
+    rejilla[2].findChild(QMenu).actions()[0].trigger()
+    esperar(lambda: not todo.isVisible())
+    assert pedidos[-1] == "Pedido 2"
+    viva.close()
     # De qué serie habla lo que hizo el Director: la creada, o la del capítulo (series/<serie>/episodios/NN)
     serie_de = pagina_director.serie_de_pasos
     assert serie_de([{"herramienta": "crear_episodio",
@@ -206,7 +344,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
                      {"herramienta": "crear_episodio", "resultado": "[1]"}]) == "" and serie_de([]) == ""
 
     # ---------- Lo legal: el aviso al primer uso (y si cambia), los documentos y la marca ----------
-    from PySide6.QtWidgets import QDialog, QTextBrowser  # noqa: E402
+    from PySide6.QtWidgets import QTextBrowser  # noqa: E402
 
     from ui import legal  # noqa: E402
     legal.ARCHIVO = d / "legal.json"
@@ -258,6 +396,23 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert ventana.grupo.buttons()[i].text() == menu and ventana.grupo.buttons()[i].isChecked(), menu
     conectar(ventana.inicio)[0].click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
+    # «Usar este pedido» desde Inicio: al Director, escrito y sin enviar (gastar lo decide el usuario); e Inicio, ya
+    # oculto, se queda quieto
+    ventana.resize(1366, 728)
+    ventana.show()
+    ventana.activateWindow()
+    esperar(ventana.isActiveWindow)
+    ventana.ir_a(0)
+    de_inicio = ventana.inicio.galeria.tarjetas
+    ventana.paginas.currentWidget().ensureWidgetVisible(de_inicio[0])
+    app.processEvents()
+    pagina_director.animar(de_inicio)
+    assert moviendose(de_inicio) == ["V0", "V1", "V2"]
+    de_inicio[1].findChild(QMenu).actions()[0].trigger()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.director)
+    assert ventana.director.pedido.text() == "Pedido 1" and not ventana.director.ocupado()
+    pagina_director.animar(de_inicio)
+    assert moviendose(de_inicio) == []
 
     # ---------- Lo que entrega el Director, en su página: un diseño no va al reproductor de video ----------
     carpeta_diseno = diseno.CARPETA / "20261024-120000-cartel"

@@ -352,7 +352,7 @@ class PaginaTrabajo(QWidget):
         self._contar()
 
     def _contar(self):
-        s = int(time.monotonic() - self._inicio)
+        s = round(time.monotonic() - self._inicio)  # el temporizador salta unos ms antes: int() iba un segundo atrás
         self.estado.setText(f"{self._texto}  {s // 60}:{s % 60:02d}".strip())
 
     def _ver_estado(self):  # el progreso va debajo de todas las tarjetas: en un portátil quedaba fuera de la vista

@@ -82,11 +82,47 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert Path(p["resultados"][0]["archivo"]).read_bytes() == b"ID3cancion"
         assert (Path(p["carpeta"]) / "letra.txt").read_text(encoding="utf-8").startswith("Viernes\n\n[Chorus]")
 
+        # ---------- Gemini sin facturación (Lyria no tiene plan gratis): en automático sale con ElevenLabs ----------
+        class Rechazo(Respuesta):
+            status_code, text = 429, '{"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}}'
+
+            def raise_for_status(self):
+                raise RuntimeError(f"Client error '{self.status_code}'")
+        llamadas = []
+        musica._gemini = reales[1]
+        musica.httpx.post = lambda url, **k: llamadas.append(url) or (Rechazo() if "googleapis" in url else Respuesta())
+        musica.PROYECTOS = d / "respaldo"
+        p = musica.crear("un dembow de viernes", "Dembow moderno")
+        assert Path(p["resultados"][0]["archivo"]).read_bytes() == b"ID3audio"
+        assert "googleapis" in llamadas[0] and "elevenlabs" in llamadas[1] and len(llamadas) == 2, llamadas
+        assert "facturación de Gemini" in p["avisos"][0] and "ElevenLabs" in p["avisos"][0], p["avisos"]
+        # Gemini elegido a mano: no cambia de proveedor, y el error dice qué hacer (también con 403)
+        claves.elegir_por_defecto("musica", "gemini")
+        Rechazo.status_code, llamadas[:], musica.PROYECTOS = 403, [], d / "a_mano"  # carpeta por segundo: otra
+        try:
+            musica.crear("un dembow de viernes", "Dembow moderno")
+            raise AssertionError("debió fallar")
+        except RuntimeError as e:
+            assert "Lyria no está en el plan gratis de Gemini (403)" in str(e) and "Claves de IA → Música" in str(e), e
+            assert len(llamadas) == 1, llamadas
+        claves.elegir_por_defecto("musica", "auto")
+        # Sin clave de música, el aviso nombra primero a Gemini (el de por defecto)
+        claves.ARCHIVO = d / "sin_claves.json"
+        try:
+            musica.crear("un dembow de viernes", "Dembow moderno")
+            raise AssertionError("debió fallar")
+        except ia.SinClave as e:
+            assert str(e).startswith("Conecta una clave de música: Gemini") and "facturación" in str(e), e
+        claves.ARCHIVO = d / "claves.json"
+
         # ---------- Reloj mientras se trabaja: «Produciendo… 1:23» ----------
         pagina = PaginaTrabajo("Prueba", "")
         pagina._texto, pagina._inicio = "Produciendo con Gemini…", time.monotonic() - 83
         pagina._contar()
         assert pagina.estado.text() == "Produciendo con Gemini…  1:23"
+        pagina._inicio = time.monotonic() - 0.98  # el temporizador salta unos ms antes del segundo: ya es 0:01
+        pagina._contar()
+        assert pagina.estado.text() == "Produciendo con Gemini…  0:01", pagina.estado.text()
 
         def lento(aviso):
             aviso("Produciendo…", 0.3)
@@ -115,6 +151,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert 0 < musical.estado.mapTo(area.viewport(), QPoint()).y() < area.viewport().height()
         textos = " ".join(e.text() for e in musical.findChildren(QLabel))
         assert "Por defecto usa Gemini (Lyria 3.5" in textos and "ElevenLabs" in textos
+        assert "necesita la facturación de Gemini activada" in textos
         assert "¿Hiciste tu canción en Suno u otra app?" in textos
 
         # Una canción de fuera (mp3 con ID3 o wav) vale para el video musical y para la Cabina
@@ -142,6 +179,19 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         esperar(lambda: not estudio.tarea.isRunning() and estudio.pista.text())
         assert estudio.voz.text() == str(d / "voz.wav") and estudio.pista.text() == str(d / "pista.wav")
         assert estudio.titulo_cancion.text() == "suno"
+        # Separar otra canción no pisa el trabajo en curso: beat, toma y título siguen; voz y pista nunca se mezclan
+        # de dos canciones, y un título ya escrito se respeta aunque se llenen voz y pista
+        referencia = d / "referencia.wav"
+        referencia.write_bytes(wav.read_bytes())
+        for voz, pista, titulo in (("C:/grabaciones/toma.wav", "C:/beats/mi_beat.wav", "Mi tema"),
+                                   ("", "C:/beats/mi_beat.wav", ""), ("", "", "Mi tema")):
+            estudio.voz.setText(voz), estudio.pista.setText(pista), estudio.titulo_cancion.setText(titulo)
+            estudio.para_separar.setText(str(referencia))
+            estudio._separar()
+            esperar(lambda: estudio.separar_btn.isEnabled())  # se activa al acabar, después de rellenar
+            esperado = (voz, pista) if voz or pista else (str(d / "voz.wav"), str(d / "pista.wav"))
+            assert (estudio.voz.text(), estudio.pista.text()) == esperado, (voz, pista, estudio.voz.text())
+            assert estudio.titulo_cancion.text() == (titulo or "referencia")
     finally:
         ia.texto_json, musica._gemini, musica.httpx.post, cabina.separar_cancion, video_musical.crear = reales
 print("Pruebas de música pasadas.")

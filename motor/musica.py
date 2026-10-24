@@ -74,11 +74,19 @@ def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes
     return r.content
 
 
+class SinPlanGemini(RuntimeError):
+    """Gemini rechazó Lyria (403 o 429) sin cobrar nada: en automático se puede probar con ElevenLabs."""
+
+
 def _gemini(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:
     pedido = (f"{estilo}. Duration about {segundos} seconds."
               + ("\nInstrumental only, no vocals." if letra is None else f"\n\nLyrics:\n{letra}"))
     r = httpx.post("https://generativelanguage.googleapis.com/v1beta/interactions", timeout=900,
                    headers={"x-goog-api-key": c["clave"]}, json={"model": c["modelo_musica"], "input": pedido})
+    if r.status_code in (403, 429):  # Lyria no tiene plan gratis: sin facturación, Google responde así
+        raise SinPlanGemini(t("Lyria no está en el plan gratis de Gemini ({codigo}): activa la facturación en Google "
+                              "AI Studio o elige ElevenLabs en Claves de IA → Música. ({detalle})",
+                              codigo=r.status_code, detalle=" ".join(r.text.split())[:300]))
     r.raise_for_status()
 
     def buscar(nodo):  # el audio viene en base64 dentro de un bloque {"type": "audio", "data": …}
@@ -98,8 +106,8 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
           aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
     c = claves.para("musica")
     if not c or not c.get("clave"):
-        raise ia.SinClave(t("Conecta una clave de música: ElevenLabs (plan de pago) o Gemini (Lyria, ~$0.08 por "
-                            "canción)."))
+        raise ia.SinClave(t("Conecta una clave de música: Gemini (Lyria, ~$0.08 por canción, con la facturación "
+                            "activada) o ElevenLabs (plan de pago)."))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-musica")
     carpeta.mkdir(parents=True)
     estilo_base = GENEROS.get(genero, genero)
@@ -117,11 +125,25 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
     archivo_letra.write_text(f"{cancion['titulo']}\n\n{letra}", encoding="utf-8")
 
     aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor=c["proveedor"].capitalize()), 0.3)
-    producir = _elevenlabs if c["proveedor"] == "elevenlabs" else _gemini
     audio = carpeta / "cancion.mp3"
     estilo = ". ".join(e for e in (estilo_base, cancion["estilo"]) if e)
+    avisos = []
+
+    def producir(c):
+        con = _elevenlabs if c["proveedor"] == "elevenlabs" else _gemini
+        return con(c, estilo, letra if con_voz else None, segundos)
     try:
-        audio.write_bytes(producir(c, estilo, letra if con_voz else None, segundos))
+        try:
+            datos = producir(c)
+        except SinPlanGemini:  # Gemini no cobró: en automático, la canción sale con ElevenLabs si hay clave
+            respaldo = claves.cargar().get("elevenlabs")
+            if not respaldo or claves.ajustes().get("musica", "auto") != "auto":
+                raise
+            avisos.append(t("Gemini no dejó usar Lyria (necesita la facturación de Gemini activada en Google AI "
+                            "Studio): esta canción se hizo con tu clave de ElevenLabs."))
+            aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor="Elevenlabs"), 0.3)
+            datos = producir(respaldo)
+        audio.write_bytes(datos)
     except Exception as e:
         if not con_voz:
             raise
@@ -129,7 +151,7 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
                              error=str(e).strip() or type(e).__name__, archivo=archivo_letra)) from e
 
     proyecto = {"tipo": "musica", "formato": "audio", "carpeta": str(carpeta), "titulo": cancion["titulo"],
-                "genero": genero, "resultados": [{
+                "genero": genero, "avisos": avisos, "resultados": [{
                     "archivo": str(audio), "titulo": cancion["titulo"], "hashtags": cancion["hashtags"],
                     "descripcion": cancion["descripcion"] + (f"\n\n{letra}" if con_voz else "")}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")

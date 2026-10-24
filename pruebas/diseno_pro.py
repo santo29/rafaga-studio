@@ -574,4 +574,22 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert lateral.widget().minimumSizeHint().width() <= lateral.width(), ancho
     ventana.diseno.sucio = False
     assert ventana.close()
+# Quitar fondo: un dibujo claro con contorno oscuro fino (lo típico de un dibujo animado) no queda con un anillo
+# translúcido por dentro del contorno, a ningún tamaño
+carpeta_fondo = Path(tempfile.mkdtemp(prefix="rafaga-fondo-"))
+for lado_img, grosor in ((1024, 2), (2048, 3), (4096, 6)):
+    dibujo = QImage(lado_img, lado_img, QImage.Format_RGB32)
+    dibujo.fill(QColor("#FFFFFF"))
+    pintor = QPainter(dibujo)
+    c = lado_img // 4
+    pintor.fillRect(c, c, lado_img // 2, lado_img // 2, QColor("#1A1A1A"))
+    pintor.fillRect(c + grosor, c + grosor, lado_img // 2 - 2 * grosor, lado_img // 2 - 2 * grosor, QColor("#FFE0B0"))
+    pintor.end()
+    dibujo.save(str(carpeta_fondo / "o.png"))
+    diseno.quitar_fondo(carpeta_fondo / "o.png", carpeta_fondo / "s.png")
+    sin_fondo = QImage(str(carpeta_fondo / "s.png")).convertToFormat(QImage.Format_ARGB32)
+    for k in range(4):  # justo dentro del contorno: el relleno, opaco y de su color
+        punto = sin_fondo.pixelColor(c + grosor + 1 + k, lado_img // 2)
+        assert punto.alpha() == 255 and punto.name() == "#ffe0b0", (lado_img, k, punto.name(), punto.alpha())
+    assert sin_fondo.pixelColor(5, 5).alpha() == 0
 print("Pruebas de Diseño Pro pasadas.")

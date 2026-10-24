@@ -52,7 +52,7 @@ PREFERENCIA["diseno"] = PREFERENCIA["texto"]
 
 # De pago y con una clave que muchos conectan por otra cosa (Gemini, por su texto gratis): se ofrecen para elegir,
 # pero el modo automático nunca los usa (ver también nubes.orden).
-SOLO_ELIGIENDO = {"imagen": ["gemini"]}
+SOLO_ELIGIENDO = {"imagen": ["gemini", "openai", "replicate"]}  # imágenes de pago: nunca por detrás si se acaba lo gratis
 
 # Opciones gratis que funcionan sin clave. "pc" = se hace en este ordenador.
 GRATIS = {"imagen": "pollinations", "transcripcion": "pc", "video": "ninguno"}
@@ -465,7 +465,7 @@ def elegir_por_defecto(uso: str, proveedor: str) -> None:
 
 def opciones(uso: str) -> list[str]:
     """Lo que se puede elegir para un uso: automático, lo conectado y lo gratis sin clave."""
-    conectados = [p for p in PREFERENCIA[uso] + SOLO_ELIGIENDO.get(uso, []) if p in cargar()]
+    conectados = [p for p in dict.fromkeys(PREFERENCIA[uso] + SOLO_ELIGIENDO.get(uso, [])) if p in cargar()]
     gratis = [GRATIS[uso]] if uso in GRATIS and GRATIS[uso] not in conectados else []
     return ["auto", *conectados, *gratis]
 
@@ -480,8 +480,8 @@ def para(uso: str) -> dict | None:
         return {"proveedor": elegido}
     if uso == "diseno":  # «auto», o la elegida ya no tiene clave: la misma IA que escribe los guiones
         return para("texto")
-    # "auto", o el proveedor elegido ya no tiene clave: elección automática.
-    return next((todas[p] for p in PREFERENCIA[uso] if p in todas), None)
+    # "auto", o el proveedor elegido ya no tiene clave: elección automática (nunca uno de pago que hay que elegir)
+    return next((todas[p] for p in PREFERENCIA[uso] if p in todas and p not in SOLO_ELIGIENDO.get(uso, [])), None)
 
 
 def publico() -> list[dict]:

@@ -186,10 +186,14 @@ FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
 
 def costo(nombre: str, args: dict) -> str | None:
     """La pregunta para el usuario si esta llamada gasta dinero (con su costo aproximado, por lo alto) o publica en su
-    canal; None si es gratis y se hace directo. Lo decide el código, nunca la IA.
-    ponytail: las voces de ElevenLabs no se preguntan, y en Automático las imágenes se cuentan con la IA que toca
-    (claves.para): si esa falla, nubes.rotar puede seguir con OpenAI o Replicate sin preguntar. Si molesta, contar
-    aquí la de pago más cara de nubes.orden("imagen")."""
+    canal o queda guardado en la memoria del estudio; None si es gratis y se hace directo. Lo decide el código, nunca
+    la IA. Las imágenes de pago solo se usan si el usuario las eligió (claves.SOLO_ELIGIENDO), así que en Automático
+    no hay gasto escondido. ponytail: las voces de ElevenLabs no se preguntan."""
+    if nombre == "recordar_preferencia":  # un texto de terceros no puede dejar órdenes guardadas sin el sí del usuario
+        if memoria.sensible(str(args.get("preferencia", ""))):
+            return None  # ni se pregunta: la memoria lo rechaza (claves, PIN, tarjetas)
+        return t("¿Guardo en la memoria del estudio, para {departamento}: «{preferencia}»?",
+                 departamento=str(args.get("departamento", ""))[:40], preferencia=str(args.get("preferencia", ""))[:300])
     if nombre == "programar_publicacion":
         fecha = str(args.get("fecha_hora", ""))
         try:  # en la hora de este PC, como la escribió el usuario (con zona o sin ella)

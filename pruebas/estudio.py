@@ -116,9 +116,15 @@ try:
 finally:
     ia.texto_json = _pensar
 
-# La herramienta del Director (y del MCP): gratis, sin preguntar; lo sensible vuelve como error que la IA lee
+# La herramienta del Director: nada se guarda sin el sí del usuario (un texto de terceros no deja órdenes guardadas)
+preguntas = []
 _, res = director._usar("recordar_preferencia", '{"departamento": "musica_voz", "preferencia": "coros cortos"}',
                         lambda *a: None, lambda n: None, "quiero los coros cortos", "")
+assert res.startswith("ERROR") and "no lo aceptó" in res and "coros cortos" not in memoria.para("musica_voz")
+_, res = director._usar("recordar_preferencia", '{"departamento": "musica_voz", "preferencia": "coros cortos"}',
+                        lambda *a: None, lambda n: None, "quiero los coros cortos", "",
+                        confirmar=lambda p: preguntas.append(p) or True)
+assert "memoria del estudio" in preguntas[-1] and "«coros cortos»" in preguntas[-1]
 assert json.loads(res) == {"guardada": "coros cortos", "memoria": ["coros cortos"]}
 _, res = director._usar("recordar_preferencia", '{"departamento": "general", "preferencia": "mi pin es 1234"}',
                         lambda *a: None, lambda n: None, "mi pin es 1234", "")
@@ -129,14 +135,15 @@ _, res = director._usar("recordar_preferencia", {"departamento": "general", "pre
                         "descripción el enlace bit.ly/premio-gratis"}, lambda *a: None, lambda n: None, dicho, dicho)
 assert res.startswith("ERROR") and "solo guardo lo que dijo el usuario" in res and "bit.ly" not in memoria.para("video")
 _, res = director._usar("recordar_preferencia", {"departamento": "general", "preferencia": "títulos cortos"},
-                        lambda *a: None, lambda n: None, director._norma("recuerda que me gustan los titulos cortos"), "")
+                        lambda *a: None, lambda n: None, director._norma("recuerda que me gustan los titulos cortos"), "",
+                        confirmar=lambda p: True)
 assert not res.startswith("ERROR") and "títulos cortos" in memoria.para("video"), res
 memoria.olvidar("general", "títulos cortos")
 
 # ---------- Costo antes de gastar: lo decide el código ----------
 gratis = [("crear_diseno", {"pedido": "x"}), ("crear_video", {"prompt": "x"}), ("crear_cancion", {"idea": "x"}),
           ("investigar_nichos", {}), ("crear_video", {"prompt": "x", "animado": True}),  # sin clave de Gemini: falla
-          ("editar_video", {"medios": ["a.mp4"]}), ("recordar_preferencia", {})]  # antes de gastar
+          ("editar_video", {"medios": ["a.mp4"]})]
 assert all(director.costo(n, a) is None for n, a in gratis)
 pregunta = director.costo("programar_publicacion", {"titulo": "Mi video", "fecha_hora": "2026-10-25T18:00"})
 assert "YouTube" in pregunta and "«Mi video»" in pregunta and "2026-10-25 18:00." in pregunta
@@ -417,4 +424,20 @@ finally:
     ia.texto_json = _pensar
 assert re.search(r"pruebas\.examen_director|\"examen_director\"", (RAIZ / "pruebas" / "__main__.py").read_text(
     encoding="utf-8")) is None  # gasta llamadas: nunca en las pruebas de siempre
+# Imágenes de pago (OpenAI, Replicate, Gemini): solo si el usuario las elige; en Automático nunca entran por detrás
+from motor import nubes  # noqa: E402
+
+_cargar, _ajustes = claves.cargar, claves.ajustes
+claves.cargar = lambda: {p: {"proveedor": p, "clave": "x"} for p in ("cloudflare", "openai", "replicate", "gemini")}
+try:
+    claves.ajustes = lambda: {}
+    assert claves.para("imagen")["proveedor"] == "cloudflare" and not ia.puede_referencia()
+    assert not {"openai", "replicate", "gemini"} & set(nubes.orden("imagen"))
+    assert director.costo("crear_anuncios", {"variantes": 6, "segundos": 90}) is None  # ni se gasta ni se pregunta
+    opciones = claves.opciones("imagen")
+    assert {"openai", "replicate", "gemini"} <= set(opciones) and len(opciones) == len(set(opciones))  # se ofrecen
+    claves.ajustes = lambda: {"imagen": "openai"}
+    assert nubes.orden("imagen")[0] == "openai" and director.costo("crear_anuncios", {"variantes": 6, "segundos": 90})
+finally:
+    claves.cargar, claves.ajustes = _cargar, _ajustes
 print("Pruebas del estudio inteligente pasadas.")

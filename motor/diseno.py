@@ -860,7 +860,9 @@ def quitar_fondo(origen: Path, destino: Path, tolerancia: float = 60, fondo=None
         # El fondo, transparente del todo; en el filo (a los dos lados), cada píxel es alfa × dibujo + (1 − alfa) ×
         # fondo. La opacidad: lo que se aparta del fondo comparado con lo que se aparta el dibujo de al lado (un dibujo
         # color piel sobre blanco se aparta poco y es opaco); el color, el del dibujo sin el del fondo (sin halo)
-        lado = max(2, round(max(w, h) / 400))
+        # Del ancho del suavizado (≈1 px por cada 1024): más ancho, se mete por dentro de un contorno fino y vuelve
+        # translúcido el relleno claro que hay detrás
+        lado = max(1, round(max(w, h) / 1024))
         filo = _crecer(fuera, None, lado) & _crecer(~fuera, None, lado)
         vecino = _crecer(np.where(fuera, np.float32(0), mezcla), None, 2 * lado)
         alfa = np.minimum(mezcla[filo] / np.maximum(vecino[filo], 1e-3), 1)[:, None]

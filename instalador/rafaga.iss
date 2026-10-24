@@ -25,6 +25,9 @@ AppCopyright=© 2026 {#Titular}. Ráfaga Studio™
 AppPublisherURL=https://github.com/santo29/rafaga-studio
 VersionInfoVersion={#Version}
 DefaultDirName={autopf}\{#Nombre}
+; Siempre en %LOCALAPPDATA%\Programs (solo tu cuenta puede escribir ahí). En C:\Ráfaga Studio o en D:\…, cualquier
+; otra cuenta del PC podría cambiar el código de la app y robar tus claves al abrirla. Ver PrepareToInstall.
+DisableDirPage=yes
 DefaultGroupName={#Nombre}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -64,6 +67,10 @@ es.Incompleta=Ráfaga Studio quedó instalado, pero le faltan librerías. Vuelve
 en.Incompleta=Ráfaga Studio is installed, but some libraries are missing. Run this installer again when you are online to finish.
 pt.Incompleta=O Ráfaga Studio foi instalado, mas faltam bibliotecas. Abra este instalador de novo com internet para terminar.
 fr.Incompleta=Ráfaga Studio est installé, mais il manque des bibliothèques. Relancez ce programme d'installation une fois en ligne pour terminer.
+es.CarpetaInsegura=Ráfaga Studio solo se instala dentro de tu perfil (AppData\Local\Programs), donde ninguna otra cuenta del PC puede cambiar su código. Esta copia está en:%n%n%1%n%nDesinstálala (tus proyectos y claves de la carpeta «datos» se quedan: cópialos antes) y vuelve a abrir este instalador.
+en.CarpetaInsegura=Ráfaga Studio is only installed inside your profile (AppData\Local\Programs), where no other account on this PC can change its code. This copy is in:%n%n%1%n%nUninstall it (your projects and keys in the “datos” folder stay: copy them first) and run this installer again.
+pt.CarpetaInsegura=O Ráfaga Studio só é instalado dentro do seu perfil (AppData\Local\Programs), onde nenhuma outra conta do PC pode mudar o código. Esta cópia está em:%n%n%1%n%nDesinstale-a (seus projetos e chaves da pasta «datos» ficam: copie-os antes) e abra este instalador de novo.
+fr.CarpetaInsegura=Ráfaga Studio ne s'installe que dans votre profil (AppData\Local\Programs), où aucun autre compte du PC ne peut modifier son code. Cette copie se trouve dans :%n%n%1%n%nDésinstallez-la (vos projets et clés du dossier « datos » restent : copiez-les d'abord) et relancez ce programme d'installation.
 es.Abrir=Abrir Ráfaga Studio
 en.Abrir=Open Ráfaga Studio
 pt.Abrir=Abrir o Ráfaga Studio
@@ -102,6 +109,11 @@ Name: "{autodesktop}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Par
 Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s -E ""{app}\app.py"""; WorkingDir: "{app}"; \
   Description: "{cm:Abrir}"; Flags: nowait postinstall skipifsilent; Check: LibreriasListas
 
+[UninstallRun]
+; Antes de borrar Python: que Claude Code y Claude Desktop no sigan arrancando un python.exe de esta carpeta
+Filename: "{app}\python\tools\python.exe"; Parameters: "-s -E -c ""from motor import conexion_mcp; conexion_mcp.desconectar_todo()"""; \
+  WorkingDir: "{app}"; Flags: runhidden; RunOnceId: "QuitarMCP"
+
 [UninstallDelete]
 ; Lo que no copió el instalador: Python con sus librerías y las cachés. Tus proyectos y claves (carpeta «datos») se
 ; quedan: bórralos a mano si quieres (ver PRIVACIDAD.md).
@@ -138,11 +150,21 @@ var
   Codigo: Integer;
 begin
   Salida := '';
-  { --isolated: el pip.ini y las PIP_* del usuario (require-virtualenv, user, target, otros índices) no cuentan }
+  { --isolated: el pip.ini y las PIP_* del usuario (require-virtualenv, user, target, otros índices) no cuentan.
+    --only-binary: compilar un paquete bajaría sus herramientas de compilación sin hash (--require-hashes no las cubre) }
   Result := ExecAndLogOutput(ExpandConstant('{app}\python\tools\python.exe'),
-    '-s -E -m pip install --isolated --no-cache-dir --disable-pip-version-check --no-warn-script-location ' +
+    '-s -E -m pip install --isolated --no-cache-dir --only-binary :all: --disable-pip-version-check ' +
+    '--no-warn-script-location ' +
     '--progress-bar off ' + Parametros,
     ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Codigo, @VerLinea) and (Codigo = 0);
+end;
+
+{ Solo dentro de tu perfil: también en las actualizaciones de una copia vieja, con /DIR= y en modo silencioso }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if Pos(Lowercase(AddBackslash(ExpandConstant('{localappdata}'))), Lowercase(AddBackslash(WizardDirValue))) <> 1 then
+    Result := FmtMessage(CustomMessage('CarpetaInsegura'), [WizardDirValue]);
 end;
 
 { Al actualizar, la app abierta (o el MCP que mantiene Claude) bloquea el Python de la app: Setup ofrece cerrarlos }

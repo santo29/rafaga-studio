@@ -658,6 +658,7 @@ with tempfile.TemporaryDirectory() as d:
 
     # ---------- La herramienta MCP ----------
     import mcp_server  # noqa: E402
+    mcp_server._preguntar = lambda texto: False  # nunca una ventana de verdad en las pruebas: nada de pago se hace
     respuesta.update({"capas": [capa(texto="Juan Pérez"), capa(tipo="icono", icono="mail")]})
     r = json.loads(mcp_server.crear_diseno("Tarjeta de Juan", "tarjeta", False))
     assert r["tipo"] == "diseno" and Path(r["archivo"]).is_file() and r["diseno"]["ancho"] == 1050
@@ -675,7 +676,7 @@ with tempfile.TemporaryDirectory() as d:
     herramientas = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert len(herramientas) == 17 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
     assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta",
-                                                                            "estilo", "calidad", "confirmar_gasto"}
+                                                                            "estilo", "calidad"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción
 assert "crear_diseno" in conexion_mcp.probar()  # el servidor arranca y la lista
 

@@ -178,7 +178,9 @@ FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
          if a.get("animado") is True else max(3, round(_numero(a.get("segundos"), 45, 15, 600) / 6)) + 2,
          "crear_video_musical": lambda a: video_musical.MAX_ESCENAS,
          "crear_serie": lambda a: _numero(a.get("personajes"), 3, 1, serie.MAX_PERSONAJES),
-         "crear_episodio": lambda a: _numero(a.get("planos"), 12, 3, serie.MAX_PLANOS),
+         # rehacer (numero): se dibujan los planos que falten de su guion guardado, no los que diga «planos»
+         "crear_episodio": lambda a: serie.MAX_PLANOS if a.get("numero") else _numero(a.get("planos"), 12, 3,
+                                                                                     serie.MAX_PLANOS),
          "crear_anuncios": lambda a: _numero(a.get("variantes"), 3, 1, 6) * (
              max(3, round(_numero(a.get("segundos"), 25, 10, 90) / 5)) + 2)}
 ANIMAN = {"crear_video", "crear_anuncios", "crear_episodio", "crear_video_musical"}  # animan escenas con IA de video
@@ -191,8 +193,6 @@ def clips(nombre: str, args: dict) -> int:
         return 0
     if _solo_anima(args):
         return 1
-    if nombre == "crear_episodio" and args.get("numero"):  # rehacer: los planos que falten, no los que diga «planos»
-        return desde_prompt.MAX_CLIPS_PAGO
     return min(desde_prompt.MAX_CLIPS_PAGO, FOTOS[nombre](args))
 
 
@@ -202,18 +202,28 @@ def costo(nombre: str, args: dict) -> str | None:
     la IA. Las imágenes y los videos de pago solo se usan si el usuario los eligió (claves.SOLO_ELIGIENDO), así que en
     Automático no hay gasto escondido. ponytail: las voces de ElevenLabs no se preguntan."""
     if nombre == "recordar_preferencia":  # un texto de terceros no puede dejar órdenes guardadas sin el sí del usuario
-        if memoria.sensible(str(args.get("preferencia", ""))):
+        # Juntada como la guarda memoria.recordar: ni espacios ni saltos de línea esconden un trozo de lo que se guarda
+        # (lo que pase de MAX_LARGO, recordar lo rechaza)
+        preferencia = " ".join(str(args.get("preferencia", "")).split())
+        if memoria.sensible(preferencia):
             return None  # ni se pregunta: la memoria lo rechaza (claves, PIN, tarjetas)
         return t("¿Guardo en la memoria del estudio, para {departamento}: «{preferencia}»?",
-                 departamento=str(args.get("departamento", ""))[:40], preferencia=str(args.get("preferencia", ""))[:300])
+                 departamento=" ".join(str(args.get("departamento", "")).split())[:40],
+                 preferencia=preferencia[:memoria.MAX_LARGO + 1])
     if nombre == "programar_publicacion":
         fecha = str(args.get("fecha_hora", ""))
         try:  # en la hora de este PC, como la escribió el usuario (con zona o sin ella)
             fecha = datetime.fromisoformat(fecha).astimezone().strftime("%Y-%m-%d %H:%M")
         except (ValueError, OverflowError, OSError):  # OSError: Windows con fechas de antes de 1970
             fecha = fecha[:20].replace("T", " ")
-        return t("Esto sube «{titulo}» a tu canal de YouTube y se publicará solo el {fecha}. ¿Lo hago?",
-                 titulo=str(args.get("titulo", ""))[:100], fecha=fecha)
+        # Lo que de verdad se publica: qué video (con su carpeta) y la descripción entera (herramientas la corta a lo
+        # mismo). Con los espacios juntados: un salto de línea no finge otra línea de la ventana.
+        archivo = " ".join(str(args.get("archivo", "")).split())
+        descripcion = " ".join(str(args.get("descripcion", ""))[:herramientas.MAX_DESCRIPCION].split())
+        return t("Esto sube el video {archivo} a tu canal de YouTube con el título «{titulo}» y se publicará solo el "
+                 "{fecha}. Descripción: «{descripcion}». ¿Lo hago?",
+                 archivo=archivo if len(archivo) <= 160 else "…" + archivo[-159:],
+                 titulo=" ".join(str(args.get("titulo", "")).split())[:100], fecha=fecha, descripcion=descripcion)
     usd = 0.0
     if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) \
             and desde_prompt.proveedor_voz():  # sin nadie para las escenas que hablan, falla antes de gastar
@@ -292,7 +302,9 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     rechazadas = set()  # los trabajos (herramienta y argumentos) a los que ya dijo que no: no se le vuelve a preguntar
 
     def permiso(pregunta: str, trabajo: tuple) -> bool:
-        if trabajo not in rechazadas and confirmar(f"{mensaje}\n\n{pregunta}" if mensaje else pregunta):
+        # La pregunta del código va PRIMERO y lo que escribió la IA detrás y corto: en modo voz se lee entera y la IA
+        # no puede tapar el costo de verdad con un texto largo (ni decir antes un precio inventado)
+        if trabajo not in rechazadas and confirmar(f"{pregunta}\n\n{mensaje[:300]}" if mensaje else pregunta):
             return True
         rechazadas.add(trabajo)
         return False
@@ -307,7 +319,7 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
             mensaje = t("No pude seguir ({error}). Te dejo lo que ya está hecho.",
                         error=(str(e).strip() or type(e).__name__)[:300])
             break
-        nombre, mensaje = r["herramienta"].strip(), r["mensaje"].strip()
+        nombre, mensaje = r["herramienta"].strip(), r["mensaje"].strip()[:600]  # ni el chat recibe textos gigantes
         if not nombre:
             break
         if n == MAX_PASOS:  # quería seguir: se para aquí y lo dice
@@ -316,7 +328,9 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         if n == 0 and mensaje:
             al_decir(mensaje)
         aviso(mensaje or t("Usando {herramienta}…", herramienta=nombre), (n + 0.5) / (MAX_PASOS + 1))
-        de_todos = del_usuario + de_antes + _norma("\n".join(p["resultado"] for p in pasos))
+        # De los pasos de ahora, solo los archivos que hizo el estudio: un título o una transcripción ajena que nombra
+        # una ruta de tu PC no la convierte en «del estudio»
+        de_todos = del_usuario + de_antes + _norma("\n".join(a for p in pasos for a in _archivos(p["resultado"])))
         trabajo = (nombre, str(r["argumentos"]))
         args, respuesta = _usar(nombre, r["argumentos"], aviso, al_usar, del_usuario, de_todos,
                                 lambda pregunta: permiso(pregunta, trabajo))

@@ -218,9 +218,10 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
         try:
             # Sin cuenta, cada respuesta se corta en ~1500 tokens: con razonamiento bajo queda sitio para el JSON.
             # La semilla cambia en cada intento porque el servicio devuelve la misma respuesta guardada si se repite.
-            r = httpx.post("https://text.pollinations.ai/openai", timeout=300,
-                           json={"model": "openai", "messages": mensajes, "reasoning_effort": "low", "private": True,
-                                 "seed": int(time.time() * 1000) % 2_000_000_000})
+            # tope de tamaño y de tiempo total: es un servicio abierto, sin cuenta (ver seguro.pedir)
+            r = seguro.pedir("POST", "https://text.pollinations.ai/openai", plazo=300,
+                             json={"model": "openai", "messages": mensajes, "reasoning_effort": "low", "private": True,
+                                   "seed": int(time.time() * 1000) % 2_000_000_000})
         except httpx.HTTPError as e:  # corte de red o el servicio no contesta: se repite
             problema = t("sin conexión con el servicio gratis ({error})", error=type(e).__name__)
             continue
@@ -802,7 +803,9 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     crudo = subprocess.run([FFMPEG, "-format_whitelist", MEDIOS, "-i", str(audio),
                             "-f", "f32le", "-ac", "1", "-ar", "16000", "-"], capture_output=True, check=True).stdout
     if "small" not in _WHISPER:  # cargarlo tarda: se reutiliza en cada escena y en cada orden de voz
-        _WHISPER["small"] = WhisperModel("small", device="cpu", compute_type="int8")
+        # revisión fija: un cambio en la rama «main» del repositorio no entra solo en el PC
+        _WHISPER["small"] = WhisperModel("small", device="cpu", compute_type="int8",
+                                         revision="536b0662742c02347bc0e980a01041f333bce120")
     modelo = _WHISPER["small"]
     # `pista` (p. ej. la letra) ayuda a Whisper a acertar palabras cantadas o con jerga.
     muestras = np.frombuffer(crudo, np.float32)

@@ -150,8 +150,9 @@ def descargar(url: str, carpeta: Path, progreso: Callable[[float], None] = lambd
         "outtmpl": str(carpeta / "original.%(ext)s"),
         "ffmpeg_location": video.FFMPEG,
         "noplaylist": True, "quiet": True, "no_warnings": True,
-        # YouTube exige un motor JS (en este PC, Node). Sus scripts vienen del paquete yt-dlp-ejs (fijado en
-        # requirements.lock), no de GitHub en cada descarga: nada de código bajado sin control en tiempo de uso.
+        # YouTube exige un motor JS (en este PC, Node). Sus scripts vienen del paquete yt-dlp-ejs, que se actualiza
+        # junto con yt-dlp (ver app.py), y yt-dlp los compara con sus propias huellas antes de dárselos a Node: nada
+        # se baja de GitHub en cada descarga.
         "js_runtimes": {"deno": {}, "node": {}},
     }
     url = _seguir_enlace_compartido(url)

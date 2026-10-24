@@ -20,6 +20,18 @@ Especially interesting:
 Out of scope: problems in third-party AI services themselves, and attacks that need full control of the user's
 Windows account.
 
+## Accepted risks · Riesgos aceptados
+
+- **yt-dlp auto-update.** On every start the app updates `yt-dlp` and `yt-dlp-ejs` from PyPI in the background
+  (YouTube changes often), without pinned hashes: only prebuilt wheels, uploaded 7 days ago or more, with `--no-deps`.
+  A malicious release that stays on PyPI for 7 days would run inside the app. Everything else is pinned with hashes in
+  `requirements.lock`. · yt-dlp se actualiza solo (ver `app.py`); lo demás va fijado con su hash.
+- **"fake-ip" proxies (Clash…).** They answer every name with 198.18.0.0/15. That range is refused unless the user
+  turns on «Uso un proxy fake-ip» in «Claves de IA»; with it on, the local-network protection of downloads cannot
+  work (the proxy decides where to connect). · Apagado de fábrica.
+- **Agents with desktop control.** MCP calls that spend money, publish or save to memory need a "Yes" in a native
+  Ráfaga Studio window. An agent that can also drive the desktop (not only the MCP tools) could click it.
+
 ## Contacto
 
 - **Security vulnerabilities · Vulnerabilidades:** GitHub private vulnerability reporting (above).

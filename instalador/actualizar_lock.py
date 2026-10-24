@@ -10,6 +10,7 @@ versión, o el índice de PyTorch sirviera otro, la instalación se para en vez 
 Uso, tras probar una actualización:  .venv\\Scripts\\python instalador/actualizar_lock.py [--aceptar-recientes]
 """
 import datetime as dt
+import functools
 import re
 import subprocess
 import sys
@@ -78,6 +79,16 @@ def hashes_pytorch(nombre: str, version: str) -> list[str]:
     return sorted(set(re.findall(rf'href="[^"]*/{archivo}[^"#]*#sha256=([0-9a-f]{{64}})"', r.text)))
 
 
+@functools.cache
+def fijados_antes() -> dict[str, set[str]]:
+    """«nombre==versión» -> hashes del lock actual (torch incluido), para ver si a una versión ya fijada le salieron
+    archivos nuevos."""
+    lock = RAIZ / "requirements.lock"
+    texto = lock.read_text(encoding="utf-8") if lock.is_file() else ""
+    return {f"{canonicalize_name(n)}=={v}": set(re.findall(r"sha256:([0-9a-f]{64})", hashes))
+            for n, v, hashes in re.findall(r"^(\S+)==(\S+) \\\n((?:    --hash=sha256:[0-9a-f]{64}.*\n?)+)", texto, re.M)}
+
+
 def revisar(paquete: tuple[str, str]) -> tuple[str, str, list[str], list[str], bool]:
     """(nombre, versión, hashes, problemas que impiden fijarla, subida hace menos de 7 días)."""
     nombre, version = paquete
@@ -88,10 +99,16 @@ def revisar(paquete: tuple[str, str]) -> tuple[str, str, list[str], list[str], b
         problemas.append("es una versión de prueba")
     if any(a.get("yanked") for a in archivos):
         problemas.append("está retirada de PyPI")
-    subida = min((dt.datetime.fromisoformat(a["upload_time_iso_8601"].replace("Z", "+00:00")) for a in archivos),
+    # El archivo MÁS NUEVO de la versión: PyPI deja subir archivos nuevos a una versión vieja, y uno malicioso subido
+    # hace una hora no debe entrar al lock solo porque la versión salió hace meses.
+    subida = max((dt.datetime.fromisoformat(a["upload_time_iso_8601"].replace("Z", "+00:00")) for a in archivos),
                  default=None)
     reciente = subida is None or dt.datetime.now(dt.timezone.utc) - subida < ESPERA
     hashes = hashes_pytorch(nombre, version) if "+" in version else sorted({a["digests"]["sha256"] for a in archivos})
+    # El índice de PyTorch no da fechas: si a una versión ya fijada le salieron archivos nuevos, cuenta como reciente
+    antes = fijados_antes().get(f"{canonicalize_name(nombre)}=={version}")
+    if antes is not None and set(hashes) - antes:
+        reciente = True
     if not hashes:
         problemas.append("no tiene archivos publicados")
     return nombre, version, hashes, problemas, reciente

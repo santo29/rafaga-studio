@@ -179,7 +179,9 @@ class Ventana(QMainWindow):
         idioma.elegir(codigo)
         reiniciar = QMessageBox.question(self, t("Idioma"), t("El idioma cambia al reiniciar la app. ¿Reiniciar ahora?"))
         if reiniciar == QMessageBox.Yes and self.close():  # close() pregunta antes si hay algo sin guardar
-            QProcess.startDetached(sys.executable, [str(Path(__file__).resolve())], str(Path(__file__).resolve().parent))
+            # -s -E como el acceso directo: el reinicio no lee las librerías de la cuenta ni un PYTHONPATH ajeno
+            QProcess.startDetached(sys.executable, ["-s", "-E", str(Path(__file__).resolve())],
+                                   str(Path(__file__).resolve().parent))
 
     def closeEvent(self, e):
         # un diseño o un video sin guardar se perdería al cerrar
@@ -232,11 +234,13 @@ if __name__ == "__main__":
         app.installTranslator(traductor)
     if legal.pendiente() and not legal.aviso_inicial():  # el aviso de privacidad y los términos, al primer uso
         sys.exit(0)
-    # yt-dlp se actualiza solo y en segundo plano (YouTube cambia a menudo). Solo versiones ya compiladas (nada de
-    # ejecutar código de instalación) y publicadas hace 7 días o más (si una sale maliciosa, da tiempo a retirarla).
+    # yt-dlp (y yt-dlp-ejs, su parte para YouTube: tienen que subir juntos) se actualiza solo y en segundo plano
+    # (YouTube cambia a menudo). Solo versiones ya compiladas (nada de ejecutar código de instalación), publicadas hace
+    # 7 días o más (si una sale maliciosa, da tiempo a retirarla) y sin dependencias nuevas sin fijar (--no-deps).
+    # Riesgo aceptado y escrito en SECURITY.md: lo demás va fijado con su hash en requirements.lock.
     QProcess.startDetached(str(Path(sys.executable).with_name("pythonw.exe")),
-                           ["-m", "pip", "install", "--isolated", "-q", "-U", "--disable-pip-version-check",
-                            "--only-binary", ":all:",
+                           ["-s", "-E", "-m", "pip", "install", "--isolated", "-q", "-U", "--no-deps",
+                            "--disable-pip-version-check", "--only-binary", ":all:",
                             "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
     Ventana().show()
     sys.exit(app.exec())

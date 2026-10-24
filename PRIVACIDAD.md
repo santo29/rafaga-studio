@@ -38,8 +38,8 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Tus preferencias que recuerda el Director (memoria del estudio: «títulos cortos», «mi marca es…») | `datos/memoria.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |
-| Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json`, con una copia `.bak-rafaga` |
-| Modelos de IA locales (Whisper y Demucs) | `%USERPROFILE%\.cache\huggingface` y `%USERPROFILE%\.cache\torch` |
+| Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json` (sin copias: esa configuración lleva los tokens de tus otros servidores MCP). Al desinstalar la app, se quita |
+| Modelos de IA locales | Whisper: `%USERPROFILE%\.cache\huggingface`. Demucs: `datos/modelos` (se comprueba su huella entera antes de cada uso) |
 | Respuestas habladas del Director (temporales) | la carpeta temporal de Windows (`rafaga-voz`) |
 
 Solo tu usuario de Windows puede leer tus claves: el cifrado DPAPI usa tu cuenta, así que copiadas a otro PC o a otra
@@ -57,7 +57,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Al crear imágenes (videos, anuncios, series, diseños) | La primera que funcione, empezando por la que elijas: Cloudflare, Pollinations, Hugging Face, Replicate, OpenAI, y Google Gemini solo si lo eliges en «Claves de IA» (de pago). Si no conectaste un token de Hugging Face, «Hugging Face» es un Space público. Al final, siempre, Pollinations sin clave. Aunque tengas claves, si la tuya falla se prueban las demás | La descripción de la imagen; con Gemini elegido, también tu foto de referencia (para mantener igual a la persona, el personaje o el producto) |
 | En videos, anuncios y series con foto de referencia | OpenAI o Pollinations, si los conectaste | Tu foto de referencia, para mantener igual el producto, la persona o el personaje |
 | Al crear videos animados con voz (es de pago) | La IA de «Escenas que hablan» en «Claves de IA»: en «Automático», Google (Gemini Omni) si conectaste Gemini; Kling o Seedance solo si los eliges ahí (ver la fila siguiente) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Para entregar el video, Google exige guardar la petición entera (texto, foto y video): la app borra la petición y el video de Google en cuanto termina, salga bien o mal. Si ese borrado falla (por ejemplo, sin internet), Google los guarda según su política (hasta 55 días). Solo se usa si tú lo pides: en Crear, marcando «Video animado con IA» (te dice el costo antes); con el Director o un agente MCP, cuando aceptas su costo |
-| Al animar escenas o hacer escenas que hablan con Kling o Seedance (de pago; nunca en «Automático»: solo si los eliges en «Animar escenas con IA de video» o en «Escenas que hablan») | Kling AI (de Kuaishou), en la región de tu clave: con una clave global, `api-singapore.klingai.com` (contrato con Kling AI Pte. Ltd., Singapur); con una clave de su plataforma de China (klingai.com), `api-beijing.klingai.com` (Kuaishou, en China continental, con sus propias condiciones). Seedance en BytePlus ModelArk (de ByteDance), región Asia-Pacífico (`ark.ap-southeast.bytepluses.com`) | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento; en las escenas que hablan, también la frase que se dice. Con la clave global, Kling guarda los pedidos y respuestas 30 días y borra los videos a los 30 días; sus datos están en Singapur y, en la API de pago, no los usa para mejorar sus productos. Con una clave de China, dónde guarda tus datos, cuánto tiempo y para qué lo dicen las condiciones de esa plataforma, no las de Singapur. BytePlus procesa en Malasia, Indonesia o la UE, no entrena con tus datos sin tu permiso, deja el video 24 h para bajarlo y el registro de la tarea 7 días; lo que su filtro de contenido rechaza lo guarda 180 días en Malasia. Antes de cada trabajo la app te dice lo más que puede costar y no gasta sin tu sí; con un agente MCP, cuando aceptas su costo |
+| Al animar escenas o hacer escenas que hablan con Kling o Seedance (de pago; nunca en «Automático»: solo si los eliges en «Animar escenas con IA de video» o en «Escenas que hablan») | Kling AI (de Kuaishou), en la región de tu clave: con una clave global, `api-singapore.klingai.com` (contrato con Kling AI Pte. Ltd., Singapur); con una clave de su plataforma de China (klingai.com), `api-beijing.klingai.com` (Kuaishou, en China continental, con sus propias condiciones). Seedance en BytePlus ModelArk (de ByteDance), región Asia-Pacífico (`ark.ap-southeast.bytepluses.com`) | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento; en las escenas que hablan, también la frase que se dice. Con la clave global, Kling guarda los pedidos y respuestas 30 días y borra los videos a los 30 días; sus datos están en Singapur y, en la API de pago, no los usa para mejorar sus productos. Con una clave de China, dónde guarda tus datos, cuánto tiempo y para qué lo dicen las condiciones de esa plataforma, no las de Singapur. BytePlus procesa en Malasia, Indonesia o la UE, no entrena con tus datos sin tu permiso, deja el video 24 h para bajarlo y el registro de la tarea 7 días; lo que su filtro de contenido rechaza lo guarda 180 días en Malasia. Antes de cada trabajo la app te dice lo más que puede costar y no gasta sin tu sí; con un agente MCP, cuando aceptas su costo en la ventana de Ráfaga Studio |
 | Al crear videos, anuncios, capítulos de serie o videos musicales, y al animar una imagen (de fábrica la IA de video está en «Automático») | Primero un Space público de Hugging Face (`zerogpu-aoti/wan2-2-fp8da-aoti-faster`), sin token. Si falla, tu nube Modal o Pollinations si los conectaste. Si eliges Modal, Pollinations, Kling o Seedance en «Claves de IA», el Space público no se usa. Con «No usar», no se envía nada | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento. A Pollinations solo va la descripción |
 | Al narrar (voz de los videos y respuestas del Director) | Servicio de voces de Microsoft Edge; o ElevenLabs si eliges una de sus voces | El texto que se va a leer |
 | Al transcribir (subtítulos, shorts, video musical, escenas animadas con voz) | Groq u OpenAI si los conectaste; si no, se hace en tu PC | El audio (en el video musical, también la letra, para acertar las palabras) |
@@ -84,8 +84,12 @@ Protecciones que se aplican siempre:
   respuesta; los videos se bajan de su servidor de descargas sin la clave.
 - Tu token de Hugging Face nunca se envía a Spaces de terceros: se usan sin token.
 - La app solo abre imágenes, audios y videos de este PC (nunca rutas de red ni otros archivos), así que no sirve para
-  sacar documentos ni claves. Ojo: un agente conectado por MCP sí puede pedirle que use cualquier foto, audio o video de
-  tu PC, y esos se envían a los servicios de la tabla.
+  sacar documentos ni claves. Si un agente conectado por MCP pide usar una foto, un audio o un video de fuera de su
+  carpeta (y de la de la app), Ráfaga Studio te lo pregunta antes en una ventana, nombrando cada archivo: si dices que
+  sí, se envían a los servicios de la tabla.
+- Lo que cuesta dinero, publica en tu canal o se guarda en la memoria del estudio, un agente MCP solo lo consigue con
+  tu sí en una ventana de Ráfaga Studio, que el agente no puede leer ni contestar. Al publicar, la ventana dice qué
+  video se sube y con qué título y descripción.
 - El Director de la app solo usa los enlaces que escribiste tú y los archivos que le diste o que hizo el propio estudio.
 
 Los Spaces públicos de Hugging Face y la opción sin clave de Pollinations son servicios abiertos: lo que se les envía
@@ -118,7 +122,7 @@ usa proveedores de pago que no lo hagan.
 Tus datos están en tu PC y los controlas tú:
 
 - **Borrar todo:** cierra la app, desconecta el MCP en «Conexión MCP», borra la carpeta `datos` y, si quieres, las
-  carpetas «Ráfaga Studio» de Videos e Imágenes y las cachés de modelos (`.cache\huggingface` y `.cache\torch`).
+  carpetas «Ráfaga Studio» de Videos e Imágenes y la caché de Whisper (`.cache\huggingface`).
 - **Borrar una clave:** quítala en «Claves de IA» y, si quieres, anúlala también en la web de su proveedor.
 - **Borrar lo que recuerda el Director:** en el Director, «Memoria del estudio». Nunca guarda claves, contraseñas,
   tarjetas ni números de cuenta: los rechaza.
@@ -133,9 +137,11 @@ terceros tienen sus propias edades mínimas.
 ## Seguridad
 
 Ciframos tus claves con la cuenta de Windows. Comprobamos que cada archivo que abres sea de verdad lo que dice ser y
-que los enlaces vayan a sitios públicos. Fijamos las versiones de las librerías con su huella digital, salvo yt-dlp, que
-se actualiza sola al abrir la app (solo versiones ya compiladas y publicadas hace 7 días o más), y el motor de video
-que se instala en tu propia nube Modal si la conectas. Revisamos el código con
+que los enlaces vayan a sitios públicos (si usas un proxy «fake-ip» como Clash y lo activas en «Claves de IA», esa
+comprobación ya no puede frenar tu red local). Fijamos las versiones de las librerías con su huella digital, salvo
+yt-dlp y su componente yt-dlp-ejs, que se actualizan solos al abrir la app (solo versiones ya compiladas y publicadas
+hace 7 días o más), y el motor de video que se instala en tu propia nube Modal si la conectas (también con versiones
+ya compiladas y de hace 7 días o más). Revisamos el código con
 pruebas automáticas de seguridad. Ningún programa es infalible: mantén tu Windows y tu antivirus al día.
 
 ## Leyes aplicables

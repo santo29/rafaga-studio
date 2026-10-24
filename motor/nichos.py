@@ -53,7 +53,7 @@ Para cada nicho da 5 ideas de video (o las que se pidan) listas para producir: t
 def _fecha(video_id: str) -> str | None:
     """Fecha de subida (AAAAMMDD). La búsqueda rápida no la trae, hay que pedirla video a video."""
     opciones = {"quiet": True, "no_warnings": True, "skip_download": True,
-                "js_runtimes": {"deno": {}, "node": {}}}  # scripts de yt-dlp-ejs (fijado), no de GitHub
+                "js_runtimes": {"deno": {}, "node": {}}}  # scripts de yt-dlp-ejs (ver shorts.py), no de GitHub
     try:
         with yt_dlp.YoutubeDL(opciones) as ydl:
             return ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False).get("upload_date")

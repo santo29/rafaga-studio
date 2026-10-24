@@ -179,7 +179,7 @@ def recortar(origen: Path, inicio: float, fin: float, formato: str, modo: str,
     ass = subtitulos_ass(tramo, formato, destino.with_suffix(".ass"))
     # ffmpeg en Windows se lía con rutas absolutas dentro de un filtro: se usa el nombre relativo con cwd.
     ffmpeg("-ss", inicio, "-to", fin, "-i", origen.resolve(),
-           "-vf", f"{filtro_formato(formato, modo)},subtitles={ass.name}",
+           "-vf", f"{filtro_formato(formato, modo)},ass={ass.name}",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino
@@ -205,7 +205,7 @@ def escena_de_imagen(imagen: Path, audio: Path, formato: str, palabras: list[dic
     ffmpeg("-loop", "1", "-i", imagen.resolve(), "-i", audio.resolve(),
            "-vf", f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},"
                   f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={cuadros}:s={w}x{h}:fps=30,"
-                  f"setsar=1,subtitles={ass.name}",
+                  f"setsar=1,ass={ass.name}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
     return destino
@@ -216,7 +216,7 @@ def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], 
     seg = duracion(audio) + 0.25
     ass = subtitulos_ass(palabras, formato, destino.with_suffix(".ass"))
     ffmpeg("-stream_loop", "-1", "-i", clip.resolve(), "-i", audio.resolve(), "-map", "0:v", "-map", "1:a",
-           "-vf", f"{filtro_formato(formato, 'recortar')},fps=30,subtitles={ass.name}",
+           "-vf", f"{filtro_formato(formato, 'recortar')},fps=30,ass={ass.name}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
     return destino
@@ -274,7 +274,7 @@ def con_cancion(visual: Path, cancion: Path, formato: str, palabras: list[dict],
            f"[0:v]{latido}[base];"
            f"[1:a]showwaves=s={w}x{alto_ondas}:mode=cline:rate=30:colors=0xFFFFFF@0.85|0xFF4D8D@0.85,"
            f"format=rgba[ondas];[base][ondas]overlay=0:{h - alto_ondas - int(h * 0.04)}:shortest=1,"
-           f"subtitles={ass.name}[v]",
+           f"ass={ass.name}[v]",
            "-map", "[v]", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino
@@ -300,7 +300,7 @@ def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: fl
     ass = destino.with_suffix(".ass")
     ass.write_text("\n".join(lineas) + "\n", encoding="utf-8")
     ffmpeg("-i", video_in.resolve(), "-vf",
-           f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.5:t=fill:enable='gte(t,{inicio:.2f})',subtitles={ass.name}",
+           f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.5:t=fill:enable='gte(t,{inicio:.2f})',ass={ass.name}",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "copy",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino

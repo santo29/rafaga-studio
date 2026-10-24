@@ -1,5 +1,6 @@
 """Rotación de nubes: cada tarea prueba primero lo gratis (cuota diaria, este PC), luego el crédito de Modal y por
 último lo de pago. Así el crédito gratis dura y siempre hay al menos unas creaciones al día."""
+import hashlib
 import json
 import os
 import re
@@ -39,8 +40,22 @@ def token_hf() -> str | None:
 
 def llamar_space(espacio: str, *entradas, api_name: str, **parametros):
     """Llama a un Space de Hugging Face con o sin token; si la cola gratis tarda demasiado, se rinde."""
+    from urllib.parse import urljoin, urlsplit
+
     from gradio_client import Client
     from huggingface_hub import get_space_runtime
+
+    class _Cliente(Client):
+        """El /config lo sirve el Space: un «api_prefix» absoluto (http://127.0.0.1:…/) mandaría todas las peticiones de
+        gradio_client, con tu imagen y tu pedido, a otra dirección (tu red local), sin pasar por seguro. Se mira con el
+        mismo cálculo que hace la librería, antes de que lo use."""
+
+        def _get_config(self):
+            config = super()._get_config()
+            destino = urljoin(self.src, str(config.get("api_prefix", "")).lstrip("/") + "/")
+            if urlsplit(destino)[:2] != urlsplit(self.src)[:2]:
+                raise RuntimeError(t("el Space pidió hablar con otra dirección"))
+            return config
 
     def estado():
         return str(get_space_runtime(espacio, token=token_hf()).stage)
@@ -63,7 +78,7 @@ def llamar_space(espacio: str, *entradas, api_name: str, **parametros):
     # el PC.) Contrapartida: se usa la cuota anónima de ZeroGPU.
     # download_files=False: gradio_client bajaría los archivos siguiendo cualquier URL o redirección que el Space
     # quiera (también hacia tu red local) y sin tope de tamaño. Se bajan aquí, solo desde el propio Space.
-    cliente = Client(espacio, token=False, verbose=False, download_files=False)
+    cliente = _Cliente(espacio, token=False, verbose=False, download_files=False)
     trabajo = cliente.submit(*entradas, api_name=api_name, **parametros)
     try:
         resultado = trabajo.result(timeout=ESPERA_HF)
@@ -177,16 +192,39 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
 
 # ---------- Separación de voz y pista ----------
 
+MODELOS = Path(__file__).resolve().parent.parent / "datos" / "modelos"  # cachés propias, no las de ~/.cache
+# El modelo «htdemucs» de Meta con su huella SHA-256 entera: Demucs lo abre con pickle (ejecuta código) y por su
+# cuenta solo comprueba 8 cifras, y solo al bajarlo.
+DEMUCS = ("https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+          "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4")
+
+
+def _modelo_demucs() -> None:
+    """Deja el modelo en la caché de la app, comprobado entero antes de CADA uso (un archivo cambiado no se abre)."""
+    url, huella = DEMUCS
+    archivo = MODELOS / "torch" / "hub" / "checkpoints" / url.rsplit("/", 1)[1]  # donde lo busca torch.hub
+    datos = archivo.read_bytes() if archivo.is_file() else seguro.descargar(url, tope=200 * 1024 ** 2, plazo=900)
+    if hashlib.sha256(datos).hexdigest() != huella:
+        archivo.unlink(missing_ok=True)
+        raise RuntimeError(t("el modelo para separar voz y pista no es el original (se borró): vuelve a intentarlo"))
+    if not archivo.is_file():
+        archivo.parent.mkdir(parents=True, exist_ok=True)
+        archivo.write_bytes(datos)
+
+
 def _separar_pc(cancion: Path, carpeta: Path) -> dict:
     """Demucs (de Meta, open source) en este PC. Gratis; en un portátil sin GPU tarda varios minutos."""
     salida = carpeta / "demucs"
     from .cabina import a_wav
     cancion = a_wav(cancion, carpeta / f"{cancion.stem}_para_separar.wav")  # Demucs no lee m4a/ogg: siempre WAV
-    # -P: no cargar módulos de la carpeta de trabajo. HF_HUB_OFFLINE: usar el modelo ya descargado y verificado; si
-    # no está, Demucs lo baja de su repositorio oficial con suma de control en lugar de la rama «main» sin fijar.
+    _modelo_demucs()
+    # -P: no cargar módulos de la carpeta de trabajo. Cachés de la app (TORCH_HOME, HF_HUB_CACHE vacía) y sin red de
+    # Hugging Face: Demucs usa el modelo que se acaba de comprobar, nunca uno que otro programa dejó en ~/.cache.
     r = subprocess.run([sys.executable, "-P", "-m", "demucs", "--two-stems=vocals", "-n", "htdemucs", "-o", str(salida),
                         str(cancion)], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       env={**os.environ, "HF_HUB_OFFLINE": "1"}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       env={**os.environ, "HF_HUB_OFFLINE": "1", "TORCH_HOME": str(MODELOS / "torch"),
+                            "HF_HUB_CACHE": str(MODELOS / "hf")},
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[-400:])  # el final es donde está la causa real
     base = salida / "htdemucs" / cancion.stem

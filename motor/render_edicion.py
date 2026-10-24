@@ -784,7 +784,7 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
                     for pal in p["subtitulos"]["palabras"] if pal["fin"] > corrido]
         if p["subtitulos"]["activos"] and palabras:
             subs = _subtitulos(palabras, p["formato"], cache, p["subtitulos"]["estilo"])
-            grafo.append(f"[{ultimo}]subtitles={subs.name}[s]")
+            grafo.append(f"[{ultimo}]ass={subs.name}[s]")
             ultimo = "s"
         grafo.append(f"[{ultimo}]format=yuv420p[vfin]")
         _limpiar(cache, f"capa-{h}-*.png", usados)

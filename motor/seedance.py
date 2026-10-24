@@ -115,7 +115,7 @@ def _esperar(url: str, cabecera: dict) -> dict:
     while time.monotonic() < limite:
         time.sleep(ESPERA)
         try:
-            tarea = httpx.get(url, headers=cabecera, timeout=30).json()
+            tarea = seguro.pedir("GET", url, headers=cabecera, plazo=30).json()  # plazo total: ver seguro.pedir
         except (httpx.HTTPError, ValueError):
             continue
         if isinstance(tarea, dict) and tarea.get("status") in ("succeeded", "failed", "expired", "cancelled"):

@@ -422,41 +422,67 @@ def _dpapi(datos: bytes, cifrar: bool) -> bytes:
         ctypes.windll.kernel32.LocalFree(salida.pbData)
 
 
-def _escribir(todas: dict) -> None:
-    """Guarda las claves cifradas, de forma atómica (un corte de luz no deja el archivo a medias)."""
-    import base64
+def _reemplazar(archivo: Path, texto: str) -> None:
+    """Escribe de forma atómica: quien lo lee a la vez (otro hilo, el MCP) ve el archivo viejo o el nuevo, nunca uno
+    vacío o a medias, y un corte de luz no lo deja roto. Un ajustes.json leído a medias es «Automático»: mandaría tu
+    foto al Space público aunque elegiste otra cosa."""
     import tempfile
-    texto = json.dumps(todas, indent=2)
-    if os.name == "nt":
-        texto = CIFRADO + base64.b64encode(_dpapi(texto.encode("utf-8"), cifrar=True)).decode("ascii")
-    ARCHIVO.parent.mkdir(exist_ok=True)
+    archivo.parent.mkdir(exist_ok=True)
     # Temporal único: la app y el MCP pueden escribir a la vez sin pisarse el archivo a medio escribir.
-    fd, temporal = tempfile.mkstemp(dir=ARCHIVO.parent, prefix="claves-", suffix=".tmp")
+    fd, temporal = tempfile.mkstemp(dir=archivo.parent, prefix=archivo.stem + "-", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(texto)
     for _ in range(20):  # otro proceso puede estar leyéndolo justo ahora (Windows lo bloquea un instante)
         try:
-            os.replace(temporal, ARCHIVO)
+            os.replace(temporal, archivo)
             return
         except PermissionError:
             time.sleep(0.05)
-    os.replace(temporal, ARCHIVO)
+    os.replace(temporal, archivo)
 
 
-def cargar() -> dict:
+def _escribir(todas: dict) -> None:
+    """Guarda las claves cifradas, de forma atómica."""
+    import base64
+    texto = json.dumps(todas, indent=2)
+    if os.name == "nt":
+        texto = CIFRADO + base64.b64encode(_dpapi(texto.encode("utf-8"), cifrar=True)).decode("ascii")
+    _reemplazar(ARCHIVO, texto)
+
+
+class NoSeDescifra(Exception):
+    """Windows no puede descifrar claves.json ahora mismo: no es que esté dañado (ver _leer)."""
+
+
+def _descifrar(texto: str) -> dict:
+    """Lo que hay en claves.json (o en una copia apartada). NoSeDescifra si Windows no puede descifrarlo ahora mismo;
+    ValueError si el archivo está dañado."""
+    import base64
+    claro = texto
+    if texto.startswith(CIFRADO):
+        cifrado = base64.b64decode(texto[len(CIFRADO):])  # base64 roto: dañado (ValueError)
+        try:
+            claro = _dpapi(cifrado, cifrar=False).decode("utf-8")
+        except OSError:
+            raise NoSeDescifra from None
+    todas = json.loads(claro) if claro.strip() else {}
+    if not isinstance(todas, dict):
+        raise ValueError("formato inesperado")
+    return todas
+
+
+def _leer() -> dict:
+    """Las claves. Si Windows no puede descifrarlas AHORA (perfil a medio cargar, otra cuenta, la carpeta sincronizada
+    desde otro PC), NoSeDescifra y el archivo no se toca: las claves pueden estar bien y se leen en cuanto se pueda."""
     import base64
     try:
         texto = ARCHIVO.read_text(encoding="utf-8-sig")  # -sig: un BOM no debe impedir leer claves antiguas
     except FileNotFoundError:
         return {}
     try:
-        if texto.startswith(CIFRADO):
-            return json.loads(_dpapi(base64.b64decode(texto[len(CIFRADO):]), cifrar=False).decode("utf-8"))
-        todas = json.loads(texto) if texto.strip() else {}
-        if not isinstance(todas, dict):
-            raise ValueError("formato inesperado")
-    except (ValueError, OSError):
-        # No se puede leer: se aparta con un nombre único (nunca pisa otra copia) y la app arranca sin claves.
+        todas = _descifrar(texto)
+    except ValueError:
+        # Dañado de verdad: se aparta con un nombre único (nunca pisa otra copia) y la app arranca sin claves.
         # Si estaba en claro, la copia apartada queda cifrada. La pantalla de Claves avisa de que existe.
         apartado = ARCHIVO.with_name(f"claves.danado-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}")
         if os.name == "nt" and not texto.startswith(CIFRADO):
@@ -466,46 +492,75 @@ def cargar() -> dict:
         else:
             ARCHIVO.replace(apartado)
         return {}
-    if todas:
+    if todas and not texto.startswith(CIFRADO):
         _escribir(todas)  # claves de una versión anterior en texto plano: se cifran ahora mismo
     return todas
 
 
+def cargar() -> dict:
+    try:
+        return _leer()
+    except NoSeDescifra:  # Windows no puede descifrarlas ahora: la app sigue sin claves y el archivo queda como está
+        return {}
+
+
+def _leer_para_cambiar() -> dict:
+    """Para guardar o quitar una clave: nunca se pisa un claves.json que ahora no se puede descifrar."""
+    try:
+        return _leer()
+    except NoSeDescifra:
+        raise ValueError(t("Windows no puede descifrar ahora tus claves guardadas (¿abriste la app desde otra cuenta "
+                           "u otro PC?). No se tocan: cierra la sesión de Windows, vuelve a entrar y prueba otra "
+                           "vez. Si datos/claves.json viene de otro PC, sácalo de la carpeta datos.")) from None
+
+
 def apartadas() -> list[Path]:
-    """Archivos de claves que no se pudieron leer y se apartaron (para avisar al usuario)."""
+    """Archivos de claves que no se pudieron leer y se apartaron (para avisar al usuario). Los que ya se pueden
+    descifrar (el fallo era de Windows y no del archivo, como apartaban las versiones anteriores) vuelven solos: sus
+    claves se suman a las de ahora, sin pisar ninguna."""
+    for apartado in sorted(ARCHIVO.parent.glob("claves.danado-*")):
+        try:
+            viejas = _descifrar(apartado.read_text(encoding="utf-8-sig"))
+            _escribir({**viejas, **_leer()})
+            apartado.unlink()
+        except (NoSeDescifra, OSError, ValueError):  # sigue sin poder leerse: se queda apartado y se avisa
+            continue
     return sorted(ARCHIVO.parent.glob("claves.danado-*"))
 
 
 def guardar(info: dict) -> None:
-    todas = cargar()
+    todas = _leer_para_cambiar()
     todas[info["proveedor"]] = info
     _escribir(todas)
 
 
 def borrar(proveedor: str) -> None:
-    todas = cargar()
+    todas = _leer_para_cambiar()
     todas.pop(proveedor, None)
     _escribir(todas)
     # Las elecciones «por defecto» que apuntaban a esa clave vuelven a Automático (salvo su opción gratis sin clave).
     a = ajustes()
     limpias = {uso: p for uso, p in a.items() if p != proveedor or p == GRATIS.get(uso)}
     if limpias != a:
-        AJUSTES.write_text(json.dumps(limpias, indent=2), encoding="utf-8")
+        _reemplazar(AJUSTES, json.dumps(limpias, indent=2))
 
 
 def ajustes() -> dict:
-    try:
-        return json.loads(AJUSTES.read_text(encoding="utf-8"))
-    except (FileNotFoundError, ValueError):  # ajustes.json vacío o roto: se usan los valores por defecto
-        return {}
+    for _ in range(20):
+        try:
+            return json.loads(AJUSTES.read_text(encoding="utf-8"))
+        except PermissionError:  # se está reemplazando justo ahora (Windows lo bloquea un instante): otra vez
+            time.sleep(0.05)
+        except (FileNotFoundError, ValueError):  # ajustes.json vacío o roto: se usan los valores por defecto
+            return {}
+    return json.loads(AJUSTES.read_text(encoding="utf-8"))
 
 
 def elegir_por_defecto(uso: str, proveedor: str) -> None:
     """Fija qué proveedor usa el software para un uso. 'auto' vuelve a la elección automática."""
     a = ajustes()
     a[uso] = proveedor
-    AJUSTES.parent.mkdir(exist_ok=True)
-    AJUSTES.write_text(json.dumps(a, indent=2), encoding="utf-8")
+    _reemplazar(AJUSTES, json.dumps(a, indent=2))
 
 
 def opciones(uso: str) -> list[str]:

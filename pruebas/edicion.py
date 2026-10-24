@@ -337,7 +337,7 @@ with tempfile.TemporaryDirectory() as d:
                          "9:16", d / "s.ass")
     oscuros = []
     for tam, reducir in (("360x640", ""), ("1080x1920", ",scale=360:640")):
-        video.ffmpeg("-f", "lavfi", "-i", f"color=c=white:s={tam}", "-vf", f"subtitles=s.ass{reducir},format=gray",
+        video.ffmpeg("-f", "lavfi", "-i", f"color=c=white:s={tam}", "-vf", f"ass=s.ass{reducir},format=gray",
                      "-frames:v", "1", "-f", "rawvideo", "s.gray", cwd=d)
         oscuros.append(sum(b < 128 for b in (d / "s.gray").read_bytes()))  # borde y sombra sobre blanco
     assert 0.8 < oscuros[0] / oscuros[1] < 1.25, oscuros
@@ -357,7 +357,7 @@ with tempfile.TemporaryDirectory() as d:
         assert texto.startswith("[Script Info]") and texto.count("\nStyle: Base,") == 1, estilo
         assert texto.count("\nDialogue: ") >= 2 and "{x}" not in texto and "(X)" in texto.upper(), estilo
         textos.add(texto)
-        video.ffmpeg("-f", "lavfi", "-i", "color=c=white:s=360x640:r=10:d=1", "-vf", "subtitles=e.ass,format=gray",
+        video.ffmpeg("-f", "lavfi", "-i", "color=c=white:s=360x640:r=10:d=1", "-vf", "ass=e.ass,format=gray",
                      "-ss", "0.25", "-frames:v", "1", "-f", "rawvideo", "e.gray", cwd=d)
         assert sum(b < 200 for b in (d / "e.gray").read_bytes()) > 200, estilo  # se ve algo escrito
     assert len(textos) == len(edicion.ESTILOS_SUBTITULOS)

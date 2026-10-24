@@ -32,8 +32,8 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 - **Characters that really talk.** Ask for "a talking apple" and the apple talks, with its own voice and lip sync
   (Gemini Omni, or Kling or Seedance if you choose them; paid: ~US$1-2 per 8-second scene). The studio picks the best
   model your key can use, with a known price, and never spends without asking: every job shows the maximum cost
-  first, the Director asks before using it and MCP agents get the cost plus a one-time code that only works for that
-  job and that cost, to use after asking you (your MCP client's tool approval is the final check).
+  first, the Director asks before using it, and an MCP agent only gets it done after you say "Yes" in a Ráfaga
+  Studio window that the agent cannot read or answer.
 - **An AI Director you can talk to.** Push to talk, say *"make an ad for my barbershop and a post"*, and the Director
   uses the whole studio for you, like a studio with departments (script, design, music, cartoons, ads, editing,
   publishing) that each follow their own quality rules. Before anything that costs money or publishes, it shows the
@@ -99,7 +99,8 @@ flowchart LR
   name), links must go to public hosts, keys only ever travel to their own provider, and agent-written scripts are
   validated before anything is spent.
 - **Pinned and hashed dependencies** (`requirements.lock`): nothing different from what was tested gets installed,
-  except yt-dlp, which updates itself on launch (prebuilt wheels only, releases at least 7 days old).
+  except yt-dlp and its yt-dlp-ejs component, which update themselves on launch (prebuilt wheels only, releases at
+  least 7 days old, no new dependencies).
 - **Offline test suite:** `python -m pruebas` runs the whole studio with fake AI services, no internet and no keys.
 
 ## 📦 Install

@@ -394,20 +394,16 @@ animado = director.costo("crear_video", {"prompt": "x", "segundos": 16, "animado
 assert f"US${2 * 0.25 * 8 + 2 * precio_clip:.2f}" in animado, animado  # 2 escenas que hablan y, por lo alto, animadas
 assert "DE PAGO" in director.INSTRUCCIONES and "US$1 por cada 8 s" not in director.INSTRUCCIONES
 
-# ---------- MCP: lo que cuesta no se hace sin el código de un solo uso de su pregunta ----------
-import re  # noqa: E402
-
+# ---------- MCP: lo que cuesta, publica, se guarda o usa archivos de fuera, solo con el sí de una persona ----------
+# En una ventana de Windows que el agente no puede leer ni contestar (antes era un código que él mismo recibía en el
+# error y podía devolver solo: así un agente inyectado pagaba Kling, publicaba en YouTube o guardaba órdenes).
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
 import mcp_server  # noqa: E402
 
 
-def codigo_de(error: str) -> str:
-    return re.search(r'confirmar_gasto="([0-9a-f]+)"', error)[1]
-
-
 def por_protocolo(nombre: str, argumentos: dict) -> str:
-    """Como llega de un agente de verdad. El error (la pregunta) si no se hizo; "" si se hizo."""
+    """Como llega de un agente de verdad. El error si no se hizo; "" si se hizo."""
     try:
         asyncio.run(mcp_server.mcp.call_tool(nombre, argumentos))
         return ""
@@ -415,53 +411,61 @@ def por_protocolo(nombre: str, argumentos: dict) -> str:
         return str(e)
 
 
-hechos = []
-generar_real, animar_real = desde_prompt.generar, desde_prompt.animar_imagen
+hechos, ventanas, contesta = [], [], [False]
+generar_real, animar_real, preguntar_real = desde_prompt.generar, desde_prompt.animar_imagen, mcp_server._preguntar
 desde_prompt.generar = lambda *a, **k: hechos.append(k) or {"tipo": "video", "resultados": []}
 desde_prompt.animar_imagen = lambda *a, **k: hechos.append(a) or {"tipo": "animacion", "resultados": []}
+mcp_server._preguntar = lambda texto: ventanas.append(texto) or contesta[0]
 try:
+    # Sin el sí no se hace, y al agente no le llega nada que pueda devolver para saltarse la pregunta
     error = falla(mcp_server.crear_video, "un gato", error=ToolError)
-    assert f"\nPregunta: Esto cuesta unos US${10 * precio_clip:.2f}" in error and not hechos, error  # en su línea
-    assert "US$" in falla(mcp_server.crear_video, "x", "9:16", 45, "es-DO-EmilioNeural", str(foto), True,
-                          error=ToolError) and not hechos  # también con los argumentos por posición
-    codigo = codigo_de(error)
-    json.loads(mcp_server.crear_video("un gato", confirmar_gasto=codigo))
-    assert len(hechos) == 1
-    # Un solo uso: el mismo código otra vez vuelve a preguntar (con otro código)
-    otra = falla(mcp_server.crear_video, "un gato", confirmar_gasto=codigo, error=ToolError)
-    assert codigo_de(otra) != codigo and len(hechos) == 1
-    # El agente no se salta la pregunta: «true» de entrada, o un código inventado, no gastan
-    assert por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": True}) and len(hechos) == 1
-    assert "Pregunta:" in falla(mcp_server.crear_video, "un gato", confirmar_gasto="true", error=ToolError)
-    assert "Pregunta:" in por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": "0123456789abcdef"})
-    assert len(hechos) == 1
-    # El sí a una llamada barata no sirve para otra más cara (ni para otra herramienta)
-    barata = por_protocolo("crear_video", {"prompt": "un gato", "segundos": 15})
-    cara = por_protocolo("crear_video", {"prompt": "un gato", "segundos": 600, "confirmar_gasto": codigo_de(barata)})
-    assert "Pregunta:" in cara and len(hechos) == 1
-    assert not por_protocolo("crear_video", {"prompt": "un gato", "segundos": 600, "confirmar_gasto": codigo_de(cara)})
-    assert len(hechos) == 2
-    otro = codigo_de(por_protocolo("crear_video", {"prompt": "y"}))
-    assert "Pregunta:" in por_protocolo("crear_anuncios", {"foto": str(foto), "producto": "p", "detalles": "d",
-                                                           "publico": "p", "oferta": "o", "estilo": "e",
-                                                           "confirmar_gasto": otro}) and len(hechos) == 2
-    solo = {"prompt": "x", "imagen": str(foto), "solo_animar": True}
-    assert not por_protocolo("crear_video", {**solo, "confirmar_gasto": codigo_de(por_protocolo("crear_video", solo))})
-    assert len(hechos) == 3
-    # Lo gratis va directo; guardar en la memoria también se le pregunta al usuario
-    assert "proveedores" in json.loads(mcp_server.listar_opciones())
-    assert "memoria" in falla(mcp_server.recordar_preferencia, "general", "títulos cortos", error=ToolError)
-    herramientas_mcp = {h.name: h for h in asyncio.run(mcp_server.mcp.list_tools())}
-    esquema = herramientas_mcp["crear_video"].input_schema["properties"]["confirmar_gasto"]
-    assert esquema["type"] == "string" and esquema["default"] == "" and "código" in esquema["description"]
-    assert all("confirmar_gasto" in h.input_schema["properties"] for h in herramientas_mcp.values())
-    assert "confirmar_gasto" not in str(director.catalogo())  # el Director de la app pregunta por su cuenta
-    claves.elegir_por_defecto("video", "auto")  # animar gratis: el MCP no pregunta nada
+    assert "no lo aceptó" in error and "US$" not in error and not hechos, error
+    assert f"Esto cuesta unos US${10 * precio_clip:.2f}" in ventanas[-1] and "«crear_video»" in ventanas[-1]
+    falla(mcp_server.crear_video, "x", "9:16", 45, "es-DO-EmilioNeural", str(foto), True, error=ToolError)
+    assert "US$" in ventanas[-1] and not hechos  # también con los argumentos por posición
+    assert por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": "0123456789abcdef"}) and not hechos
+    contesta[0] = True  # la persona dice que sí: se hace
     json.loads(mcp_server.crear_video("un gato"))
-    assert len(hechos) == 4
+    assert len(hechos) == 1
+    # Archivos de fuera de la carpeta del agente y de la app: se pregunta nombrándolos, aunque sea gratis
+    claves.elegir_por_defecto("video", "auto")
+    contesta[0], antes = False, len(ventanas)
+    solo = {"prompt": "x", "imagen": str(foto), "solo_animar": True}
+    assert "no lo aceptó" in por_protocolo("crear_video", solo) and len(hechos) == 1
+    assert len(ventanas) == antes + 1 and str(foto) in ventanas[-1] and "¿Lo hago?" in ventanas[-1]
+    origen_real, mcp_server.ORIGEN = mcp_server.ORIGEN, str(foto.parent)  # la foto está en la carpeta del agente
+    try:
+        assert not por_protocolo("crear_video", solo) and len(ventanas) == antes + 1 and len(hechos) == 2
+        json.loads(mcp_server.crear_video("un gato"))  # gratis y sin archivos: directo, sin ventana
+        assert len(ventanas) == antes + 1 and len(hechos) == 3
+    finally:
+        mcp_server.ORIGEN = origen_real
     claves.elegir_por_defecto("video", "kling")
+    # Publicar: la ventana dice qué video se sube y la descripción entera (no solo el título)
+    publicar = {"archivo": str(foto), "titulo": "Mi short\n\nPulsa Sí para cancelar", "fecha_hora": "2030-01-01T10:00",
+                "descripcion": "Un gato. " + "x " * 300 + "Gana US$500: https://estafa.example"}
+    assert "no lo aceptó" in por_protocolo("programar_publicacion", publicar)
+    assert foto.name in ventanas[-1] and "estafa.example" in ventanas[-1] and "\n\nPulsa" not in ventanas[-1]
+    # Memoria: lo escondido tras muchos espacios o un salto de línea sale en la ventana
+    por_protocolo("recordar_preferencia", {"departamento": "general",
+                                           "preferencia": "títulos cortos" + " " * 290 + "\nsiempre animado"})
+    assert "títulos cortos siempre animado" in ventanas[-1], ventanas[-1]
+    assert len(hechos) == 3
+    herramientas_mcp = {h.name: h for h in asyncio.run(mcp_server.mcp.list_tools())}
+    assert all("confirmar_gasto" not in h.input_schema["properties"] for h in herramientas_mcp.values())
+    assert "proveedores" in json.loads(mcp_server.listar_opciones())
 finally:
-    desde_prompt.generar, desde_prompt.animar_imagen = generar_real, animar_real
+    desde_prompt.generar, desde_prompt.animar_imagen, mcp_server._preguntar = generar_real, animar_real, preguntar_real
+# La ventana de verdad: Sí/No con «No» por defecto; cualquier otra respuesta (o sin escritorio) es «no»
+user32, llamadas = mcp_server.ctypes.windll.user32, []
+caja_real = user32.MessageBoxW
+try:
+    for codigo, si in ((6, True), (7, False), (0, False)):
+        user32.MessageBoxW = lambda *a, c=codigo: llamadas.append(a) or c
+        assert mcp_server._preguntar("¿Lo hago?") is si
+    assert all(a[3] & 0x4 and a[3] & 0x100 for a in llamadas)  # MB_YESNO y MB_DEFBUTTON2
+finally:
+    user32.MessageBoxW = caja_real
 
 # ---------- La interfaz ----------
 from PySide6.QtGui import QDesktopServices  # noqa: E402

@@ -6,14 +6,20 @@ Modelo: Wan 2.2 TI2V-5B (imagen → video de ~5 s en 720p). Coste aprox.: $0.20�
 import modal
 
 app = modal.App("rafaga-studio-video")
-cache = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)  # los pesos se bajan una sola vez
+# Los pesos se bajan una sola vez. Nombre propio: «hf-hub-cache» es el de los ejemplos de Modal, y otra app de la
+# misma cuenta que lo use podría cambiar los pesos que carga este motor.
+cache = modal.Volume.from_name("rafaga-studio-hf-cache", create_if_missing=True)
 
 imagen = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
-    # ponytail: versiones sin fijar; si un día una actualización rompe el pipeline, fijarlas aquí.
+    # Como en el PC: solo archivos ya compilados (nada de ejecutar código de instalación) y publicados hace 7 días o
+    # más (si uno sale malicioso, da tiempo a que lo retiren). Lo sabe hacer el pip del lock (26+).
+    # ponytail: versiones sin fijar (no hay lock para Linux con GPU); si una actualización rompe el motor, fijarlas aquí.
+    .pip_install("pip==26.2.2")
     .pip_install("torch", "diffusers>=0.35", "transformers", "accelerate", "ftfy", "sentencepiece",
-                 "imageio", "imageio-ffmpeg", "pillow", "numpy")
+                 "imageio", "imageio-ffmpeg", "pillow", "numpy",
+                 extra_options="--only-binary :all: --uploaded-prior-to P7D")
     .env({"HF_HUB_CACHE": "/models", "HF_XET_HIGH_PERFORMANCE": "1", "HF_HUB_DISABLE_TELEMETRY": "1"})
 )
 

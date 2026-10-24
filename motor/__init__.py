@@ -8,3 +8,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 # Los procesos de Python que lanza la app (Demucs, Modal, reiniciar) no usan las librerías de la cuenta de Windows
 # (%APPDATA%\Python): con el Python del instalador se mezclarían con otras versiones.
 os.environ.setdefault("PYTHONNOUSERSITE", "1")
+# El -E de los accesos directos protege solo a este proceso: los Python que lanza (pip, el reinicio, Modal, Demucs, el
+# MCP de prueba) heredarían un PYTHONPATH o un PYTHONHOME que otro programa dejó en Windows y ejecutarían su código.
+for _variable in ("PYTHONPATH", "PYTHONHOME"):
+    os.environ.pop(_variable, None)

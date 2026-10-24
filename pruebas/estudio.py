@@ -149,7 +149,11 @@ pregunta = director.costo("programar_publicacion", {"titulo": "Mi video", "fecha
 assert "YouTube" in pregunta and "«Mi video»" in pregunta and "2026-10-25 18:00." in pregunta
 con_zona = "2026-10-25T18:00:00-04:00"  # con zona: en la hora de este PC y sin restos («18:00:00-»)
 esperada = datetime.fromisoformat(con_zona).astimezone().strftime("%Y-%m-%d %H:%M")
-assert f"el {esperada}. ¿Lo hago?" in director.costo("programar_publicacion", {"titulo": "x", "fecha_hora": con_zona})
+assert f"el {esperada}. Descripción:" in director.costo("programar_publicacion", {"titulo": "x", "fecha_hora": con_zona})
+# Dice qué video se sube y la descripción entera, no solo el título (ver también pruebas/seguridad.py, 21)
+pregunta = director.costo("programar_publicacion", {"archivo": "C:/x/boda.mp4", "titulo": "t", "fecha_hora": con_zona,
+                                                    "descripcion": "Gana US$500: https://estafa.example"})
+assert "C:/x/boda.mp4" in pregunta and "«Gana US$500: https://estafa.example»" in pregunta
 _para, _cargar = claves.para, claves.cargar
 try:
     claves.cargar = lambda: {"gemini": {"proveedor": "gemini", "clave": "AIzaPrueba"}}
@@ -246,7 +250,8 @@ try:
     r = director.dirigir("una canción de dembow sobre Punta Cana", confirmar=lambda p: preguntas.append(p) or False,
                          al_decir=dichos.append)
     assert not hechos and len(preguntas) == 1  # dijo que no: no se hizo, y la segunda vez no se le pregunta
-    assert preguntas[0].startswith("Primero hago la canción") and "US$0.08" in preguntas[0]
+    # Primero la pregunta del código (con el costo de verdad) y detrás, corto, lo que escribió la IA (ver permiso)
+    assert preguntas[0].startswith("Esto cuesta unos US$0.08") and "Primero hago la canción" in preguntas[0]
     assert dichos == ["Primero hago la canción y luego su video musical."]  # el plan, antes de empezar
     assert all("no lo aceptó" in p["resultado"] for p in r["pasos"]) and "no lo aceptó" in vistos[1][1]
     # Sin quien conteste (el MCP o un error de la app), lo de pago no se hace nunca

@@ -60,8 +60,9 @@ def cerca(a, b):
     return abs(a - b) < 1e-9
 
 
-reales = httpx.get, httpx.post, httpx.delete, seguro.descargar
+reales = httpx.get, httpx.post, httpx.delete, seguro.descargar, seguro.pedir
 httpx.get, httpx.post, httpx.delete, seguro.descargar = falsa("GET"), falsa("POST"), falsa("DELETE"), bajar
+seguro.pedir = lambda metodo, url, plazo=None, tope=None, **k: falsa(metodo)(url, timeout=plazo, **k)  # el sondeo
 try:
     # ---------- Kling ----------
     SG, BJ = kling.BASES
@@ -322,5 +323,5 @@ try:
     seedance.PLAZO = plazo
     print("Pruebas de Seedance pasadas.")
 finally:
-    httpx.get, httpx.post, httpx.delete, seguro.descargar = reales
+    httpx.get, httpx.post, httpx.delete, seguro.descargar, seguro.pedir = reales
 print("Pruebas del video de pago pasadas.")

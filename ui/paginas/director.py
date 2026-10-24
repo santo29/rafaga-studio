@@ -493,7 +493,6 @@ class PaginaDirector(QWidget):
         color = "#7C5CFF" if quien == "Director" else "#FF4D8D"
         cuerpo = html.escape(str(texto)).replace("\n", "<br>")  # lo que dice la IA nunca se interpreta como HTML
         self.chat.append(f"<p><b style='color:{color}'>{html.escape(quien)}</b><br>{cuerpo}</p>")
-        self.dicho = str(texto)
 
     def _adjuntar(self):
         rutas, _ = QFileDialog.getOpenFileNames(self, t("Adjuntar archivos"), "", t("Fotos, videos y audios ({tipos})",
@@ -587,7 +586,8 @@ class PaginaDirector(QWidget):
     def _preguntar(self, pregunta: str):
         """La pregunta con su costo, en el chat y en una ventana con «Sí» y «No». Si el pedido llegó hablando, también
         en voz alta, y luego escucha «sí» o «no»."""
-        self._decir("Director", pregunta.removeprefix(self.dicho).strip() or pregunta)  # el plan ya está en el chat
+        # En el chat, solo la pregunta del código (va primero; lo de la IA va detrás): el plan ya está en el chat
+        self._decir("Director", pregunta.split("\n\n", 1)[0])
         self.caja = caja = QMessageBox(QMessageBox.Question, t("¿Lo hago?"), pregunta,
                                        QMessageBox.Yes | QMessageBox.No, self)
         caja.setTextFormat(Qt.PlainText)  # parte del texto lo escribió la IA: nunca se interpreta como HTML

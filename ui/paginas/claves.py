@@ -131,6 +131,12 @@ class PaginaClaves(QWidget):
             if uso == "diseno":
                 self.nota_diseno = etiqueta(t("Claude o ChatGPT diseñan mejor: conecta su clave."), "sub")
                 defecto_lay.addWidget(self.nota_diseno)
+        # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip)
+        fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): dejar bajar archivos a través de él. Con esto la app "
+                              "ya no puede impedir que un enlace llegue a tu red local."))
+        fake_ip.setChecked(claves.ajustes().get("proxy_fake_ip") is True)
+        fake_ip.toggled.connect(lambda v: claves.elegir_por_defecto("proxy_fake_ip", v))
+        defecto_lay.addWidget(fake_ip)
         lay.addWidget(defecto)
         # Nube de video en Modal: instalar el motor una vez y fijar el tope diario para no pasar del crédito gratis.
         nube_caja, nube_lay = tarjeta()
@@ -174,7 +180,8 @@ class PaginaClaves(QWidget):
         self.lista.clear()
         for archivo in claves.apartadas():
             self.lista.addItem("⚠️  " + t("No se pudo leer un archivo de claves y se apartó (cifrado) en "
-                                          "datos/{archivo}. Vuelve a conectar tus claves; puedes borrar ese archivo.",
+                                          "datos/{archivo}. No lo borres: si sus claves se pueden leer, la app las "
+                                          "recupera sola. Mientras, vuelve a conectar las que necesites.",
                                           archivo=archivo.name))
         for c in claves.publico():
             modelos = " · ".join(f"{u}: {c.get('modelo_' + u)}" for u in c["usos"] if c.get("modelo_" + u))

@@ -37,6 +37,16 @@ First public version · Primera versión.
   Connected with their own «Connect» button (a key is never guessed to be theirs), never used in Automatic, no
   fallback that could charge twice, the maximum cost is shown before every job, a cap of 15 paid clips per job, and
   scenes already animated are never paid again. The paid service is fixed when a job starts: choosing another one
-  mid-job never pays anything that was not asked. Kling 4.0 is left out until its launch price is official. The MCP
-  server now answers any paid step with the cost and a one-time code (`confirmar_gasto`) tied to that tool, those
-  arguments and that cost.
+  mid-job never pays anything that was not asked. Kling 4.0 is left out until its launch price is official. Over
+  MCP, anything that costs money, publishes, saves to the studio memory or uses a file from outside the agent's
+  folder needs a "Yes" in a native Ráfaga Studio window that the agent cannot read or answer.
+- **Security review (Ráfaga Guardia):** the YouTube question names the video and shows the whole description; the
+  memory question shows exactly what is saved; in voice mode the real cost is read first; redoing a cartoon episode
+  counts every shot it may draw; Hugging Face Spaces cannot redirect requests to your local network; subtitles no
+  longer go through FFmpeg's demuxers; links through Windows junctions to network shares are refused; free AI
+  answers have a total time and size limit; "fake-ip" proxies are opt-in; the Modal token never sits in the app's
+  environment; `PYTHONPATH` from other programs no longer reaches the app's child processes or the MCP server; key
+  fragments are never sent to the AI; settings are written atomically; a temporary DPAPI failure no longer sets your
+  keys aside; no plaintext backup of Claude's config; the installer always installs inside your profile, removes
+  the MCP registration on uninstall and only takes prebuilt wheels; the lock quarantine checks the newest file of a
+  version; the Demucs model is verified with its full SHA-256.

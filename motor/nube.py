@@ -77,6 +77,14 @@ def usar_gpu(objeto_modal, llamada):
     return llamada()
 
 
+def _cliente(clave: str):
+    """Un cliente de Modal con el token del usuario, sin ponerlo en os.environ: ahí lo heredaría todo programa que la
+    app abre después (ffmpeg, node, el navegador…) y seguiría ahí aunque se quite la clave."""
+    import modal
+    e = claves.modal_env(clave)
+    return modal.Client.from_credentials(e["MODAL_TOKEN_ID"], e["MODAL_TOKEN_SECRET"])
+
+
 def instalar() -> str:
     """Sube el motor de video (modal_app.py) a la cuenta de Modal del usuario."""
     c = claves.cargar().get("modal")
@@ -89,19 +97,17 @@ def instalar() -> str:
     if r.returncode:
         raise RuntimeError(t("Modal no pudo instalar el motor:\n{detalle}", detalle=(r.stderr or r.stdout)[-1200:]))
     # Los pesos del modelo se bajan ya, con CPU (casi gratis): si no, los bajaría la GPU en el primer clip (pagado)
-    os.environ.update({k: v for k, v in claves.modal_env(c["clave"]).items() if k.startswith("MODAL_")})
     import modal
-    modal.Function.from_name("rafaga-studio-video", "preparar").remote()
+    modal.Function.from_name("rafaga-studio-video", "preparar", client=_cliente(c["clave"])).remote()
     return r.stdout[-600:]
 
 
 def animar(imagen_png: Path, prompt: str, formato: str, segundos: float, destino: Path) -> Path:
     """Anima una imagen en la nube. Lanza error si ya se usaron los clips del día."""
     c = claves.cargar()["modal"]
-    os.environ.update({k: v for k, v in claves.modal_env(c["clave"]).items() if k.startswith("MODAL_")})
     import modal
     imagen = imagen_png.read_bytes()  # si la imagen no existe, falla aquí, antes de apartar cupo
-    clase = modal.Cls.from_name("rafaga-studio-video", "Wan")
+    clase = modal.Cls.from_name("rafaga-studio-video", "Wan", client=_cliente(c["clave"]))
     datos = usar_gpu(clase, lambda: clase().animar.remote(imagen, prompt, formato in ("9:16", "4:5"), segundos))
     destino.write_bytes(datos)
     return destino

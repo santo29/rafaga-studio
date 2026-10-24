@@ -7,15 +7,16 @@ if not exist .venv (
   echo Lee PRIVACIDAD.md y TERMINOS.md: al abrir la app veras el aviso de privacidad.
   echo Instalando por primera vez, espera unos minutos...
   py -3 -m venv .venv
-  rem Versiones exactas ya probadas y el hash de cada archivo: nada distinto de lo probado entra solo.
+  rem Versiones exactas ya probadas y el hash de cada archivo: nada distinto de lo probado entra solo. Solo archivos
+  rem ya compilados: compilar uno bajaria herramientas de compilacion sin hash. -s -E: nada de PYTHONPATH ajenos.
   rem torch va aparte y solo desde el indice oficial de PyTorch (sin mezclar indices).
-  .venv\Scripts\python -m pip install --require-hashes --no-deps -r requirements-torch.lock --index-url https://download.pytorch.org/whl/cpu
+  .venv\Scripts\python -s -E -m pip install --only-binary :all: --require-hashes --no-deps -r requirements-torch.lock --index-url https://download.pytorch.org/whl/cpu
   if errorlevel 1 goto fallo
-  .venv\Scripts\python -m pip install --require-hashes -r requirements.lock
+  .venv\Scripts\python -s -E -m pip install --only-binary :all: --require-hashes -r requirements.lock
   if errorlevel 1 goto fallo
 )
 rem yt-dlp se actualiza solo al abrir la app (ver app.py).
-start "" .venv\Scripts\pythonw.exe app.py
+start "" .venv\Scripts\pythonw.exe -s -E app.py
 exit /b 0
 
 :fallo

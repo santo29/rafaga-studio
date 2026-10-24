@@ -13,6 +13,7 @@ from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, ia, memoria, m
 from .idioma import t
 
 _hilo = threading.local()
+MAX_DESCRIPCION = 1500  # lo que se publica con programar_publicacion: cabe entero en la pregunta al usuario
 
 
 def ruta(r: str) -> str:
@@ -227,9 +228,13 @@ def programar_publicacion(archivo: str, titulo: str, descripcion: str, fecha_hor
     sube ya a YouTube como privado con su hora de salida y marcado como hecho con IA. Publica en el canal del
     usuario: úsalo solo si él lo pidió. fecha_hora: ISO 8601, AAAA-MM-DDTHH:MM (sin zona = hora de este PC),
     al menos 15 min en el futuro. red: por ahora solo youtube (se conecta una vez en la página «Publicar» de la app).
-    Los #hashtags de la descripción van también como etiquetas."""
-    etiquetas = re.findall(r"#(\w+)", str(descripcion or ""))
+    Los #hashtags de la descripción van también como etiquetas. La descripción, hasta {maximo} caracteres."""
+    descripcion = str(descripcion or "")[:MAX_DESCRIPCION]  # lo mismo que vio el usuario en la pregunta (director.costo)
+    etiquetas = re.findall(r"#(\w+)", descripcion)
     return _json(publicar.programar(ruta(archivo), titulo, descripcion, etiquetas, fecha_hora, red, aviso=_aviso()))
+
+
+programar_publicacion.__doc__ = programar_publicacion.__doc__.replace("{maximo}", str(MAX_DESCRIPCION))
 
 
 def recordar_preferencia(departamento: str, preferencia: str) -> str:
@@ -256,11 +261,13 @@ def listar_proyectos() -> str:
 
 def listar_opciones() -> str:
     """Formatos, voces y proveedores de IA conectados (sin mostrar las claves)."""
-    # solo los de IA: la cuenta de YouTube no sale de este PC (ni a la IA del Director ni al agente MCP)
+    # solo los de IA: la cuenta de YouTube no sale de este PC (ni a la IA del Director ni al agente MCP). Y sin trozos
+    # de la clave ni la región: la IA no los necesita y el resultado viaja a su proveedor (también al gratis)
     return _json({"formatos": list(video.FORMATOS), "voces": desde_prompt.voces(),
                   "generos_musica": list(musica.GENEROS), "estilos_anuncio": list(anuncios.ESTILOS),
                   "estilos_cabina": list(cabina.PRESETS),
-                  "proveedores": [c for c in claves.publico() if c["proveedor"] in claves.USOS],
+                  "proveedores": [{k: v for k, v in c.items() if k not in ("clave", "base")}
+                                  for c in claves.publico() if c["proveedor"] in claves.USOS],
                   "por_defecto": claves.ajustes()})
 
 

@@ -3,6 +3,7 @@ solo enlaces web públicos y descargas acotadas. Es la frontera que impide sacar
 atacar la red local a través de las herramientas."""
 import ipaddress
 import ntpath
+import os
 import socket
 import threading
 from pathlib import Path
@@ -24,6 +25,23 @@ def es_ruta_de_red(texto: str) -> bool:
     barras) y abrirlas conecta por SMB con ese servidor."""
     t = texto.replace("/", "\\")
     return t.startswith("\\\\") or ntpath.splitdrive(t)[0].startswith("\\\\")
+
+
+def _enlace_a_red(ruta: str) -> bool:
+    """Si algún enlace del camino (symlink o junction) lleva a una carpeta de red. Cada enlace se lee sin seguirlo, de
+    la raíz hacia abajo: seguirlo (is_file, resolve, open) ya conectaría por SMB y mandaría la huella del usuario."""
+    pendientes, actual = list(Path(os.path.abspath(ruta)).parts), None
+    for _ in range(256):  # un bucle de enlaces no cuelga: cuenta como sospechoso
+        if not pendientes:
+            return False
+        actual = Path(pendientes.pop(0)) if actual is None else actual / pendientes.pop(0)
+        if actual.is_symlink() or actual.is_junction():
+            destino = os.readlink(actual)  # «\\?\C:\…» en una junction; «\\?\UNC\servidor\…» es de red
+            if es_ruta_de_red(destino if destino[4:8].upper() == "UNC\\" else destino.removeprefix("\\\\?\\")):
+                return True
+            pendientes = [*Path(os.path.abspath(actual.parent / destino.removeprefix("\\\\?\\"))).parts, *pendientes]
+            actual = None
+    return True
 
 
 def _es_imagen(c: bytes) -> bool:
@@ -64,8 +82,8 @@ def archivo_medio(ruta: str, tipos: set[str], que: str = "archivo") -> Path:
     if not texto:
         raise ValueError(t("{que}: falta elegir el archivo.", que=que.capitalize()))
     # Rutas de red se rechazan ANTES de tocar el disco: comprobarlas ya abriría una conexión SMB y Windows mandaría
-    # la huella de la contraseña del usuario a ese servidor.
-    if es_ruta_de_red(texto):
+    # la huella de la contraseña del usuario a ese servidor. Lo mismo si se llega a ella por un enlace del disco.
+    if es_ruta_de_red(texto) or _enlace_a_red(texto):
         raise ValueError(t("{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o "
                            "ábrelo desde una unidad con letra, como Z:): {ruta}", que=que.capitalize(), ruta=texto))
     p = Path(texto)
@@ -75,6 +93,9 @@ def archivo_medio(ruta: str, tipos: set[str], que: str = "archivo") -> Path:
     if not p.is_file():
         raise ValueError(t("{que}: no encuentro el archivo {ruta}", que=que.capitalize(), ruta=texto))
     real = p.resolve(strict=True)  # sigue accesos directos/enlaces: se valida y se usa el archivo de verdad
+    if es_ruta_de_red(str(real)):  # por si un enlace de otro tipo llevó a la red: nunca se abre ni se renderiza
+        raise ValueError(t("{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o "
+                           "ábrelo desde una unidad con letra, como Z:): {ruta}", que=que.capitalize(), ruta=texto))
     if real.suffix.lower() not in tipos:
         raise ValueError(t("{que}: el archivo apunta a otro de un tipo no admitido ({nombre}).", que=que.capitalize(),
                            nombre=p.name))
@@ -99,9 +120,17 @@ def _ip_publica(texto: str) -> bool:
         # llamarla «global» aunque dentro lleve 127.0.0.1 o 192.168.x.x. Se mira la IPv4 de dentro.
         if ip.ipv4_mapped or ip in ipaddress.ip_network("64:ff9b::/96") or ip in ipaddress.ip_network("::/96"):
             return _ip_publica(str(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)))
-    # 198.18.0.0/15 no es una red de verdad (reservada para pruebas): los proxies «fake-ip» (Clash…) responden con ella
-    # a cada nombre y luego conectan al sitio real. Sin esto, la app no podría bajar nada detrás de esos proxies.
-    return ip.is_global or ip in ipaddress.ip_network("198.18.0.0/15")
+    if es_fake_ip(ip):
+        from . import claves
+        return claves.ajustes().get("proxy_fake_ip") is True
+    return ip.is_global
+
+
+def es_fake_ip(ip) -> bool:
+    """198.18.0.0/15 no es una red de verdad (reservada para pruebas): los proxies «fake-ip» (Clash…) responden con ella
+    a cada nombre y luego conectan a lo que diga el DNS real, también a 127.0.0.1 o a tu router. Por eso solo vale si
+    el usuario lo activa a propósito en «Claves de IA» (proxy_fake_ip): con él, esta protección no frena la red local."""
+    return ipaddress.ip_address(str(ip).split("%")[0]) in ipaddress.ip_network("198.18.0.0/15")
 
 
 def host_publico(host: str) -> bool:
@@ -140,6 +169,9 @@ class _SoloPublicas(httpcore.SyncBackend):
         except (socket.gaierror, UnicodeError) as e:
             raise httpcore.ConnectError(t("no se encontró {host}: {error}", host=host, error=e))
         if not ips or not all(_ip_publica(ip) for ip in ips):
+            if ips and all(es_fake_ip(ip) for ip in ips):  # que quien usa Clash sepa por qué y dónde activarlo
+                raise httpcore.ConnectError(t("la dirección es de un proxy «fake-ip» (Clash…): si lo usas a propósito, "
+                                              "actívalo en «Claves de IA»"))
             raise httpcore.ConnectError(t("la dirección no es pública (red local)"))
         for ip in ips:  # todas ya comprobadas: se prueba la siguiente si una no responde (p. ej. IPv6 roto)
             try:
@@ -173,7 +205,7 @@ def descargar(url: str, cabeceras: dict | None = None, tope: int = 50 * 1024 ** 
     sin descomprimir (una «bomba» gzip no llena la memoria), con tope de tamaño y de tiempo TOTAL (el goteo lento no
     cuelga la app). Las cabeceras (la clave) solo viajan al primer host."""
     import httpx
-    # ponytail: conexión directa, sin el proxy del sistema; con proxies «fake-ip» (Clash) funciona (ver _ip_publica).
+    # ponytail: conexión directa, sin el proxy del sistema; con proxies «fake-ip» (Clash), solo si se activa (ver es_fake_ip).
     conexiones = httpcore.ConnectionPool(ssl_context=httpx.create_ssl_context(), network_backend=_SoloPublicas())
     resultado = {}
 
@@ -222,3 +254,37 @@ def _bajar(conexiones: httpcore.ConnectionPool, url: str, cabeceras: dict, tope:
         except httpcore.ConnectError as e:
             raise RuntimeError(t("no se pudo bajar el archivo: {error}", error=e))
     raise RuntimeError(t("el servicio redirigió demasiadas veces"))
+
+
+def pedir(metodo: str, url: str, tope: int = 8 * 1024 ** 2, plazo: float = 300, **opciones):
+    """Una petición a la API de un servicio con tope de tamaño y de tiempo TOTAL. El timeout de httpx es por lectura:
+    un servidor que gotea un byte cada poco nunca corta, y uno que manda GB llena la memoria antes de .json().
+    Devuelve la respuesta ya leída (con .json(), .status_code…, como httpx.request); sus fallos son httpx.HTTPError."""
+    import httpx
+    cliente, resultado = httpx.Client(timeout=plazo), {}
+
+    def hacer():
+        try:
+            with cliente.stream(metodo, url, **opciones) as r:
+                datos = bytearray()
+                for trozo in r.iter_bytes():
+                    datos += trozo
+                    if len(datos) > tope:
+                        raise httpx.ReadError(t("la respuesta del servicio es demasiado grande"), request=r.request)
+                # ya descomprimida: sin las cabeceras que harían que httpx la descomprimiera otra vez
+                cabeceras = [(k, v) for k, v in r.headers.multi_items()
+                             if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+                resultado["r"] = httpx.Response(r.status_code, headers=cabeceras, content=bytes(datos),
+                                                request=r.request)
+        except Exception as e:  # se relanza abajo, en el hilo que espera
+            resultado["error"] = e
+    hilo = threading.Thread(target=hacer, daemon=True)
+    hilo.start()
+    hilo.join(plazo)
+    tarde = hilo.is_alive()
+    cliente.close()  # si sigue esperando, cierra su conexión: el hilo abandonado termina ya
+    if tarde:
+        raise httpx.ReadTimeout(t("el servicio tarda demasiado en responder"))
+    if "error" in resultado:
+        raise resultado["error"]
+    return resultado["r"]

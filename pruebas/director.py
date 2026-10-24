@@ -99,15 +99,15 @@ class Respuesta:
 respuestas = ['{"mensaje": "...", "herramienta": "...", "argumentos": "..."}',  # copió la forma
               '{"type": "object", "properties": {}, "mensaje": "Hola", "herramienta": "", "argumentos": "{}"}']
 enviados = []
-_post, _dormir = ia.httpx.post, ia.time.sleep
-ia.httpx.post = lambda url, **k: enviados.append(k["json"]) or Respuesta(respuestas[len(enviados) - 1])
+_pedir, _dormir = ia.seguro.pedir, ia.time.sleep
+ia.seguro.pedir = lambda metodo, url, **k: enviados.append(k["json"]) or Respuesta(respuestas[len(enviados) - 1])
 ia.time.sleep = lambda s: None  # sin esperar los 30 s entre intentos del servicio gratis
 try:
     r = ia._texto_gratis("instrucciones", "pedido", director.ESQUEMA)
     assert r["mensaje"] == "Hola" and len(enviados) == 2  # el ejemplo sin rellenar no vale: se pide otra vez
     assert '"required"' not in enviados[0]["messages"][0]["content"]  # no ve el esquema técnico (lo copiaba)
 finally:
-    ia.httpx.post, ia.time.sleep = _post, _dormir
+    ia.seguro.pedir, ia.time.sleep = _pedir, _dormir
 
 # ---------- Catálogo: el Director ve las mismas herramientas que el MCP ----------
 catalogo = director.catalogo()

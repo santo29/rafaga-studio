@@ -1,7 +1,6 @@
 """Gestiona la conexión MCP: registra Ráfaga Studio en Claude Code y Claude Desktop, y comprueba que responde."""
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,11 +10,14 @@ from .idioma import t
 RAIZ = Path(__file__).resolve().parent.parent
 NOMBRE = "rafaga-studio"
 PYTHON = str(Path(sys.executable).with_name("python.exe"))  # pythonw no sirve para stdio
+# -s -E: un PYTHONPATH, un PYTHONHOME o las librerías de la cuenta de Windows no se meten en el servidor (Claude lo
+# arranca con su propio entorno). -E también ignora PYTHONIOENCODING: -X utf8 hace lo mismo. Nunca -I: quitaría la
+# carpeta de la app de sys.path y no encontraría «motor».
 SERVIDOR = {
     "type": "stdio",
     "command": PYTHON,
-    "args": [str(RAIZ / "mcp_server.py")],
-    "env": {"PYTHONIOENCODING": "utf-8", "HF_HUB_DISABLE_SYMLINKS_WARNING": "1", "PYTHONNOUSERSITE": "1"},
+    "args": ["-s", "-E", "-X", "utf8", str(RAIZ / "mcp_server.py")],
+    "env": {"HF_HUB_DISABLE_SYMLINKS_WARNING": "1"},
 }
 
 CLIENTES = {
@@ -36,12 +38,13 @@ def _leer(archivo: Path) -> dict:
 
 
 def _escribir(archivo: Path, datos: dict) -> None:
-    if archivo.exists():
-        shutil.copy(archivo, archivo.with_name(archivo.name + ".bak-rafaga"))  # copia antes de tocar la config
     archivo.parent.mkdir(parents=True, exist_ok=True)
     temporal = archivo.with_name(archivo.name + ".tmp-rafaga")  # atómico: nunca deja la config de Claude a medias
     temporal.write_text(json.dumps(datos, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(temporal, archivo)
+    # Sin copias: la config de Claude lleva los tokens de otros servidores MCP, y una copia en claro los guardaría
+    # aunque el usuario los quite. Se borra la que dejaban las versiones anteriores.
+    archivo.with_name(archivo.name + ".bak-rafaga").unlink(missing_ok=True)
 
 
 def estado() -> dict[str, bool]:
@@ -69,6 +72,15 @@ def desconectar(cliente: str) -> None:
         _escribir(archivo, datos)
 
 
+def desconectar_todo() -> None:
+    """Al desinstalar (rafaga.iss): ningún Claude sigue arrancando el python.exe de una carpeta que ya no es de la app."""
+    for cliente in CLIENTES:
+        try:
+            desconectar(cliente)
+        except Exception:  # una config ilegible no impide limpiar la otra
+            pass
+
+
 def probar() -> list[str]:
     """Arranca el servidor como lo haría Claude y devuelve los nombres de sus herramientas."""
     proc = subprocess.Popen([SERVIDOR["command"], *SERVIDOR["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -90,4 +102,4 @@ def probar() -> list[str]:
 
 def comando_manual() -> str:
     """Para otros clientes MCP (Cursor, Windsurf…): el comando que deben ejecutar."""
-    return f'"{SERVIDOR["command"]}" "{SERVIDOR["args"][0]}"'
+    return " ".join(f'"{a}"' for a in (SERVIDOR["command"], *SERVIDOR["args"]))

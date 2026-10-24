@@ -135,14 +135,17 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
     try:
         try:
             datos = producir(c)
-        except SinPlanGemini:  # Gemini no cobró: en automático, la canción sale con ElevenLabs si hay clave
+        except SinPlanGemini as de_gemini:  # Gemini no cobró: en automático, sale con ElevenLabs si hay clave
             respaldo = claves.cargar().get("elevenlabs")
             if not respaldo or claves.ajustes().get("musica", "auto") != "auto":
                 raise
             avisos.append(t("Gemini no dejó usar Lyria (necesita la facturación de Gemini activada en Google AI "
                             "Studio): esta canción se hizo con tu clave de ElevenLabs."))
             aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor="Elevenlabs"), 0.3)
-            datos = producir(respaldo)
+            try:
+                datos = producir(respaldo)
+            except Exception as de_eleven:  # si los dos fallan, los dos motivos: el de Gemini es el que se arregla
+                raise RuntimeError(f"{de_gemini}\n\n{de_eleven}") from de_eleven
         audio.write_bytes(datos)
     except Exception as e:
         if not con_voz:

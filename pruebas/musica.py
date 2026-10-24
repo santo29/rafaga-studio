@@ -106,6 +106,16 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             assert "Lyria no está en el plan gratis de Gemini (403)" in str(e) and "Claves de IA → Música" in str(e), e
             assert len(llamadas) == 1, llamadas
         claves.elegir_por_defecto("musica", "auto")
+        # Si también ElevenLabs rechaza (su plan gratis no hace música), el error trae los dos motivos
+        Rechazo.status_code, llamadas[:], musica.PROYECTOS = 429, [], d / "ambos"
+        musica.httpx.post = lambda url, **k: llamadas.append(url) or (
+            Rechazo() if "googleapis" in url else type("Sin", (Respuesta,), {"status_code": 402, "text": "paid plan"})())
+        try:
+            musica.crear("un dembow de viernes", "Dembow moderno")
+            raise AssertionError("debió fallar")
+        except RuntimeError as e:
+            assert "Lyria no está en el plan gratis de Gemini (429)" in str(e) and "paid plan" in str(e), e
+        musica.httpx.post = lambda url, **k: llamadas.append(url) or (Rechazo() if "googleapis" in url else Respuesta())
         # Sin clave de música, el aviso nombra primero a Gemini (el de por defecto)
         claves.ARCHIVO = d / "sin_claves.json"
         try:

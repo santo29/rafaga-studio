@@ -10,6 +10,17 @@ y la mezcla y masteriza como un ingeniero, investiga nichos virales y hace el vi
 **Idiomas:** español, English, Português y Français. En «Automático» la app usa el idioma de tu PC y, si tu Windows
 está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia abajo del menú lateral.
 
+## Hecho con Ráfaga Studio
+
+| Short viral (9:16) | Anuncio (9:16) | Tráiler anime (16:9) |
+|---|---|---|
+| <img src="ejemplos/lugares-rd.gif" width="200" alt="3 lugares de RD que parecen de otro planeta"> | <img src="ejemplos/anuncio-cafe.gif" width="200" alt="Anuncio de Café Brisa Alta"> | <img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> |
+| **3 lugares de RD que parecen de otro planeta** · [ver video](ejemplos/lugares-rd.mp4) | **Café Brisa Alta** · [ver video](ejemplos/anuncio-cafe.mp4) | **La leyenda de Ráfaga** · [ver video](ejemplos/leyenda-rafaga.mp4) |
+
+Los guiones los escribió Claude como Director. Las imágenes (FLUX), las voces, los subtítulos, el movimiento y el
+montaje los hizo el software. Se pueden volver a crear con `python ejemplos/crear.py` (los pedidos y los guiones están en
+`ejemplos/ejemplos.json`).
+
 ## Qué hace
 
 | Pantalla | Qué hace |

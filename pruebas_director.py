@@ -1,4 +1,5 @@
 """Pruebas del Director IA, el asistente de voz y su luz, sin red ni claves: python pruebas_director.py"""
+import base64
 import json
 import os
 import tempfile
@@ -55,6 +56,28 @@ try:
     assert ia_falla
 finally:
     nubes.llamar_space = _space
+
+# Cloudflare: solo «prompt» y «steps» (desde 2026 rechaza con 400 cualquier otro campo, como «seed»), y si un
+# servicio rechaza algo, el aviso dice su motivo y no solo el código
+claves.guardar({"proveedor": "cloudflare", "clave": "0123456789abcdef0123456789abcdef " + "T" * 40,
+                "usos": ["imagen"]})
+enviado = []
+_post_cf = ia.httpx.post
+try:
+    ia.httpx.post = lambda url, **k: enviado.append(k["json"]) or ia.httpx.Response(
+        200, json={"result": {"image": base64.b64encode(png()).decode()}}, request=ia.httpx.Request("POST", url))
+    ia.imagen("una playa", 1080, 1920, tmp / "cf.png")
+    assert set(enviado[0]) == {"prompt", "steps"}, enviado
+    ia.httpx.post = lambda url, **k: ia.httpx.Response(
+        400, text='{"errors":[{"message":"Bad input: \'/seed\' not allowed"}]}', request=ia.httpx.Request("POST", url))
+    try:
+        nubes.rotar("imagen", {"cloudflare": lambda: ia.httpx.post("https://x.example").raise_for_status()})
+        raise AssertionError("debió fallar")
+    except RuntimeError as e:
+        assert "/seed" in str(e) and "not allowed" in str(e), e
+finally:
+    ia.httpx.post = _post_cf
+    claves.borrar("cloudflare")
 
 # ---------- IA gratis sin clave: ve la forma de la respuesta (no el esquema) y no vale copiarla sin rellenar ----------
 assert ia._ejemplo({"type": "object", "properties": {

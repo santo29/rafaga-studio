@@ -135,6 +135,8 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
             resultado = tareas[proveedor]()
         except Exception as e:  # cuota agotada, servicio caído…: se pasa al siguiente
             causa = str(e).strip() or type(e).__name__  # algunos errores no traen mensaje
+            if isinstance(e, httpx.HTTPStatusError):  # lo que dice el servicio (p. ej. qué campo no acepta), no solo el código
+                causa = f"{causa.splitlines()[0]} — {' '.join(e.response.text.split())[:200]}"
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),
                   progreso)

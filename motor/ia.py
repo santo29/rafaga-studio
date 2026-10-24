@@ -344,7 +344,8 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path) -> Path:
         cuenta, token = cloudflare_partes(todas["cloudflare"]["clave"])
         r = httpx.post(f"https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/black-forest-labs/"
                        "flux-1-schnell", headers={"Authorization": f"Bearer {token}"}, timeout=300,
-                       json={"prompt": prompt[:2048], "steps": 8, "seed": semilla})
+                       # sin «seed»: desde 2026 Cloudflare rechaza (400) cualquier campo que no sea prompt o steps
+                       json={"prompt": prompt[:2048], "steps": 8})
         r.raise_for_status()
         return base64.b64decode(r.json()["result"]["image"])
 

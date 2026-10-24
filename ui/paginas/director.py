@@ -27,7 +27,8 @@ PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "cre
           "crear_cancion": "Música", "crear_video_musical": "Música", "producir_cancion": "Cabina de grabación",
           "separar_voz_y_pista": "Cabina de grabación", "crear_diseno": "Diseño", "editar_video": "Editor de video",
           "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA",
-          "crear_serie": "Dibujos animados", "crear_episodio": "Dibujos animados", "listar_series": "Dibujos animados"}
+          "crear_serie": "Dibujos animados", "crear_episodio": "Dibujos animados", "listar_series": "Dibujos animados",
+          "programar_publicacion": "Publicar"}
 IMAGENES = (".png", ".jpg", ".jpeg")  # resultados que no son video: el reproductor no los enseña
 
 

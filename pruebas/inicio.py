@@ -392,7 +392,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     menu = [b.text() for b in ventana.grupo.buttons()]
     assert menu == ["Inicio", "Director IA", "Crear con IA", "Diseño", "Dibujos animados", "Editor de video",
                     "Shorts mágicos", "Anuncios", "Música", "Cabina de grabación", "Nichos virales", "Mis proyectos",
-                    "Claves de IA", "Conexión MCP"], menu
+                    "Publicar", "Claves de IA", "Conexión MCP"], menu
     assert set(pagina_director.PAGINA.values()) <= set(menu)
     assert ventana.grupo.buttons()[4].property("icono") == "rabbit"
     ventana._iluminar("crear_serie")

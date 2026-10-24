@@ -57,6 +57,7 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |
 | 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y master |
 | 🔎 Nichos virales | Vistas por día reales de YouTube + investigación web en vivo (con Claude) → nichos con ideas listas |
+| 📅 Publicar | Programa tus videos en YouTube con tu propia app de Google: YouTube los publica a la hora elegida, aunque apagues el PC |
 | 🔌 MCP | Claude (u otro agente) puede usar todo el estudio desde el chat |
 
 ## El Director y el asistente de voz

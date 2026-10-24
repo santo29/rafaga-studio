@@ -654,7 +654,7 @@ with tempfile.TemporaryDirectory() as d:
         assert not isinstance(e, UnexpectedToolError) and "valen anuncio, post" in str(e)
     falla(mcp_server.crear_video, "x", "9:16", "no es un número", error=ToolError)  # y en todas las herramientas
     herramientas = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
-    assert len(herramientas) == 15 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
+    assert len(herramientas) == 16 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
     assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta",
                                                                             "estilo"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción

@@ -5,6 +5,7 @@ cada paso se pide como JSON (ia.texto_json), sin depender de que el proveedor se
 import inspect
 import json
 import traceback
+from datetime import datetime
 
 from . import herramientas, ia
 from .idioma import IDIOMAS, actual, t
@@ -17,7 +18,7 @@ MAX_HISTORIAL = 12  # mensajes anteriores de la conversación que se le recuerda
 ENLACES = {"sacar_shorts": ("url",)}
 RUTAS = {"crear_video": ("imagen",), "crear_anuncios": ("foto",), "crear_video_musical": ("cancion",),
          "producir_cancion": ("pista", "voz", "referencia"), "separar_voz_y_pista": ("cancion",),
-         "editar_video": ("medios", "musica")}
+         "editar_video": ("medios", "musica"), "programar_publicacion": ("archivo",)}
 
 ESQUEMA = {"type": "object", "properties": {"mensaje": {"type": "string"}, "herramienta": {"type": "string"},
                                             "argumentos": {"type": "string"}},
@@ -109,7 +110,8 @@ def _contexto(pedido: str, historial, pasos: list[dict]) -> str:
                        + (f"\n{str(m['hecho'])[:600]}" if m.get("hecho") else "")
                        for m in list(historial)[-MAX_HISTORIAL:])
     hechos = "\n".join(f"{n}. {_hecho(p)}" for n, p in enumerate(pasos, 1))
-    return (f"Conversación anterior:\n{charla or '(ninguna)'}\n\nPedido actual: {pedido}\n\n"
+    ahora = datetime.now()  # sin esto la IA no sabe qué día es «mañana a las 6» (programar_publicacion)
+    return (f"Ahora (hora de este PC): {ahora:%Y-%m-%d %H:%M} ({ahora:%A})\n\nConversación anterior:\n{charla or '(ninguna)'}\n\nPedido actual: {pedido}\n\n"
             f"Pasos ya hechos para este pedido:\n{hechos or '(ninguno todavía)'}\n\n¿Cuál es el siguiente paso?")
 
 

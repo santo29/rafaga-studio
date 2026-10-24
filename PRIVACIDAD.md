@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 3 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 4 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -34,6 +34,7 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Diseños y tu marca (nombre, colores, logo) | `datos/disenos/`, `datos/marca.json`, `datos/marca/` |
 | Series animadas, personajes y capítulos | `datos/series/` |
 | Investigaciones de nichos | `datos/nichos/` |
+| Lo que programaste en YouTube (archivo, hora, título e id del video) | `datos/publicaciones.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |
 | Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json`, con una copia `.bak-rafaga` |
@@ -63,6 +64,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Cabina de grabación y separar voz y pista | **Nadie: se hace en tu PC** | Nada |
 | La primera vez que separas voz y pista | Meta (`dl.fbaipublicfiles.com`) | Solo la descarga del modelo Demucs; tu canción no se envía |
 | Al crear música | ElevenLabs o Google Gemini (Lyria) | Tu idea y la letra |
+| Al programar en YouTube | Google (YouTube) | El video, título, descripción y etiquetas; tu permiso de YouTube se guarda cifrado en tu PC |
 | Al sacar shorts, investigar nichos o crear anuncios | YouTube u otro sitio del enlace que pegaste; si tu IA de texto es Claude, su búsqueda web | El enlace, el tema buscado o el producto y su público |
 | Si conectas Ráfaga Studio por MCP a Claude Code, Claude Desktop u otro agente | Ese agente y su proveedor (por ejemplo Anthropic) | Lo que devuelven las herramientas: rutas de tus archivos, títulos, descripciones, guiones y resultados de búsquedas |
 | Al abrir la app la primera vez (antes de mostrar este aviso), si el idioma está en «Automático» y tu Windows está en inglés o en un idioma que la app no tiene | Cloudflare (`www.cloudflare.com/cdn-cgi/trace`) | Una consulta, que lleva tu IP, para saber el país de tu conexión, solo para elegir el idioma. Se guarda y no se repite, salvo que no haya internet o tu país no esté en la lista de la app: entonces se pregunta en cada arranque. Para evitarlo, elige un idioma fijo |

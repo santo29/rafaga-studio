@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -549,6 +550,9 @@ try:
     largo = {"herramienta": "crear_video", "argumentos": {}, "resultado": json.dumps(
         {"relleno": "x" * 5000, "resultados": [{"archivo": "C:/x/final.mp4", "titulo": "t"}]})}
     assert "C:/x/final.mp4" in director._contexto("p", [], [largo])
+    # La IA sabe qué día y hora es (para «programa el video para mañana a las 6»)
+    assert datetime.now().strftime("%Y-%m-%d") in director._contexto("p", [], [])
+    assert "2026-10-25" not in director.catalogo()  # ninguna fecha fija de ejemplo que le sirva de ancla
 
     # Si la IA falla a mitad, lo ya hecho no se pierde
     llamadas = []

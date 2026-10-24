@@ -14,7 +14,7 @@ from motor.idioma import t
 from ui.comun import boton, etiqueta
 
 RAIZ = Path(__file__).resolve().parent.parent
-VERSION = "3"  # súbela cuando cambien PRIVACIDAD.md o TERMINOS.md: la app los vuelve a mostrar
+VERSION = "4"  # súbela cuando cambien PRIVACIDAD.md o TERMINOS.md: la app los vuelve a mostrar
 ARCHIVO = RAIZ / "datos" / "legal.json"
 TITULAR, ANIO = "Santo Montilla", 2026
 DOCUMENTOS = {"PRIVACIDAD.md": t("Aviso de privacidad"), "TERMINOS.md": t("Términos de uso"),

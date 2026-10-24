@@ -28,6 +28,7 @@ from ui.paginas.mcp import PaginaMCP
 from ui.paginas.musica import PaginaMusica
 from ui.paginas.nichos import PaginaNichos
 from ui.paginas.proyectos import PaginaProyectos
+from ui.paginas.publicar import PaginaPublicar
 from ui.paginas.serie import PaginaSerie
 from ui.paginas.shorts import PaginaShorts
 
@@ -76,14 +77,15 @@ class Ventana(QMainWindow):
                    (f"🎵  {t('Música')}", PaginaMusica()),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
-                   (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"🔑  {t('Claves de IA')}", self.claves),
+                   (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"📅  {t('Publicar')}", PaginaPublicar()),
+                   (f"🔑  {t('Claves de IA')}", self.claves),
                    (f"🔌  {t('Conexión MCP')}", PaginaMCP())]
         self.orden = [p for _, p in paginas]  # para ir a una página sin contar posiciones
         # El menú se desplaza solo si no cabe: así la ventana entra en pantallas de portátil (768 px de alto)
         menu = QWidget()
         botones = QVBoxLayout(menu)
         botones.setContentsMargins(0, 0, 0, 0)
-        botones.setSpacing(3)  # junto con el padding de #nav: los 14 botones caben a 728 px de alto sin desplazar
+        botones.setSpacing(3)  # junto con el padding de #nav: los 15 botones caben a 728 px de alto sin desplazar
         desplaza_menu = QScrollArea()
         desplaza_menu.setWidgetResizable(True)
         desplaza_menu.setFrameShape(QFrame.NoFrame)

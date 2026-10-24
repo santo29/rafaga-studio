@@ -167,6 +167,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     ejemplos[0].click()
     assert not con_ejemplos.reproductor.isHidden() and con_ejemplos.reproductor.lista.item(0).text() == "1. Demo"
     assert "#x" in con_ejemplos.reproductor.info.toPlainText()
+    # El video de presentación de la app, arriba del todo: sale solo si existe y se ve en el reproductor de Inicio
+    presentacion = "Conoce Ráfaga Studio en un minuto"
+    assert not any(b.accessibleName() == presentacion for b in con_ejemplos.findChildren(QPushButton))
+    (pagina_director.EJEMPLOS / "presentacion-app.mp4").write_bytes(b"\0" * 64)
+    assert foto.save(str(pagina_director.EJEMPLOS / "presentacion-app.jpg"))
+    con_video = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
+    tarjeta(con_video, presentacion).click()
+    assert con_video.reproductor.resultados[0]["archivo"].endswith("presentacion-app.mp4")
+    con_video.reproductor.player.stop()
 
     # ---------- La ventana: abre en Inicio y sus accesos llevan a la página de verdad ----------
     import app as aplicacion

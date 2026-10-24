@@ -5,6 +5,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QDateTime, QLocale, Qt, QTimer
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
                                QWidget)
 
@@ -186,6 +187,8 @@ class PaginaInicio(QWidget):
         lay.addWidget(etiqueta(t("Todo tu estudio de video con IA en un solo lugar. Elige por dónde empezar o sigue "
                                  "con lo último que hiciste."), "sub"))
         lay.addSpacing(8)
+        if presentacion := self._presentacion():
+            lay.addWidget(presentacion)
         accesos = self._rejilla(4)
         for n, (nombre_icono, color, nombre, frase, pagina) in enumerate(ACCESOS):
             accesos.addWidget(_pulsable(nombre_icono, color, nombre, frase, lambda _, p=pagina: self.ir(p)), n // 4, n % 4)
@@ -272,6 +275,40 @@ class PaginaInicio(QWidget):
             QTimer.singleShot(0, lambda: area.ensureWidgetVisible(self.reproductor))
 
     # ---------- Ejemplos ----------
+
+    def _presentacion(self) -> QPushButton | None:
+        """El video de presentación de la app (ejemplos/presentacion-app.mp4), arriba del todo: qué es Ráfaga Studio
+        en un minuto, hecho con su propio editor. Sin el video, no sale."""
+        video_app = pagina_director.EJEMPLOS / "presentacion-app.mp4"
+        if not (video_app.is_file() and video_app.with_suffix(".jpg").is_file()):
+            return None
+        b = QPushButton()
+        b.setObjectName("acceso")
+        b.setCursor(Qt.PointingHandCursor)
+        b.setAccessibleName(t("Conoce Ráfaga Studio en un minuto"))
+        b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        fila = QHBoxLayout(b)
+        fila.setContentsMargins(16, 16, 22, 16)
+        fila.setSpacing(20)
+        portada = QLabel()
+        portada.setPixmap(QPixmap(str(video_app.with_suffix(".jpg"))).scaledToHeight(150, Qt.SmoothTransformation))
+        textos = QVBoxLayout()
+        dibujo = QLabel()
+        dibujo.setPixmap(icono("circle-play", "#FF4D8D").pixmap(34, 34))
+        for w in (dibujo, etiqueta(t("Conoce Ráfaga Studio en un minuto"), "acceso_titulo"),
+                  etiqueta(t("Todo lo que puedes crear: video con IA, diseño, edición y series animadas. Hecho con "
+                             "su propio editor."), "sub")):
+            textos.addWidget(w)
+        textos.addStretch()
+        fila.addWidget(portada)
+        fila.addLayout(textos, 1)
+        for w in (portada, *(textos.itemAt(i).widget() for i in range(textos.count()))):
+            if w:
+                w.setAttribute(Qt.WA_TransparentForMouseEvents)  # el clic es de la tarjeta entera
+        b.clicked.connect(lambda: self._ver({"formato": "16:9", "resultados": [{
+            "archivo": str(video_app), "titulo": t("Presentación de Ráfaga Studio"), "descripcion": "",
+            "hashtags": []}]}))
+        return b
 
     def _galeria(self):
         """Los ejemplos (ejemplos/): los videos se ven aquí y los diseños se abren en grande. Sin ejemplos, no sale."""

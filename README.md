@@ -10,6 +10,14 @@ y la mezcla y masteriza como un ingeniero, investiga nichos virales y hace el vi
 **Idiomas:** español, English, Português y Français. En «Automático» la app usa el idioma de tu PC y, si tu Windows
 está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia abajo del menú lateral.
 
+## Conoce Ráfaga Studio en un minuto
+
+<a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="560" alt="Video de presentación de Ráfaga Studio"></a>
+
+[▶ Ver el video completo](ejemplos/presentacion-app.mp4). Lo montó el propio editor de Ráfaga Studio: capturas reales de
+la app, el anime con movimiento de IA, transiciones, Brillo Ráfaga, subtítulos Karaoke Ráfaga y la voz de Edge. El guion
+lo escribió Claude como Director.
+
 ## Hecho con Ráfaga Studio
 
 | Short viral (9:16) | Anuncio (9:16) | Tráiler anime (16:9) |

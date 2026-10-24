@@ -5,6 +5,7 @@
 ;   comprobando su huella SHA-256;
 ; - las librerías, con pip y las mismas versiones y huellas que requirements.lock (nada distinto de lo probado entra).
 ; Se instala solo para tu usuario (sin permisos de administrador), así la carpeta «datos» de la app se puede escribir.
+; Python siempre con -s: nunca mezcla las librerías de la cuenta de Windows (%APPDATA%\Python) con las de la app.
 
 #define Nombre "Ráfaga Studio"
 #define Version "1.0.0"
@@ -88,13 +89,13 @@ Source: "https://api.nuget.org/v3-flatcontainer/python/{#PythonVersion}/python.{
   Flags: external download extractarchive recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: """{app}\app.py"""; \
+Name: "{autoprograms}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; \
   WorkingDir: "{app}"; IconFilename: "{app}\assets\icono.ico"
-Name: "{autodesktop}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: """{app}\app.py"""; \
+Name: "{autodesktop}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; \
   WorkingDir: "{app}"; IconFilename: "{app}\assets\icono.ico"; Tasks: escritorio
 
 [Run]
-Filename: "{app}\python\tools\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; \
+Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; WorkingDir: "{app}"; \
   Description: "{cm:Abrir}"; Flags: nowait postinstall skipifsilent; Check: LibreriasListas
 
 [UninstallDelete]
@@ -134,7 +135,7 @@ var
 begin
   Salida := '';
   Result := ExecAndLogOutput(ExpandConstant('{app}\python\tools\python.exe'),
-    '-m pip install --no-cache-dir --disable-pip-version-check --no-warn-script-location --progress-bar off ' + Parametros,
+    '-s -m pip install --no-cache-dir --disable-pip-version-check --no-warn-script-location --progress-bar off ' + Parametros,
     ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Codigo, @VerLinea) and (Codigo = 0);
 end;
 

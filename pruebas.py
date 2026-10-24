@@ -274,6 +274,20 @@ with tempfile.TemporaryDirectory() as d:
 import pruebas_seguridad  # noqa: E402,F401  los ataques de la segunda auditoría (archivo aparte)
 print("Pruebas de seguridad pasadas.")
 
+# El lanzador: dentro de un bloque «( … )» del .bat, un paréntesis sin ^ en un echo cierra el bloque antes de tiempo y
+# la app no abre (pasó con «(c) 2026»).
+import re  # noqa: E402
+
+bloque = False
+for linea in Path(__file__).with_name("Ráfaga Studio.bat").read_text(encoding="utf-8").splitlines():
+    linea = linea.strip()
+    if linea.endswith("("):
+        bloque = True
+    elif linea == ")":
+        bloque = False
+    elif bloque and linea.lower().startswith("echo"):
+        assert not re.search(r"(?<!\^)[()]", linea), f"paréntesis sin ^ en el .bat: {linea}"
+
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for archivo in ("pruebas_diseno_recursos.py", "pruebas_diseno.py", "pruebas_diseno_ia.py", "pruebas_diseno_ui.py",
                 "pruebas_edicion.py", "pruebas_render_edicion.py", "pruebas_edicion_ui.py", "pruebas_director.py",

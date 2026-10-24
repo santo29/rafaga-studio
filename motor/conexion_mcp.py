@@ -15,7 +15,7 @@ SERVIDOR = {
     "type": "stdio",
     "command": PYTHON,
     "args": [str(RAIZ / "mcp_server.py")],
-    "env": {"PYTHONIOENCODING": "utf-8", "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"},
+    "env": {"PYTHONIOENCODING": "utf-8", "HF_HUB_DISABLE_SYMLINKS_WARNING": "1", "PYTHONNOUSERSITE": "1"},
 }
 
 CLIENTES = {

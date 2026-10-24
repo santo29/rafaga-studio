@@ -1,8 +1,9 @@
 @echo off
 cd /d "%~dp0"
 if not exist .venv (
-  echo Rafaga Studio - (c) 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones
-  echo de IA usan servicios de internet (lee PRIVACIDAD.md).
+  rem Dentro de este bloque, un parentesis en un echo lo cierra antes de tiempo y el .bat no arranca: van con ^
+  echo Rafaga Studio - ^(c^) 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones
+  echo de IA usan servicios de internet ^(lee PRIVACIDAD.md^).
   echo Lee PRIVACIDAD.md y TERMINOS.md: al abrir la app veras el aviso de privacidad.
   echo Instalando por primera vez, espera unos minutos...
   py -3 -m venv .venv

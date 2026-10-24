@@ -23,18 +23,21 @@ ESTILOS = {"auto": "", "vector": "flat vector illustration, bold clean outlines,
            "grabado": "vintage engraving illustration, fine cross-hatching, woodcut style, ink lines",
            "foto": "professional photography, realistic, natural light"}
 _ILUSTRADOS = ("ilustracion", "estampado", "logo")  # el motivo ES la pieza: entero, sin recortar y sin el logo encima
-_FOTO = re.compile(r"\b(?:photo\w*|hyper-?realistic|realistic|realism)\b", re.I)  # Gemini las escribe por costumbre
+# Gemini las escribe por costumbre. Solo las de estilo: «photographer» es el motivo, no el estilo
+_FOTO = re.compile(r"\b(?:(?:hyper|ultra|photo)-?)?realis(?:tic|m)\b-?|\bphoto(?:s|graphs?|graphy|graphic)?\b-?", re.I)
 _DECORATIVAS = ("Pirata One", "Grenze Gotisch", "Metal Mania", "New Rocker", "Creepster", "Cinzel Decorative")
 _PRIVADO = re.compile(r"https?://\S+|\b[0-9a-fA-F]{32}\b")  # la URL de Cloudflare lleva el ID de la cuenta
-# Datos que las IA se inventan y el hueco que los sustituye. El correo va antes que la web y la @ que lleva dentro;
-# los % de 1 o 2 cifras (un «100 % natural» no es una oferta); un teléfono tiene al menos 8 cifras
+# Datos que las IA se inventan y el hueco que los sustituye. El correo va antes que la web y la @ que lleva dentro
 _DATOS = [(re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), t("[Contacto]")),
           (re.compile(r"(?:https?://|www\.)\S+|\b[\w-]+\.(?:com|net|org|es|do|mx|co|io|app|shop|store)\b", re.I),
            t("[Web]")),
-          (re.compile(r"@\w+"), t("[Contacto]")),
-          (re.compile(r"(?:RD\$|US\$|[$€£])\s?\d[\d.,]*|\d[\d.,]*\s?(?:[€$£]|euros?\b|pesos?\b|dólares\b|USD\b|EUR\b)"
-                      r"|\b\d{1,2}(?:[.,]\d+)?\s?%", re.I), t("[Precio]")),
-          (re.compile(r"\+?\(?\d(?:[\s().-]*\d){7,}"), t("[Teléfono]"))]
+          (re.compile(r"@\w+"), t("[Contacto]"))]
+# Los % de 1 o 2 cifras: un «100 % natural» no es una oferta
+_PRECIO = re.compile(r"(?:RD\$|US\$|[$€£])\s?\d[\d.,]*|\d[\d.,]*\s?(?:[€$£]|euros?\b|pesos?\b|dólares\b|USD\b|EUR\b)"
+                     r"|\b\d{1,2}(?:[.,]\d+)?\s?%", re.I)
+# Al menos 8 cifras; un horario («10.00 - 22.00») o unos miles («15.000.000») no son un teléfono
+_TELEFONO = re.compile(r"\+?\(?\d(?:[\s().-]*\d){7,}")
+_NO_TELEFONO = re.compile(r"\d{1,2}\.\d{2}(?:\s*-\s*\d{1,2}\.\d{2})+|\d{1,3}(?:\.\d{3})+")
 FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
           "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
           "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
@@ -246,29 +249,44 @@ def _cubierta(c: dict, foto: dict) -> float:
     return max(0, ancho) * max(0, alto) / (c["ancho"] * c["alto"])
 
 
+def _cifras(numero: str) -> str:
+    """Las cifras de un número, sin céntimos a cero: «RD$1,500.00» y «1500 pesos» son el mismo precio."""
+    return re.sub(r"\D", "", re.sub(r"[.,]00?(?!\d)", "", numero))
+
+
 def _sin_inventos(texto: str, permitido: str) -> str:
     """El texto con los precios, %, webs, @, teléfonos y correos que no vienen en `permitido` (el pedido y la marca)
-    cambiados por su hueco: las IA se los inventan."""
+    cambiados por su hueco: las IA se los inventan. Precios y teléfonos se comparan por sus cifras: la IA escribe
+    «RD$500» por el «500 pesos» del pedido, o «+1 809 555 1234» por su «809-555-1234»."""
     def limpio(s):
         return re.sub(r"https?://|www\.|[\s().-]", "", s.lower())
+    numeros = {_cifras(n) for n in re.findall(r"\d[\d.,]*", permitido)}
+    telefonos = [_cifras(n) for n in re.findall(r"\d(?:[\s().-]*\d){6,}", permitido)]
+
+    def telefono(m):  # con o sin el prefijo del país: cuentan las últimas cifras (hasta 10)
+        n = _cifras(m[0])
+        return m[0] if _NO_TELEFONO.fullmatch(m[0]) or any(
+            n[-(k := min(len(n), len(p), 10)):] == p[-k:] for p in telefonos) else t("[Teléfono]")
     for patron, hueco in _DATOS:
         texto = patron.sub(lambda m: m[0] if limpio(m[0]) in limpio(permitido) else hueco, texto)
-    return texto
+    texto = _PRECIO.sub(lambda m: m[0] if _cifras(m[0]) in numeros else t("[Precio]"), texto)
+    return _TELEFONO.sub(telefono, texto)
 
 
 def _causa(error: Exception) -> str:
     """El porqué de una imagen que no salió, corto y sin la URL ni el ID de la cuenta del servicio."""
     causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-    if re.search(r"\b429\b|quota|neurons", causa, re.I):
+    if re.search(r"\b429\b|quota|cuota|neurons", causa, re.I):  # nubes ya lo resume como «se acabó la cuota…»
         return t("se acabó la cuota gratis de imágenes de hoy")
     return _PRIVADO.sub("…", causa)
 
 
-def _prompt(prompt: str, estilo: str, fondo: str = "") -> str:
-    """El prompt de la IA de imágenes con el sufijo del estilo. Con un estilo de ilustración va sin palabras de foto;
-    con fondo (el color del lienzo), aislada sobre un fondo liso de ese color, para que case con el lienzo."""
-    if estilo != "foto" and (estilo != "auto" or fondo):
-        prompt = ", ".join(p for p in (" ".join(trozo.split()) for trozo in _FOTO.sub("", prompt).split(",")) if p)
+def _prompt(prompt: str, estilo: str, ilustra: bool = False, fondo: str = "") -> str:
+    """El prompt de la IA de imágenes con el sufijo del estilo. Una ilustración (por su estilo o por `ilustra`) va sin
+    palabras de foto; con fondo (el color que tendrá detrás), aislada sobre un fondo liso de ese color."""
+    if estilo != "foto" and (estilo != "auto" or ilustra):
+        prompt = ", ".join(p for p in (" ".join(trozo.split()).strip(" -")
+                                       for trozo in _FOTO.sub("", prompt).split(",")) if p)
     partes = [prompt, ESTILOS[estilo], f"isolated on plain solid background {fondo}" if fondo else ""]
     return ", ".join(p for p in partes if p) + _SIN_TEXTO
 
@@ -285,14 +303,18 @@ def _comprobar(tipo: str = "post", estilo: str = "auto") -> None:
 
 def _detras(debajo: list[dict], c: dict, fondo: dict, alto: int) -> str:
     """El color que queda detrás del centro de la capa: el de la última forma que lo cubre o el del fondo a esa
-    altura; "" si es una foto."""
+    altura (en un degradado, la mezcla de arriba a abajo que pinta diseno.escena); "" si es una foto."""
     cx, cy = c["x"] + c["ancho"] / 2, c["y"] + c["alto"] / 2
     for f in reversed(debajo):
         if (f["tipo"] in ("forma", "imagen") and f.get("forma") != "linea"
                 and f["x"] <= cx <= f["x"] + f["ancho"] and f["y"] <= cy <= f["y"] + f["alto"]):
             return f.get("relleno", "")
+    if fondo["tipo"] == "imagen":
+        return ""
     colores = fondo["colores"]
-    return "" if fondo["tipo"] == "imagen" else colores[min(len(colores) - 1, round(cy / alto * (len(colores) - 1)))]
+    pos = min(cy / alto, 1) * (len(colores) - 1)
+    a, b, f = QColor(colores[int(pos)]), QColor(colores[math.ceil(pos)]), pos - int(pos)
+    return QColor(*(round(x + (y - x) * f) for x, y in zip(a.getRgb()[:3], b.getRgb()[:3]))).name().upper()
 
 
 def _contraste(capas: list[dict], fondo: dict, alto: int) -> None:
@@ -310,11 +332,11 @@ def _contraste(capas: list[dict], fondo: dict, alto: int) -> None:
 
 
 def _convertir(r: dict, ancho: int, alto: int, fuente_titulo: str, fuente_texto: str, paleta: list[str],
-               avisos: list[str], ilustra: bool = False, permitido: str | None = None) -> dict:
+               avisos: list[str], ilustra: bool = False, permitido: str = "") -> dict:
     """La respuesta de la IA (en %) como diseño del contrato (en píxeles), con todo lo raro ya corregido. Las fotos
     llevan su prompt_imagen (validar lo quita al final). Lo que tiene que quitar lo apunta en avisos.
     ilustra: las imágenes son ilustraciones (enteras y cuadradas). permitido: los datos que pueden salir en los
-    textos (None: no se miran, p. ej. en el diseño que hizo el agente)."""
+    textos (el pedido y la marca)."""
     fuentes = {f.lower(): f for f in recursos.fuentes()}
     iconos = set(recursos.iconos())
     colores = r.get("fondo_colores") if isinstance(r.get("fondo_colores"), list) else []
@@ -335,7 +357,7 @@ def _convertir(r: dict, ancho: int, alto: int, fuente_titulo: str, fuente_texto:
     for c in lista:
         tipo, texto, caja = c.get("tipo"), _txt(c.get("texto"), 200), _caja(c, ancho, alto)
         redondeo = round(_num(c.get("redondeo"), 0, 50, 0) * min(caja["ancho"], caja["alto"]) / 100)
-        if tipo == "texto" and permitido is not None:
+        if tipo == "texto":
             texto = _sin_inventos(texto, permitido)
         if tipo == "texto" and texto:
             negrita = c.get("negrita") is True
@@ -432,7 +454,8 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
           estilo: str = "auto") -> dict:
     """Diseño completo y editable desde un pedido: lo guarda en su carpeta y exporta una vista previa PNG.
     propuesta: el diseño ya hecho (forma de ESQUEMA, en %) por quien maneja el estudio; entonces no se usa la IA de
-    texto (las fotos sí se generan, y el diseño pasa por las mismas comprobaciones).
+    texto (las fotos sí se generan, y el diseño pasa por las mismas comprobaciones). Los datos reales (precios, webs,
+    teléfonos…) tienen que venir en el pedido o en la marca: los demás se cambian por su hueco, como los de la IA.
     estilo: de ESTILOS; fuera de «auto» y «foto» (y siempre en ilustracion, estampado y logo) las imágenes son
     ilustraciones enteras y cuadradas."""
     pedido = str(pedido or "").strip()[:2000]  # da para cualquier pieza; más solo gasta tokens de la IA de texto
@@ -488,9 +511,8 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA)
     r = r if isinstance(r, dict) else {}
     avisos = []
-    # Lo que diseñó el agente no se mira: los datos se los dio el usuario en la conversación
-    permitido = None if propuesta is not None else " ".join([pedido] + ([m["nombre"], m["eslogan"], m["tono"]]
-                                                                        if usar_marca else []))
+    # También en una propuesta: el Director de la app (una IA gratis) la escribe él mismo y también inventa
+    permitido = " ".join([pedido] + ([m["nombre"], m["eslogan"], m["tono"]] if usar_marca else []))
     d = _convertir(r, ancho, alto, fuente_titulo, fuente_texto, paleta, avisos, ilustra, permitido)
     if not d["capas"]:
         raise RuntimeError(t("La IA no devolvió ninguna capa que se pueda usar. Inténtalo de nuevo o cambia el "
@@ -498,14 +520,16 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
 
     carpeta = diseno.nueva_carpeta(d["nombre"])
     fotos = ([d["fondo"]] if d["fondo"]["tipo"] == "imagen" else []) + [c for c in d["capas"] if c["tipo"] == "imagen"]
-    fondo_lienzo = d["fondo"]["colores"][0]
     for n, foto in enumerate(fotos, 1):
         paso = 0.2 + 0.65 * (n - 1) / len(fotos)
         aviso(t("Foto {n} de {total}…", n=n, total=len(fotos)), paso)
         es_fondo = foto is d["fondo"]
+        # Una ilustración, sobre el color que tendrá detrás (en un degradado, el de su altura): si no, se ve su cuadrado
+        es_dibujo = ilustra and not es_fondo
+        detras = _detras(d["capas"][:d["capas"].index(foto)], foto, d["fondo"], alto) if es_dibujo else ""
         try:
             # Al tamaño de su caja; los servicios no hacen imágenes de menos de 64 px
-            ia.imagen(_prompt(foto["prompt_imagen"], estilo, fondo_lienzo if ilustra and not es_fondo else ""),
+            ia.imagen(_prompt(foto["prompt_imagen"], estilo, es_dibujo, detras),
                       max(64, ancho if es_fondo else foto["ancho"]), max(64, alto if es_fondo else foto["alto"]),
                       carpeta / "imagenes" / (foto["imagen"] if es_fondo else foto["archivo"]))
         except Exception as error:  # cuota agotada o servicio caído: el diseño sale igual, sin esa foto
@@ -513,9 +537,9 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
             if es_fondo:
                 d["fondo"] = {"tipo": "degradado", "colores": paleta[:2], "imagen": ""}
                 nota = t("La foto de fondo no salió ({causa}). Se usó un degradado de color.", causa=causa)
-            else:  # y el marco que la IA le puso detrás, que quedaría vacío
-                d["capas"] = [c for c in d["capas"] if c is not foto
-                              and not (c["tipo"] == "forma" and _cubierta(c, foto) >= 0.8)]
+            else:  # y el marco que la IA le puso detrás (casi la misma caja), que quedaría vacío; lo de encima se queda
+                d["capas"] = [c for c in d["capas"] if c is not foto and not (
+                    c["tipo"] == "forma" and _cubierta(c, foto) >= 0.8 and _cubierta(foto, c) >= 0.8)]
                 nota = t("La foto {n} no salió ({causa}). Se quitó esa capa.", n=n, causa=causa)
             avisos.append(nota)
             aviso(nota, paso)
@@ -535,4 +559,4 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     descripcion = _txt(r.get("descripcion"), 1000)
     return {"tipo": "diseno", "carpeta": str(carpeta), "archivo": str(png), "diseno": d, "avisos": avisos,
             "titulo": d["nombre"],
-            "descripcion": descripcion if permitido is None else _sin_inventos(descripcion, permitido)}
+            "descripcion": _sin_inventos(descripcion, permitido)}

@@ -33,7 +33,7 @@ def imagen(prompt, ancho, alto, destino):
         raise RuntimeError("Ninguna opción pudo hacerlo.\nCloudflare: Client error '429 Too Many Requests' for url "
                            f"'https://api.cloudflare.com/client/v4/accounts/{CUENTA}/ai/run/@cf/flux' — {CUENTA}")
     if "FALLA" in prompt:
-        raise RuntimeError("Ninguna opción pudo hacerlo.\ncuota agotada")
+        raise RuntimeError("Ninguna opción pudo hacerlo.\nservicio caído")
     foto = QImage(ancho, alto, QImage.Format_RGB32)
     foto.fill(QColor("#00AA00"))
     assert foto.save(str(destino))
@@ -142,6 +142,28 @@ assert sin_inventos("Entrada 15 € · www.x.com · 809-555-1234", "entrada 15�
     "Entrada 15 € · www.x.com · 809-555-1234"
 assert sin_inventos("Sábado 20 a las 21:00 · 2026 · 1.500.000 likes", "x") == \
     "Sábado 20 a las 21:00 · 2026 · 1.500.000 likes"  # fechas, horas y cifras sueltas no son datos de contacto
+# Horarios y miles con puntos tampoco son teléfonos; un teléfono con puntos sí
+assert sin_inventos("Abierto 10.00 - 22.00", "pizzeria abierta de 10 a 22") == "Abierto 10.00 - 22.00"
+assert sin_inventos("Más de 15.000.000 de vistas", "canal de youtube") == "Más de 15.000.000 de vistas"
+assert sin_inventos("Llama al 809.555.1234", "x") == "Llama al [Teléfono]"
+# Precios y teléfonos del pedido escritos de otra forma: se comparan sus cifras
+assert sin_inventos("Pizza grande RD$500", "pizza grande a 500 pesos") == "Pizza grande RD$500"
+assert sin_inventos("Entrada 15 €", "flyer fiesta, entrada 15 euros") == "Entrada 15 €"
+assert sin_inventos("Entrada €15", "entrada 15€") == "Entrada €15"
+assert sin_inventos("Total RD$1,500.00", "1500 pesos") == "Total RD$1,500.00"
+assert sin_inventos("WhatsApp +1 809 555 1234", "whatsapp 809 555 1234") == "WhatsApp +1 809 555 1234"
+assert sin_inventos("Tel. +34 600 123 456", "tel 600123456") == "Tel. +34 600 123 456"
+# ...pero otras cifras siguen siendo inventos
+assert sin_inventos("Pizza RD$5000 · 30% OFF", "pizza a 500 pesos") == "Pizza [Precio] · [Precio] OFF"
+assert sin_inventos("WhatsApp 829 555 1234", "whatsapp 809 555 1234") == "WhatsApp [Teléfono]"
+
+# Solo se quitan las palabras de estilo fotográfico, no el motivo (una fotógrafa, un estudio de fotos)
+prompt_de = diseno_ia._prompt
+assert prompt_de("a female photographer with a camera", "vector").startswith("a female photographer with a camera, ")
+assert prompt_de("photography studio emblem, photographer silhouette", "auto", True, "#FFFFFF") == \
+    "studio emblem, photographer silhouette, isolated on plain solid background #FFFFFF" + diseno_ia._SIN_TEXTO
+assert prompt_de("photo-realistic skull, ultra-realistic photos", "vector") == \
+    "skull, " + diseno_ia.ESTILOS["vector"] + diseno_ia._SIN_TEXTO
 
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)
@@ -321,7 +343,7 @@ with tempfile.TemporaryDirectory() as d:
     r = crear([capa(texto="Sigue"), capa(tipo="imagen", prompt_imagen="FALLA capa")], fondo_prompt_imagen="FALLA fondo")
     assert r["diseno"]["fondo"] == {"tipo": "degradado", "colores": ["#123456", "#ABCDEF"], "imagen": ""}
     assert [c["tipo"] for c in r["diseno"]["capas"]] == ["texto", "imagen"]  # la foto se quitó; queda el logo
-    assert len(r["avisos"]) == 2 and all("cuota agotada" in a and "Ninguna opción" not in a for a in r["avisos"])
+    assert len(r["avisos"]) == 2 and all("servicio caído" in a and "Ninguna opción" not in a for a in r["avisos"])
     assert "fondo" in r["avisos"][0] and "Se quitó esa capa" in r["avisos"][1]
     assert diseno.abrir(Path(r["carpeta"])) == r["diseno"] and Path(r["archivo"]).is_file()
     r = crear([capa(tipo="imagen", prompt_imagen="pizza")], fondo_prompt_imagen="FALLA fondo", usar_marca=False)
@@ -464,6 +486,13 @@ with tempfile.TemporaryDirectory() as d:
         assert [c["tipo"] for c in r["diseno"]["capas"]] == ["imagen"] and r["avisos"] == [], tipo
         assert ilus["ajuste"] == "contener" and ilus["ancho"] == ilus["alto"], tipo
         assert fotos[0][0] == "skull, isolated on plain solid background #0F0F13" + diseno_ia._SIN_TEXTO
+    # Sobre un degradado, el color que tendrá detrás (el de su altura), no el de arriba; sobre una foto, ninguno
+    crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False,
+          estilo="vector", fondo_colores=["#000000", "#FF0000"])
+    assert "isolated on plain solid background #800000" in fotos[0][0]
+    crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False,
+          fondo_prompt_imagen="dark brick wall")
+    assert len(fotos) == 2 and "isolated" not in fotos[1][0] and fotos[1][0].startswith("skull")
     antes = set(diseno.CARPETA.iterdir())
     for estilo in ("VECTOR", "", None, "acuarela", ["vector"]):
         assert "Estilo desconocido" in falla(lambda: diseno_ia.crear("pizza", "post", estilo=estilo))
@@ -475,11 +504,15 @@ with tempfile.TemporaryDirectory() as d:
               descripcion="Ven, solo 9,99 € en santolapara.com")
     assert [c["texto"] for c in textos(r)] == ["Entrada [Precio] · [Web] · [Teléfono]", "PIZZA 2x1"]
     assert r["descripcion"] == "Ven, solo [Precio] en [Web]"
-    # Lo que diseñó el agente no se toca: esos datos se los dio el usuario
-    hecho = diseno_ia.crear("", "post", False, propuesta={
-        "titulo": "x", "descripcion": "d", "fondo_colores": ["#0F0F13"], "fondo_prompt_imagen": "",
-        "capas": [{"tipo": "texto", "x": 8, "y": 30, "ancho": 84, "alto": 20, "texto": "Entrada 15 € · www.x.com"}]})
-    assert textos(hecho)[0]["texto"] == "Entrada 15 € · www.x.com"
+    # En una propuesta también (el Director de la app la escribe él mismo): los datos reales vienen en el pedido
+    propuesta = {"titulo": "x", "descripcion": "Solo hoy: 30% OFF", "fondo_colores": ["#0F0F13"],
+                 "fondo_prompt_imagen": "", "capas": [{"tipo": "texto", "x": 8, "y": 30, "ancho": 84, "alto": 20,
+                                                       "texto": "Entrada 15 € · www.x.com · 30% OFF"}]}
+    hecho = diseno_ia.crear("", "post", False, propuesta=propuesta)
+    assert textos(hecho)[0]["texto"] == "Entrada [Precio] · [Web] · [Precio] OFF"
+    assert hecho["descripcion"] == "Solo hoy: [Precio] OFF"
+    hecho = diseno_ia.crear("fiesta, entrada 15 euros, web x.com", "post", False, propuesta=propuesta)
+    assert textos(hecho)[0]["texto"] == "Entrada 15 € · www.x.com · [Precio] OFF"
 
     # ---------- Cuota de imágenes agotada (429): se va la foto y su marco, y no se enseña la URL ----------
     r = crear([capa(tipo="forma", x=5, y=25, ancho=90, alto=50, color="#5A3A1A"),
@@ -490,6 +523,16 @@ with tempfile.TemporaryDirectory() as d:
     assert r["diseno"]["capas"][0]["y"] == round(1080 * 0.85)
     assert len(r["avisos"]) == 1 and "cuota gratis" in r["avisos"][0]
     assert "http" not in r["avisos"][0] and CUENTA not in r["avisos"][0]
+    # Una foto a lienzo completo que falla: se va ella sola; la banda y el botón que iban encima se quedan
+    r = crear([capa(tipo="imagen", prompt_imagen="FALLA429 pizza", x=0, y=0, ancho=100, alto=100),
+               capa(tipo="forma", x=0, y=60, ancho=100, alto=24, color="#000000", opacidad=50),
+               capa(tipo="forma", x=25, y=86, ancho=50, alto=8, color="#FF4D8D", redondeo=50),
+               capa(texto="PIZZA 2x1", y=64, alto=14), capa(texto="Pide ya", x=25, y=86, ancho=50, alto=8)],
+              usar_marca=False)
+    assert [c["tipo"] for c in r["diseno"]["capas"]] == ["forma", "forma", "texto", "texto"]
+    # nubes ya resume la cuota agotada («se acabó la cuota gratis de hoy»): se reconoce y no se repite
+    cuota = diseno_ia._causa(RuntimeError("Ninguna opción pudo hacerlo.\nCloudflare: se acabó la cuota gratis de hoy"))
+    assert cuota == "se acabó la cuota gratis de imágenes de hoy"
     otro = diseno_ia._causa(RuntimeError(f"Ninguna opción pudo hacerlo.\nReplicate: 500 for url "
                                          f"'https://api.replicate.com/v1/{CUENTA}'\nOpenAI: sin clave"))
     assert "http" not in otro and CUENTA not in otro and "sin clave" in otro and "Ninguna opción" not in otro

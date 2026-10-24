@@ -132,4 +132,14 @@ class PaginaCabina(PaginaTrabajo):
         cancion = self.para_separar.text().strip()
         if not archivo_valido(self, cancion, seguro.AUDIOS, t("canción")):
             return
-        self.lanzar(self.separar_btn, cabina.separar_cancion, cancion=cancion)
+        if self.lanzar(self.separar_btn, cabina.separar_cancion, cancion=cancion):
+            self.tarea.listo.connect(self._usar_separada)
+
+    def _usar_separada(self, p):
+        """Una canción de fuera (Suno u otra app) queda lista para «Producir canción»: mezcla y master. Sin pisar el
+        trabajo en curso: voz y pista solo si las dos están vacías (siempre de una misma canción); el título, igual."""
+        if not (self.voz.text().strip() or self.pista.text().strip()):
+            self.voz.setText(p["resultados"][0]["archivo"])
+            self.pista.setText(p["resultados"][1]["archivo"])
+        if not self.titulo_cancion.text().strip():
+            self.titulo_cancion.setText(p["titulo"])

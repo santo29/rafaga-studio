@@ -45,7 +45,7 @@ PREFERENCIA = {
     "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai"],  # gratis primero
     "transcripcion": ["groq", "openai"],
     "video": ["huggingface", "modal", "pollinations"],  # gratis primero; igual que nubes.ORDEN
-    "musica": ["elevenlabs", "gemini"],
+    "musica": ["gemini", "elevenlabs"],  # Lyria: ~$0.08 por canción y suena mejor; ElevenLabs: ~$0.30-0.45
 }
 
 # De pago y con una clave que muchos conectan por otra cosa (Gemini, por su texto gratis): se ofrecen para elegir,

@@ -99,14 +99,19 @@ def separar_voz_y_pista(cancion: str) -> str:
     return _json(cabina.separar_cancion(ruta(cancion), aviso=_aviso()))
 
 
-def crear_diseno(pedido: str, tipo: str = "post", usar_marca: bool = True) -> str:
+def crear_diseno(pedido: str, tipo: str = "post", usar_marca: bool = True, propuesta: dict | None = None) -> str:
     """Diseña una pieza gráfica en capas editables (como en Canva): textos, formas, iconos, emojis y fotos.
-    tipo: anuncio, post, historia, miniatura, flyer, logo, tarjeta o marca_personal.
+    tipo: anuncio, post, historia, miniatura, flyer, logo, tarjeta, marca_personal o presentacion (diapositiva 16:9).
+    propuesta (opcional): si tú diseñas, pásalo y no se usa la IA de texto de la app. Medidas en % del lienzo (0-100):
+    {"titulo", "descripcion", "fondo_colores": ["#RRGGBB", ...], "fondo_prompt_imagen": foto de fondo en inglés o "",
+    "capas": [{"tipo": texto|imagen|forma|icono|emoji, "x", "y", "ancho", "alto", y según el tipo: "texto", "fuente",
+    "tamano" (alto de letra en % del alto), "color", "negrita", "alineacion" (izquierda|centro|derecha), "sombra",
+    "forma" (rectangulo|elipse|linea), "redondeo", "opacidad", "icono" (nombre Lucide), "prompt_imagen"}]}.
     usar_marca: usa el nombre, los colores, las fuentes y el logo guardados en «Mi marca» de la app.
     El diseño lo piensa la IA de texto conectada y las fotos se generan con la IA de imágenes conectada (primero
     lo gratis). Devuelve la carpeta del diseño (se abre y se edita en la página «Diseño» de la app), la vista
     previa PNG y los avisos."""
-    return _json(diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso()))
+    return _json(diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso(), propuesta=propuesta))
 
 
 def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:16", musica: str = "",

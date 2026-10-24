@@ -4,14 +4,13 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, QLocale, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QDateTime, QLocale, Qt, QTimer
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
+                               QWidget)
 
 from motor import claves, edicion, idioma, nubes, seguro, serie, shorts
 from motor.idioma import t
-from ui.comun import boton, etiqueta, Reproductor, tarjeta
+from ui.comun import boton, etiqueta, Reproductor, tarjeta, ver_imagen
 from ui.iconos import icono
 from ui.paginas import director as pagina_director
 from ui.paginas.claves import NOMBRES_PROVEEDOR
@@ -275,25 +274,21 @@ class PaginaInicio(QWidget):
     # ---------- Ejemplos ----------
 
     def _galeria(self):
-        """Los videos de ejemplo (ejemplos/), para ver de qué es capaz el estudio. Sin ejemplos, no sale."""
+        """Los ejemplos (ejemplos/): los videos se ven aquí y los diseños se abren en grande. Sin ejemplos, no sale."""
         caja = QWidget()
         lay = QVBoxLayout(caja)
         lay.setContentsMargins(0, 12, 0, 0)
         lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "seccion"))
-        fila = QHBoxLayout()
-        for e in pagina_director.ejemplos():
-            b = QToolButton()
-            b.setObjectName("ejemplo")
-            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            b.setIcon(QIcon(QPixmap(str(pagina_director.EJEMPLOS / f"{e['id']}.jpg"))))
-            b.setIconSize(QSize(99, 176) if e.get("formato") in ("9:16", "4:5") else QSize(240, 135))
-            b.setText(str(e.get("titulo", ""))[:60])
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _, e=e: self._ver_ejemplo(e))
-            fila.addWidget(b)
-        fila.addStretch()
-        lay.addLayout(fila)
-        caja.setVisible(fila.count() > 1)
+        videos, disenos = pagina_director.ejemplos(), pagina_director.disenos()
+        for lista, abrir in ((videos, self._ver_ejemplo),
+                             (disenos, lambda d: ver_imagen(self, pagina_director.EJEMPLOS / f"{d['id']}.jpg",
+                                                            str(d.get("titulo", ""))))):
+            fila = QHBoxLayout()
+            for e in lista:
+                fila.addWidget(pagina_director.tarjeta_ejemplo(e, lambda e=e, abrir=abrir: abrir(e)))
+            fila.addStretch()
+            lay.addLayout(fila)
+        caja.setVisible(bool(videos or disenos))
         return caja
 
     def _ver_ejemplo(self, e: dict):

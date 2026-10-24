@@ -21,7 +21,8 @@ from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, re
 FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Línea")}
 TIPOS_IA = {"anuncio": t("Anuncio"), "post": t("Post"), "historia": t("Historia / Reel"),
             "miniatura": t("Miniatura de YouTube"), "flyer": t("Flyer"), "logo": t("Logo"),
-            "tarjeta": t("Tarjeta de presentación"), "marca_personal": t("Marca personal")}
+            "tarjeta": t("Tarjeta de presentación"), "marca_personal": t("Marca personal"),
+            "presentacion": t("Presentación (diapositiva)")}
 FORMATOS = {"png": "PNG (*.png)", "jpg": "JPG (*.jpg)", "pdf": "PDF (*.pdf)", "svg": "SVG (*.svg)"}
 FILTRO_IMAGENES = t("Imágenes ({tipos})", tipos=" ".join("*" + e for e in sorted(seguro.IMAGENES)))
 # ESTILO no pinta diálogos ni menús: con Windows en modo claro saldrían claros con el texto claro de la app

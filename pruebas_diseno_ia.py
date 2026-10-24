@@ -106,7 +106,7 @@ assert corta is not None and [c["tipo"] for c in corta["capas"]] == ["texto", "i
 assert "PORCENTAJE" in diseno_ia.INSTRUCCIONES and "nunca píxeles" in diseno_ia.INSTRUCCIONES
 assert all(t in diseno.TAMANOS for t, _ in diseno_ia.TIPOS.values())
 assert set(diseno_ia.TIPOS) == {"anuncio", "post", "historia", "miniatura", "flyer", "logo", "tarjeta",
-                                "marca_personal"}
+                                "marca_personal", "presentacion"}
 
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)
@@ -390,6 +390,19 @@ with tempfile.TemporaryDirectory() as d:
         falla(diseno_ia.crear, pedido)
     assert set(diseno.CARPETA.iterdir()) == antes
 
+    # Un diseño hecho por el agente (Claude por el MCP): se usa tal cual, sin la IA de texto, con las mismas reglas
+    guardado, ia.texto_json = ia.texto_json, lambda *a: (_ for _ in ()).throw(AssertionError("no debía usar la IA"))
+    try:
+        hecho = diseno_ia.crear("", "presentacion", False, propuesta={
+            "titulo": "Ráfaga", "descripcion": "d", "fondo_colores": ["#0F0F13"], "fondo_prompt_imagen": "",
+            "capas": [{"tipo": "texto", "x": 8, "y": 30, "ancho": 84, "alto": 20, "texto": "Ráfaga Studio",
+                       "tamano": 12, "color": "#FFFFFF"}]})
+        assert hecho["diseno"]["ancho"] == 1280 and Path(hecho["archivo"]).is_file()
+        falla(lambda: diseno_ia.crear("", "post", propuesta={"titulo": "sin capas"}))
+        falla(lambda: diseno_ia.crear("", "post", propuesta="no es json"))
+    finally:
+        ia.texto_json = guardado
+
     # ---------- La herramienta MCP ----------
     import mcp_server  # noqa: E402
     respuesta.update({"capas": [capa(texto="Juan Pérez"), capa(tipo="icono", icono="mail")]})
@@ -408,7 +421,7 @@ with tempfile.TemporaryDirectory() as d:
     falla(mcp_server.crear_video, "x", "9:16", "no es un número", error=ToolError)  # y en todas las herramientas
     herramientas = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert len(herramientas) == 15 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
-    assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca"}
+    assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción
 assert "crear_diseno" in conexion_mcp.probar()  # el servidor arranca y la lista
 print("Pruebas de la IA diseñadora pasadas.")

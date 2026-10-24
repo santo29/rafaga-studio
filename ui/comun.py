@@ -356,6 +356,25 @@ class PaginaTrabajo(QWidget):
         return True
 
 
+def ver_imagen(padre, ruta, titulo: str):
+    """Una imagen (p. ej. un diseño de ejemplo) en grande, en una ventana con el estilo de la app."""
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QDialog
+    ventana = QDialog(padre)
+    ventana.setWindowTitle(titulo)
+    lay = QVBoxLayout(ventana)
+    lay.setContentsMargins(16, 16, 16, 16)
+    imagen = QLabel()
+    imagen.setPixmap(QPixmap(str(ruta)).scaled(QSize(960, 720), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    imagen.setAlignment(Qt.AlignCenter)
+    lay.addWidget(imagen)
+    cerrar = boton(t("Cerrar"))
+    cerrar.clicked.connect(ventana.accept)
+    lay.addWidget(cerrar, 0, Qt.AlignRight)
+    ventana.open()  # sin bloquear: la app sigue viva detrás
+    return ventana
+
+
 def campo_archivo(texto, filtro, al_elegir=None):
     """Una caja de texto con botón «Elegir…» para escoger un archivo."""
     fila = QHBoxLayout()

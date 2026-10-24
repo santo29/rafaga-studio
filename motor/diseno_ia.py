@@ -33,6 +33,9 @@ TIPOS = {
                            "datos de contacto con iconos (phone, mail, map-pin, globe). Fondo liso o degradado suave."),
     "marca_personal": ("post", "Post de marca personal que presenta a la persona: foto retrato, nombre grande, a qué "
                                "se dedica en una línea y una frase con su propuesta de valor."),
+    "presentacion": ("miniatura", "Diapositiva de presentación 16:9 (como PowerPoint o Keynote): un título grande, un "
+                                  "subtítulo corto, una foto o un icono grande a un lado, mucho aire y todo alineado a "
+                                  "una misma rejilla. Nada de párrafos."),
 }
 
 _N, _T, _B = {"type": "number"}, {"type": "string"}, {"type": "boolean"}
@@ -279,10 +282,14 @@ def _convertir(r: dict, ancho: int, alto: int, fuente_titulo: str, fuente_texto:
 
 
 def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
-          aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
-    """Diseño completo y editable desde un pedido: lo guarda en su carpeta y exporta una vista previa PNG."""
+          aviso: Callable[[str, float], None] = lambda t, f: None, propuesta: dict | None = None) -> dict:
+    """Diseño completo y editable desde un pedido: lo guarda en su carpeta y exporta una vista previa PNG.
+    propuesta: el diseño ya hecho (forma de ESQUEMA, en %) por quien maneja el estudio; entonces no se usa la IA de
+    texto (las fotos sí se generan, y el diseño pasa por las mismas comprobaciones)."""
     pedido = str(pedido or "").strip()[:2000]  # da para cualquier pieza; más solo gasta tokens de la IA de texto
-    if not pedido:
+    if propuesta is not None:  # se comprueba antes de crear nada
+        propuesta = ia.de_fuera(propuesta, ESQUEMA, t("El diseño"))
+    elif not pedido:
         raise ValueError(t("Escribe qué diseño quieres."))
     if not isinstance(tipo, str) or tipo not in TIPOS:
         raise ValueError(t("Tipo de diseño desconocido ({tipo!r:.30}); valen {tipos}.", tipo=tipo,
@@ -319,8 +326,9 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
                       f"100 e y {100 * logo_y / alto:.0f} a {100 * (logo_y + lado + margen) / alto:.0f}, y no dibujes "
                       "otro logo.")
 
-    aviso(t("La IA está diseñando…"), 0.05)
-    r = ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA)
+    if propuesta is None:
+        aviso(t("La IA está diseñando…"), 0.05)
+    r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas), ESQUEMA)
     r = r if isinstance(r, dict) else {}
     avisos = []
     d = _convertir(r, ancho, alto, fuente_titulo, fuente_texto, paleta, avisos)

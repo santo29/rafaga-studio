@@ -261,6 +261,15 @@ pagina.resize(1100, 900)
 pagina.show()
 ejemplos = pagina_director.ejemplos()
 assert all((pagina_director.EJEMPLOS / f"{e['id']}.mp4").is_file() for e in ejemplos)
+disenos_ej = pagina_director.disenos()
+assert all((pagina_director.EJEMPLOS / f"{e['id']}.jpg").is_file() for e in disenos_ej)
+if disenos_ej:  # los diseños de ejemplo se abren en grande, sin bloquear la app
+    from PySide6.QtWidgets import QLabel  # noqa: E402
+
+    from ui.comun import ver_imagen  # noqa: E402
+    visor = ver_imagen(pagina, pagina_director.EJEMPLOS / f"{disenos_ej[0]['id']}.jpg", disenos_ej[0]["titulo"])
+    assert visor.isVisible() and not visor.findChild(QLabel).pixmap().isNull()
+    visor.close()
 if ejemplos:
     pagina.ver_ejemplo(ejemplos[0])
     assert pagina.reproductor.isVisible() and pagina.reproductor.resultados[0]["archivo"].endswith(".mp4")

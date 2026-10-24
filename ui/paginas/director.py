@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QLineEdit, Q
 
 from motor import director, voz
 from motor.idioma import t
-from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Tarea, tarjeta
+from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Tarea, tarjeta, ver_imagen
 from ui.iconos import poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
@@ -34,6 +34,49 @@ def ejemplos() -> list[dict]:
         return []
     return [e for e in lista if isinstance(e, dict) and (EJEMPLOS / f"{e.get('id')}.mp4").is_file()
             and (EJEMPLOS / f"{e.get('id')}.jpg").is_file()]
+
+
+def disenos() -> list[dict]:
+    """Los diseños de ejemplo de ejemplos/disenos.json que tienen su imagen ({id}.jpg)."""
+    try:
+        lista = json.loads((EJEMPLOS / "disenos.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [e for e in lista if isinstance(e, dict) and (EJEMPLOS / f"{e.get('id')}.jpg").is_file()]
+
+
+def tarjeta_ejemplo(e: dict, al_pulsar) -> QToolButton:
+    """Un ejemplo (video o diseño) con su miniatura y su título, para las galerías del Director y de Inicio."""
+    imagen = QPixmap(str(EJEMPLOS / f"{e['id']}.jpg"))
+    alto = 176 if imagen.height() > imagen.width() else 135
+    b = QToolButton()
+    b.setObjectName("ejemplo")
+    b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+    b.setIcon(QIcon(imagen))
+    b.setIconSize(QSize(round(alto * imagen.width() / max(1, imagen.height())), alto))
+    b.setText(str(e.get("titulo", ""))[:60])
+    b.setToolTip(t("Pedido: «{pedido}»", pedido=str(e.get("pedido", ""))[:300]))
+    b.setCursor(Qt.PointingHandCursor)
+    b.setStyleSheet("QToolButton { background: transparent; border: none; border-radius: 10px; padding: 6px;"
+                    " font-size: 14px; } QToolButton:hover { background: #20202A; }")
+    b.clicked.connect(lambda _=False: al_pulsar())
+    return b
+
+
+def galeria_ejemplos(padre, ver_video) -> QWidget:
+    """Los ejemplos hechos con el estudio: una fila de videos (ver_video(e) los reproduce) y otra de diseños (se
+    abren en grande). Sin ejemplos, no se ve."""
+    caja, lay = tarjeta()
+    lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"))
+    for lista, abrir in ((ejemplos(), ver_video),
+                         (disenos(), lambda d: ver_imagen(padre, EJEMPLOS / f"{d['id']}.jpg", str(d.get("titulo", ""))))):
+        fila = QHBoxLayout()
+        for e in lista:
+            fila.addWidget(tarjeta_ejemplo(e, lambda e=e, abrir=abrir: abrir(e)))
+        fila.addStretch()
+        lay.addLayout(fila)
+    caja.setVisible(bool(ejemplos() or disenos()))
+    return caja
 
 
 class Escucha(QThread):
@@ -138,27 +181,7 @@ class PaginaDirector(QWidget):
     # ---------- Ejemplos ----------
 
     def _galeria(self):
-        caja, lay = tarjeta()
-        lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"))
-        fila = QHBoxLayout()
-        for e in ejemplos():
-            vertical = e.get("formato") in ("9:16", "4:5")
-            b = QToolButton()
-            b.setObjectName("ejemplo")
-            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            b.setIcon(QIcon(QPixmap(str(EJEMPLOS / f"{e['id']}.jpg"))))
-            b.setIconSize(QSize(99, 176) if vertical else QSize(240, 135))
-            b.setText(str(e.get("titulo", ""))[:60])
-            b.setToolTip(t("Pedido: «{pedido}»", pedido=str(e.get("pedido", ""))[:300]))
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet("QToolButton { background: transparent; border: none; border-radius: 10px; padding: 6px;"
-                            " font-size: 14px; } QToolButton:hover { background: #20202A; }")
-            b.clicked.connect(lambda _, e=e: self.ver_ejemplo(e))
-            fila.addWidget(b)
-        fila.addStretch()
-        lay.addLayout(fila)
-        caja.setVisible(fila.count() > 1)
-        return caja
+        return galeria_ejemplos(self, self.ver_ejemplo)
 
     def ver_ejemplo(self, e: dict):
         guion = e.get("guion") or {}

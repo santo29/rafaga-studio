@@ -279,7 +279,7 @@ if ejemplos:
     tarjetas = [b for b in pagina.findChildren(QToolButton) if b.objectName() == "ejemplo"]
     assert len(tarjetas) == len(ejemplos) + len(disenos_ej)
     for b, e in zip(tarjetas, ejemplos):
-        assert bool(b.peli) == (pagina_director.EJEMPLOS / f"{e['id']}.gif").is_file(), e["id"]
+        assert bool(b.gif) == (pagina_director.EJEMPLOS / f"{e['id']}.gif").is_file(), e["id"]
     tarjetas[0].findChild(QMenu).actions()[0].trigger()
     assert pagina.pedido.text() == ejemplos[0]["pedido"] and not pagina.ocupado()
     pagina.pedido.clear()

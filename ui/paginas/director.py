@@ -98,25 +98,41 @@ def tarjeta_ejemplo(e: dict, al_pulsar, usar_pedido=None) -> QToolButton:
         b.setContextMenuPolicy(Qt.CustomContextMenu)
         b.customContextMenuRequested.connect(lambda punto: menu.exec(b.mapToGlobal(punto)))
     # Un GIF pequeño con QMovie, no el MP4: 3 MP4 de 720p a la vez gastaban casi un núcleo de un portátil de 4 hilos
-    peli = QMovie(str(EJEMPLOS / f"{e['id']}.gif"), parent=b)
-    b.peli = peli if peli.isValid() else None  # sin GIF (los diseños): se queda la miniatura fija
-    peli.frameChanged.connect(lambda _: b.setIcon(QIcon(peli.currentPixmap())))
-    peli.error.connect(lambda _: (setattr(b, "peli", None), b.setIcon(b.foto)))  # roto: la miniatura, sin reintentar
+    gif = EJEMPLOS / f"{e['id']}.gif"
+    b.gif = gif if gif.is_file() else None  # sin GIF (los diseños): se queda la miniatura fija
+    b.peli = None  # su QMovie, solo mientras se mueve (ver arrancar)
     return b
+
+
+def arrancar(b):
+    """Mueve la tarjeta. Su QMovie se crea aquí y se borra al pararla: abierto, Windows no deja reemplazar el GIF
+    (ejemplos/crear.py) y su decodificador ocupa memoria."""
+    if not b.peli:
+        b.peli = peli = QMovie(str(b.gif), parent=b)
+        peli.frameChanged.connect(lambda _: b.setIcon(QIcon(peli.currentPixmap())))
+        # roto: la miniatura, sin reintentar (un archivo que no es GIF avisa dos veces)
+        peli.error.connect(lambda _: (setattr(b, "gif", None), b.peli and parar(b)))
+    b.peli.start()
+
+
+def parar(b):
+    b.peli.stop()
+    b.peli.deleteLater()
+    b.peli = None
+    b.setIcon(b.foto)  # el JPG tiene mejor color que el cuadro del GIF
 
 
 def animar(tarjetas: list, limite: int = MAX_VIVAS):
     """Mueve las tarjetas con GIF que se ven (como mucho «limite») y la que está bajo el ratón; las demás, quietas con
     su JPG. Nada se mueve con la casilla apagada, la ventana sin foco o la página oculta (visibleRegion vacía)."""
     si = accion_animar().isChecked()
-    vistas = [b for b in tarjetas if si and b.peli and b.window().isActiveWindow() and not b.visibleRegion().isEmpty()]
+    vistas = [b for b in tarjetas if si and b.gif and b.window().isActiveWindow() and not b.visibleRegion().isEmpty()]
     vivas = [b for b in vistas if b.underMouse()] + [b for b in vistas if not b.underMouse()][:limite]
     for b in tarjetas:
-        if b.peli and b in vivas and b.peli.state() == QMovie.NotRunning:
-            b.peli.start()
-        elif b.peli and b not in vivas and b.peli.state() != QMovie.NotRunning:
-            b.peli.stop()
-            b.setIcon(b.foto)  # el JPG tiene mejor color que el cuadro del GIF
+        if b in vivas and not (b.peli and b.peli.state() == QMovie.Running):
+            arrancar(b)
+        elif b.peli and b not in vivas:
+            parar(b)
 
 
 def vigilar(padre, tarjetas: list, limite: int = MAX_VIVAS):
@@ -409,6 +425,10 @@ class PaginaDirector(QWidget):
         trabajo puede gastar cuota o dinero, y eso lo decide el usuario."""
         self.pedido.setText(pedido)
         self.pedido.setFocus()
+        # setFocus no desplaza la página, y la galería deja el campo debajo, fuera de la pantalla
+        area = self.parentWidget().parentWidget() if self.parentWidget() else None  # app.py la pone en un QScrollArea
+        if isinstance(area, QScrollArea):
+            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(self.pedido))
 
     def ver_ejemplo(self, e: dict):
         guion = e.get("guion") or {}

@@ -7,7 +7,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
-from PySide6.QtCore import QPoint, QPointF, QPropertyAnimation, Qt, QUrl  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, QPropertyAnimation, Qt, QUrl  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QMovie, QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QLabel, QMenu, QMessageBox, QPushButton,  # noqa: E402
                                QToolButton, QWidget)
@@ -221,15 +221,22 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     tarjetas = viva.galeria.tarjetas
     assert [b.text() for b in tarjetas] == [f"V{n}" for n in range(12)] + ["Roto", "Cartel"]
     roto, cartel = tarjetas[12:]
-    assert all(b.peli for b in tarjetas[:13]) and cartel.peli is None  # el diseño no tiene GIF
+    assert all(b.gif for b in tarjetas[:13]) and cartel.gif is None  # el diseño no tiene GIF
 
     def moviendose(lista):
         return [b.text() for b in lista if b.peli and b.peli.state() != QMovie.NotRunning]
+
+    def suelto(id_):  # un GIF abierto no se deja reemplazar en Windows (ejemplos/crear.py los vuelve a hacer)
+        ruta = pagina_director.EJEMPLOS / f"{id_}.gif"
+        os.replace(ruta, ruta.with_suffix(".tmp"))
+        os.replace(ruta.with_suffix(".tmp"), ruta)
+        return True
 
     vistas = [b.text() for b in tarjetas if not b.visibleRegion().isEmpty()]
     assert len(vistas) > 4 and "V11" not in vistas, vistas  # unas se ven y otras quedan fuera, a la derecha
     pagina_director.animar(tarjetas)
     assert moviendose(tarjetas) == ["V0", "V1", "V2"]  # se ven más, pero como mucho MAX_VIVAS
+    assert suelto("vivo-5") and suelto("vivo-11")  # las quietas no tienen su GIF abierto
     tarjetas[4].setAttribute(Qt.WA_UnderMouse, True)  # el ratón encima: esa también
     tarjetas[11].setAttribute(Qt.WA_UnderMouse, True)  # fuera de la vista no cuenta
     pagina_director.animar(tarjetas)
@@ -246,7 +253,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     carrusel.ensureWidgetVisible(roto)
     roto.setAttribute(Qt.WA_UnderMouse, True)  # el GIF roto falla al empezar: miniatura fija y no se reintenta
     pagina_director.animar(tarjetas)
-    assert roto.peli is None and roto.icon().cacheKey() == roto.foto.cacheKey()
+    assert roto.peli is None and roto.gif is None and roto.icon().cacheKey() == roto.foto.cacheKey()
     roto.setAttribute(Qt.WA_UnderMouse, False)
     assert "V0" not in moviendose(tarjetas)  # la fila se desplazó: la que salió de la vista, quieta
     barra.setValue(0)
@@ -257,6 +264,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not viva.isActiveWindow())
     pagina_director.animar(tarjetas)
     assert moviendose(tarjetas) == [] and all(b.icon().cacheKey() == b.foto.cacheKey() for b in tarjetas)
+    app.sendPostedEvents(None, QEvent.DeferredDelete)  # en la app lo hace su bucle de eventos
+    assert suelto("vivo-0")  # al pararse, la tarjeta suelta su GIF
     delante.close()
     viva.activateWindow()
     esperar(viva.isActiveWindow)
@@ -413,6 +422,21 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert ventana.director.pedido.text() == "Pedido 1" and not ventana.director.ocupado()
     pagina_director.animar(de_inicio)
     assert moviendose(de_inicio) == []
+    # Y la página baja hasta el campo: setFocus no la desplaza, y la galería lo dejaba debajo, fuera de la pantalla.
+    # Igual desde la galería del propio Director
+    area = ventana.paginas.currentWidget()
+
+    def se_ve(campo):
+        y = campo.mapTo(area.viewport(), QPoint(0, 0)).y()
+        return 0 <= y and y + campo.height() <= area.viewport().height()
+
+    esperar(lambda: se_ve(ventana.director.pedido))
+    area.verticalScrollBar().setValue(0)
+    assert not se_ve(ventana.director.pedido)
+    del_director = [b for b in ventana.director.findChildren(QToolButton) if b.objectName() == "ejemplo"]
+    del_director[2].findChild(QMenu).actions()[0].trigger()
+    esperar(lambda: se_ve(ventana.director.pedido))
+    assert ventana.director.pedido.text() == "Pedido 2"
 
     # ---------- Lo que entrega el Director, en su página: un diseño no va al reproductor de video ----------
     carpeta_diseno = diseno.CARPETA / "20261024-120000-cartel"

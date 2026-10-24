@@ -1,34 +1,83 @@
-"""Página «Diseño»: editor por capas (tipo Canva) para posts, historias, miniaturas, flyers y logos, y la IA que diseña
-en capas editables. El diseño es el dict de motor/diseno.py: cada cambio se escribe ahí y el lienzo lo repinta."""
+"""Página «Diseño»: estudio por capas con la disposición de los programas de diseño (archivo arriba, herramientas a la
+izquierda, lienzo con zoom en el centro, propiedades y capas a la derecha, barra de estado abajo) y la IA, que entiende
+el pedido (pregunta si duda), diseña en capas editables o dibuja una ilustración como capa nueva. El diseño es el dict
+de motor/diseno.py: cada cambio se escribe ahí y el lienzo lo repinta."""
 import copy
+import html
 import os
 import re
+import tempfile
+import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QPointF, QRectF, QSize, QStandardPaths, Qt
+from PySide6.QtCore import QByteArray, QPointF, QRectF, QSize, QStandardPaths, Qt, Signal
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QIcon, QImageIOHandler, QImageReader, QKeySequence, QPainter,
                            QPen, QPixmap, QPolygonF, QShortcut)
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-                               QFrame, QGraphicsItem, QGraphicsView, QHBoxLayout, QLineEdit, QListView, QListWidget,
-                               QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea, QSpinBox, QTextEdit,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+                               QFileDialog, QFormLayout, QFrame, QGraphicsItem, QGraphicsView,
+                               QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSpinBox, QTextEdit, QToolButton,
                                QVBoxLayout, QWidget)
 
 from motor import diseno, marca, recursos, seguro
 from motor.idioma import t
-from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, resumen_avisos, Tarea, tarjeta
+from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, resumen_avisos, Tarea
+from ui.iconos import COLOR, icono
 
 FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Línea")}
-TIPOS_IA = {"anuncio": t("Anuncio"), "post": t("Post"), "historia": t("Historia / Reel"),
+# «auto»: la pieza la elige la IA al entender el pedido (motor/diseno_ia.entender); el resto, las claves de sus TIPOS
+TIPOS_IA = {"auto": t("Automático"), "ilustracion": t("Ilustración"), "estampado": t("Estampado (camiseta, sticker)"),
+            "anuncio": t("Anuncio"), "post": t("Post"), "historia": t("Historia / Reel"),
             "miniatura": t("Miniatura de YouTube"), "flyer": t("Flyer"), "logo": t("Logo"),
             "tarjeta": t("Tarjeta de presentación"), "marca_personal": t("Marca personal"),
             "presentacion": t("Presentación (diapositiva)")}
+ESTILOS_IA = {"auto": t("Automático"), "vector": t("Vector plano"), "sticker": t("Sticker"), "tatuaje": t("Tatuaje"),
+              "poster": t("Póster"), "grabado": t("Grabado"), "foto": t("Foto realista")}  # las claves de diseno_ia.ESTILOS
 FORMATOS = {"png": "PNG (*.png)", "jpg": "JPG (*.jpg)", "pdf": "PDF (*.pdf)", "svg": "SVG (*.svg)"}
+ESCALAS = {1: "1x", 2: "2x", 4: "4x"}  # PNG y JPG; PDF y SVG salen en vectores
 FILTRO_IMAGENES = t("Imágenes ({tipos})", tipos=" ".join("*" + e for e in sorted(seguro.IMAGENES)))
 # ESTILO no pinta diálogos ni menús: con Windows en modo claro saldrían claros con el texto claro de la app
 OSCURO = ("QDialog, QMenu { background: #17171D; } QMenu { border: 1px solid #2C2C36; padding: 4px; }"
           "QMenu::item { padding: 8px 18px; border-radius: 6px; } QMenu::item:selected { background: #2A2340; }")
 LIMITE = 20000  # el rango de x/y que admite motor/diseno.validar
+ZOOM_MIN, ZOOM_MAX = 0.05, 8
+ALINEAR = {"izquierda": ("align-start-vertical", t("Alinear a la izquierda")),
+           "centro_h": ("align-center-vertical", t("Centrar en horizontal")),
+           "derecha": ("align-end-vertical", t("Alinear a la derecha")),
+           "arriba": ("align-start-horizontal", t("Alinear arriba")),
+           "centro_v": ("align-center-horizontal", t("Centrar en vertical")),
+           "abajo": ("align-end-horizontal", t("Alinear abajo"))}
+# Solo esta página: letra de 13 px y controles de unos 28 px, para que el lienzo se lleve casi toda la pantalla
+COMPACTO = """
+* { font-size: 13px; }
+QLineEdit, QComboBox, QSpinBox, QTextEdit { padding: 3px 6px; border-radius: 5px; min-height: 20px; }
+QSpinBox QLineEdit { padding: 0; border: none; min-height: 0; background: transparent; }
+QSpinBox::up-button, QSpinBox::down-button { width: 0; border: none; }
+QSpinBox::up-arrow, QSpinBox::down-arrow { image: none; }
+QComboBox { padding-right: 22px; }
+QComboBox::drop-down { width: 20px; }
+QComboBox QAbstractItemView::item { min-height: 24px; }
+#secundario { padding: 4px 10px; border-radius: 6px; }
+#principal { padding: 5px 16px; border-radius: 6px; }
+#barra_sup, #barra_ia, #herr, #panel, QScrollArea#lateral { background: #17171D; }
+#barra_sup { border-bottom: 1px solid #24242C; }
+#barra_ia { border-top: 1px solid #24242C; }
+#herr { border-right: 1px solid #24242C; }
+QScrollArea#lateral { border-left: 1px solid #24242C; }
+#herr QToolButton { border: none; border-radius: 6px; padding: 6px; }
+#herr QToolButton:hover, #panel QToolButton:hover, #barra_estado QToolButton:hover { background: #2A2A36; }
+#herr QToolButton:checked { background: #2A2340; }
+#panel QToolButton { background: #1F1F27; border: 1px solid #2C2C36; border-radius: 5px; padding: 4px; }
+#seccion { color: #FFFFFF; font-weight: 700; padding-top: 4px; }
+#barra_estado { background: #111116; border-top: 1px solid #24242C; }
+#barra_estado QLabel, #barra_estado QToolButton { color: #9A9AA8; font-size: 12px; }
+#barra_estado QToolButton { border: none; border-radius: 4px; padding: 1px 6px; }
+QListWidget { padding: 2px; border-radius: 6px; }
+QListWidget::item { padding: 4px 6px; border-radius: 5px; }
+QCheckBox::indicator { width: 15px; height: 15px; border-radius: 4px; }
+QProgressBar { height: 8px; font-size: 10px; }
+"""
 
 
 def carpeta_exportar() -> Path:
@@ -50,6 +99,114 @@ def pedir_color(padre, inicial: str, titulo: str = t("Elige un color")) -> str |
     dialogo.setWindowTitle(titulo)
     dialogo.setStyleSheet(OSCURO)
     return dialogo.selectedColor().name() if dialogo.exec() else None
+
+
+def elegir_opcion(padre, pregunta: str, opciones: list[str]) -> str | None:
+    """La IA duda (p. ej. «¿calavera o carabela?»): el usuario elige una lectura, o None si cancela."""
+    caja = QMessageBox(QMessageBox.Question, t("¿Qué quisiste decir?"), pregunta, parent=padre)
+    caja.setTextFormat(Qt.PlainText)  # lo escribe la IA
+    botones = {caja.addButton(o.replace("&", "&&"), QMessageBox.AcceptRole): o for o in opciones[:3]}
+    caja.addButton(QMessageBox.Cancel)
+    caja.exec()
+    return botones.get(caja.clickedButton())
+
+
+def pedir_ilustracion(padre) -> tuple[str, str] | None:
+    """Descripción y estilo de la ilustración que la IA dibujará como capa nueva; None si se cancela."""
+    dialogo = QDialog(padre)
+    dialogo.setWindowTitle(t("Generar con IA"))
+    dialogo.setStyleSheet(OSCURO)
+    dialogo.setMinimumWidth(480)
+    descripcion, estilo = QLineEdit(), _combo(ESTILOS_IA)
+    descripcion.setMaxLength(1000)
+    descripcion.setPlaceholderText(t("Ej.: calavera gótica con rosas"))
+    botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    botones.accepted.connect(dialogo.accept)
+    botones.rejected.connect(dialogo.reject)
+    form = QFormLayout(dialogo)
+    form.addRow(t("Qué dibujar"), descripcion)
+    form.addRow(t("Estilo"), estilo)
+    form.addRow(botones)
+    texto = descripcion.text().strip() if dialogo.exec() else ""
+    return (texto, estilo.currentData()) if texto else None
+
+
+def alineado(capa: dict, como: str, ancho: int, alto: int) -> dict:
+    """La x o la y que pegan la caja de la capa a un borde o al centro de una mesa de ancho × alto."""
+    return {"izquierda": {"x": 0}, "centro_h": {"x": round((ancho - capa["ancho"]) / 2)},
+            "derecha": {"x": ancho - capa["ancho"]}, "arriba": {"y": 0},
+            "centro_v": {"y": round((alto - capa["alto"]) / 2)}, "abajo": {"y": alto - capa["alto"]}}[como]
+
+
+def _entender(diseno_ia, pedido: str, tipo: str) -> dict:
+    """El paso «Entendí…» (texto, sin gastar imágenes). Con un diseno_ia que aún no lo trae, el pedido tal cual."""
+    if hasattr(diseno_ia, "entender"):
+        return diseno_ia.entender(pedido, tipo)
+    return {"entendido": pedido, "seguro": True, "tipo": tipo, "estilo": "auto"}
+
+
+def _ilustrar(diseno_ia, prompt: str, estilo: str, destino: Path) -> Path:
+    if hasattr(diseno_ia, "ilustracion"):
+        return diseno_ia.ilustracion(prompt, estilo, destino)
+    from motor import ia  # ponytail: respaldo para el diseno_ia sin ilustracion(); sobra cuando llegue (contrato A)
+    return ia.imagen(f"{prompt}, flat vector illustration, bold clean outlines{diseno_ia._SIN_TEXTO}", 1024, 1024,
+                     destino)
+
+
+def _combo(opciones: dict) -> QComboBox:
+    c = QComboBox()
+    # Que no pida el ancho de su opción más larga (una fuente de nombre largo): la fila o el panel se cortarían
+    c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    c.setMinimumContentsLength(8)
+    for valor, texto in opciones.items():
+        c.addItem(texto, valor)
+    c.view().setMinimumWidth(c.view().sizeHintForColumn(0) + 24)  # la lista desplegada, sí, con los nombres enteros
+    return c
+
+
+def _rotulo(texto: str, clase=QLabel) -> QLabel:
+    r = clase(texto)
+    r.setTextFormat(Qt.PlainText)
+    r.setObjectName("sub")
+    return r
+
+
+class Estado(QLabel):
+    """La barra de estado corta los avisos largos: el texto entero sale al pasar el ratón."""
+    def setText(self, texto):
+        super().setText(texto)
+        # Escapado: puede traer lo que escribió la IA o el usuario, y un tooltip con «<» se pintaría como HTML
+        self.setToolTip(f"<p>{html.escape(texto)}</p>" if texto else "")
+
+
+def _barra(nombre: str, widgets, margenes=(8, 4, 8, 4)) -> QFrame:
+    """Una barra en fila con su fondo (nombre para la hoja de estilo); None deja un hueco que estira."""
+    barra = QFrame()
+    barra.setObjectName(nombre)
+    lay = QHBoxLayout(barra)
+    lay.setContentsMargins(*margenes)
+    lay.setSpacing(6)
+    for w in widgets:
+        lay.addStretch() if w is None else lay.addWidget(w)
+    return barra
+
+
+def _botonera(botones) -> QWidget:
+    """Fila de botones de solo icono, con su nombre al pasar el ratón."""
+    fila = QWidget()
+    lay = QHBoxLayout(fila)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
+    for nombre, ayuda, accion in botones:
+        b = QToolButton()
+        b.setIcon(icono(nombre))
+        b.setIconSize(QSize(16, 16))
+        b.setToolTip(ayuda)
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(accion)
+        lay.addWidget(b)
+    lay.addStretch()
+    return fila
 
 
 def _elemento(texto: str, valor, icono: QIcon | None = None) -> QListWidgetItem:
@@ -207,27 +364,56 @@ class DialogoMarca(QDialog):
 
 
 class Lienzo(QGraphicsView):
-    """El diseño a la vista: arrastrar mueve, las asas de las esquinas cambian el tamaño y se pueden soltar fotos."""
+    """El diseño a la vista: arrastrar mueve, las asas de las esquinas cambian el tamaño y se pueden soltar fotos.
+    Ctrl+rueda acerca o aleja bajo el ratón, la barra espaciadora (o poner_mano) desplaza la vista y las flechas mueven
+    la capa elegida. En modo «Ajustar» la mesa entera se ve siempre, también al cambiar el tamaño de la ventana."""
+    zoom_cambiado = Signal()
+
     def __init__(self, pagina):
         super().__init__()
-        self.pagina, self._asa = pagina, None
+        self.pagina, self._asa, self.ajustar, self.mano_fija, self._gesto = pagina, None, True, False, object()
+        self.con_zoom = False  # Ctrl+rueda: solo donde hay cómo volver a «Ajustar» (Diseño; el editor de video no)
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform | QPainter.TextAntialiasing)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)  # las asas sobresalen de la capa: así no dejan rastro
         self.setBackgroundBrush(QColor("#0B0B0F"))
         self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setMinimumSize(420, 400)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setMinimumSize(320, 240)
         self.viewport().setMouseTracking(True)  # para cambiar el cursor encima de las asas
 
     def encajar(self):
-        r = self.sceneRect()
+        """Modo «Ajustar»: la mesa entera a la vista, con un poco de aire."""
+        self.ajustar = True
+        r = self.scene().sceneRect()  # la mesa: la vista tiene margen alrededor (ver PaginaDiseno._dibujar)
         m = max(r.width(), r.height()) * 0.04
         self.fitInView(r.adjusted(-m, -m, m, m), Qt.KeepAspectRatio)
+        self.zoom_cambiado.emit()
+
+    def zoom(self, nivel: float):
+        """Zoom fijo (1 = 100 %, un píxel del diseño por píxel de pantalla), del 5 al 800 %."""
+        self.ajustar = False
+        f = max(ZOOM_MIN, min(ZOOM_MAX, nivel)) / self.transform().m11()
+        self.scale(f, f)
+        self.zoom_cambiado.emit()
+
+    def poner_mano(self, si: bool):
+        """La mano mueve la vista y no las capas (sin interacción, la escena no se queda el arrastre)."""
+        self.setDragMode(QGraphicsView.ScrollHandDrag if si else QGraphicsView.NoDrag)
+        self.setInteractive(not si)
+
+    def _mano(self) -> bool:
+        return self.dragMode() == QGraphicsView.ScrollHandDrag
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.encajar()
+        if self.ajustar:
+            self.encajar()
+
+    def wheelEvent(self, e):
+        if self.con_zoom and e.modifiers() & Qt.ControlModifier:
+            e.accept()
+            return self.zoom(self.transform().m11() * 1.2 ** (e.angleDelta().y() / 120))
+        super().wheelEvent(e)
 
     def _esquinas(self) -> list[QPointF]:
         item, capa = self.pagina.elegido()
@@ -260,7 +446,7 @@ class Lienzo(QGraphicsView):
             p.drawRect(QRectF(q.x() - lado / 2, q.y() - lado / 2, lado, lado))
 
     def mousePressEvent(self, e):
-        i = self._asa_en(e) if e.button() == Qt.LeftButton else None
+        i = self._asa_en(e) if e.button() == Qt.LeftButton and not self._mano() else None
         if i is None:
             return super().mousePressEvent(e)
         item, _ = self.pagina.elegido()
@@ -269,9 +455,10 @@ class Lienzo(QGraphicsView):
 
     def mouseMoveEvent(self, e):
         if not self._asa:
-            i = self._asa_en(e)
-            self.viewport().setCursor(Qt.ArrowCursor if i is None else
-                                      Qt.SizeFDiagCursor if i % 2 == 0 else Qt.SizeBDiagCursor)
+            if not self._mano():
+                i = self._asa_en(e)
+                self.viewport().setCursor(Qt.ArrowCursor if i is None else
+                                          Qt.SizeFDiagCursor if i % 2 == 0 else Qt.SizeBDiagCursor)
             return super().mouseMoveEvent(e)
         transformacion, fijo, gesto = self._asa
         q = transformacion.inverted()[0].map(self.mapToScene(e.position().toPoint())) - fijo
@@ -292,9 +479,24 @@ class Lienzo(QGraphicsView):
         self.pagina.guardar_posiciones()
 
     def keyPressEvent(self, e):
-        if e.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.pagina.elegido()[1]:
+        _, capa = self.pagina.elegido()
+        paso = 10 if e.modifiers() & Qt.ShiftModifier else 1
+        flechas = {Qt.Key_Left: (-paso, 0), Qt.Key_Right: (paso, 0), Qt.Key_Up: (0, -paso), Qt.Key_Down: (0, paso)}
+        if e.key() == Qt.Key_Space and not e.isAutoRepeat():
+            return self.poner_mano(True)
+        if capa and e.key() in flechas:  # cada pulsación, un «deshacer»; mantenerla pulsada (repeticiones), uno solo
+            if not e.isAutoRepeat():
+                self._gesto = object()
+            return self.pagina._cambiar(self._gesto, x=capa["x"] + flechas[e.key()][0],
+                                        y=capa["y"] + flechas[e.key()][1])
+        if e.key() in (Qt.Key_Delete, Qt.Key_Backspace) and capa:
             return self.pagina.borrar_capa()
         super().keyPressEvent(e)
+
+    def keyReleaseEvent(self, e):
+        if e.key() == Qt.Key_Space and not e.isAutoRepeat():
+            self.poner_mano(self.mano_fija)
+        super().keyReleaseEvent(e)
 
     def dragEnterEvent(self, e):
         e.setAccepted(e.mimeData().hasUrls())
@@ -315,62 +517,39 @@ class PaginaDiseno(QWidget):
         diseno.asegurar_qt()  # registra las fuentes incluidas antes de llenar la lista de fuentes
         self.diseno, self.carpeta, self.escena, self.tarea, self.exportado = diseno.nuevo(), None, None, None, None
         self.deshacer_pila, self.rehacer_pila, self._ultima, self.sucio, self._cargando = [], [], None, False, False
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(32, 28, 32, 28)
-        lay.setSpacing(14)
-        lay.addWidget(etiqueta(t("Estudio de diseño"), "titulo"))
-        lay.addWidget(etiqueta(t("Posts, historias, miniaturas, flyers y logos por capas, como en Canva: pídeselo a "
-                                 "la IA o hazlo tú. Arrastra para mover; las esquinas cambian el tamaño."), "sub"))
-        lay.addWidget(self._zona_ia())
-        lay.addLayout(self._herramientas())
-        self.estado = etiqueta("", "sub")
-        lay.addWidget(self.estado)
-        cuerpo = QHBoxLayout()
+        self._anterior = None  # ver _lanzar
+        self.setStyleSheet(COMPACTO)
         self.vista = Lienzo(self)
+        self.vista.setBackgroundBrush(QColor("#2A2A30"))  # el tablero alrededor de la mesa, distinto de ella
+        self.vista.con_zoom = True
+        cuerpo = QHBoxLayout()
+        cuerpo.setSpacing(0)
+        cuerpo.addWidget(self._herramientas())
         cuerpo.addWidget(self.vista, 1)
         cuerpo.addWidget(self._paneles())
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(self._barra_archivo())
         lay.addLayout(cuerpo, 1)
-        for tecla, accion in ((QKeySequence.Undo, self.deshacer), (QKeySequence.Redo, self.rehacer)):
-            atajo = QShortcut(tecla, self)
-            atajo.setContext(Qt.WidgetWithChildrenShortcut)  # solo con esta página delante
-            atajo.activated.connect(accion)
+        lay.addWidget(self._barra_ia())  # a todo lo ancho: el pedido tiene sitio en cualquier idioma
+        lay.addWidget(self._barra_estado())
+        self.vista.zoom_cambiado.connect(self._al_zoom)
+        for tecla, accion in ((QKeySequence.Undo, self.deshacer), (QKeySequence.Redo, self.rehacer),
+                              ("Ctrl+0", self.vista.encajar), ("Ctrl+1", lambda: self.vista.zoom(1)),
+                              ("Ctrl+K", self.pedido.setFocus)):
+            self._atajo(tecla, accion)
         self._dibujar()
 
     # ---------- Construcción ----------
 
-    def _zona_ia(self):
-        caja, lay = tarjeta()
-        titulo = etiqueta(f"✨  {t('Diseñar con IA')}", "sub")
-        titulo.setWordWrap(False)
-        self.pedido = QLineEdit()
-        self.pedido.setPlaceholderText(t("Qué quieres. Ej: anuncio de mi pizzería, 2x1 los martes, con foto de pizza"))
-        self.pedido.returnPressed.connect(self.disenar_con_ia)
-        self.tipo_ia = QComboBox()
-        for clave, nombre in TIPOS_IA.items():
-            self.tipo_ia.addItem(nombre, clave)
-        self.usar_marca = QCheckBox(t("Usar mi marca"))
-        self.usar_marca.setChecked(True)
-        mi_marca = boton(t("Mi marca…"))
-        mi_marca.clicked.connect(lambda: DialogoMarca(self).exec())
-        self.disenar = boton(f"✨  {t('Diseñar con IA')}", "principal")
-        self.disenar.clicked.connect(self.disenar_con_ia)
-        self.progreso = QProgressBar()
-        self.progreso.setRange(0, 100)
-        self.progreso.hide()
-        # El pedido con su título en una fila, para que tenga sitio en cualquier idioma; las opciones, debajo
-        arriba, abajo = QHBoxLayout(), QHBoxLayout()
-        arriba.addWidget(titulo)
-        arriba.addWidget(self.pedido, 1)
-        for w in (self.tipo_ia, self.usar_marca, mi_marca):
-            abajo.addWidget(w)
-        abajo.addStretch()
-        abajo.addWidget(self.disenar)
-        lay.addLayout(arriba)
-        lay.addLayout(abajo)
-        lay.addWidget(self.progreso)
-        return caja
+    def _atajo(self, tecla, accion, padre=None):
+        atajo = QShortcut(QKeySequence(tecla), padre or self)
+        atajo.setContext(Qt.WidgetWithChildrenShortcut)  # solo con esta página (o el padre) delante
+        atajo.activated.connect(accion)
 
-    def _herramientas(self):
+    def _barra_archivo(self):
+        """Arriba, en una sola fila: archivo, nombre, deshacer y exportar."""
         nuevo, abrir, guardar = boton(f"📄  {t('Nuevo')}"), boton(f"📂  {t('Abrir')}"), boton(f"💾  {t('Guardar')}")
         _menu(nuevo, [(f"{nombre}  ·  {a}×{h}", lambda c=clave: self._descartar_ok() and self.nuevo(c))
                       for clave, (a, h, nombre) in diseno.TAMANOS.items()])
@@ -379,55 +558,141 @@ class PaginaDiseno(QWidget):
         guardar.clicked.connect(self.guardar)
         self.nombre = QLineEdit()
         self.nombre.setMaxLength(120)
+        self.nombre.setMaximumWidth(320)
         self.nombre.setPlaceholderText(t("Nombre del diseño"))
         self.nombre.textEdited.connect(self._renombrar)
-        self.deshacer_btn, self.rehacer_btn = boton("↶"), boton("↷")  # solo el icono: la barra cabe en 1280 px
+        self.deshacer_btn, self.rehacer_btn = boton("↶"), boton("↷")
         self.deshacer_btn.setToolTip(t("Deshacer (Ctrl+Z)"))
         self.rehacer_btn.setToolTip(t("Rehacer (Ctrl+Y)"))
         self.deshacer_btn.clicked.connect(self.deshacer)
         self.rehacer_btn.clicked.connect(self.rehacer)
+        self.escala = _combo(ESCALAS)
+        self.escala.setFixedWidth(64)
+        self.escala.setToolTip(t("Tamaño del PNG o JPG exportado: 2x y 4x, para imprimir o para pantallas grandes"))
         exportar, carpeta = boton(f"⬇  {t('Exportar')}", "principal"), boton("📁")
         carpeta.setToolTip(t("Abrir la carpeta de lo exportado"))
         exportar.clicked.connect(self._pedir_exportar)
         carpeta.clicked.connect(self.abrir_carpeta)
-        texto, forma, imagen, icono, emoji, fondo = (
-            boton(f"➕  {t('Texto')}"), boton(f"➕  {t('Forma')}"), boton(f"➕  {t('Imagen')}"),
-            boton(f"➕  {t('Icono')}"), boton(f"➕  {t('Emoji')}"), boton(f"🎨  {t('Fondo')}"))
-        texto.clicked.connect(self.anadir_texto)
-        _menu(forma, [(nombre, lambda f=f: self.anadir_forma(f)) for f, nombre in FORMAS.items()])
-        imagen.clicked.connect(lambda: (ruta := self._pedir_imagen()) and self.anadir_imagen(ruta))
-        icono.clicked.connect(lambda: self._cuadricula(t("Elige un icono"), iconos, self.anadir_icono))
-        emoji.clicked.connect(lambda: self._cuadricula(t("Elige un emoji"), emojis, self.anadir_emoji, celda=56))
-        _menu(fondo, [(t("Color liso…"), self.fondo_color), (t("Degradado…"), self.fondo_degradado),
-                      (t("Imagen…"), self.fondo_imagen)])
-        arriba, abajo = QHBoxLayout(), QHBoxLayout()
-        for w in (nuevo, abrir, guardar, self.nombre, self.deshacer_btn, self.rehacer_btn, exportar, carpeta):
-            arriba.addWidget(w, 1 if w is self.nombre else 0)
-        for w in (texto, forma, imagen, icono, emoji, fondo):
-            abajo.addWidget(w)
-        abajo.addWidget(etiqueta(t("También puedes arrastrar fotos al lienzo."), "sub"), 1)
-        lay = QVBoxLayout()
-        lay.addLayout(arriba)
-        lay.addLayout(abajo)
-        return lay
+        return _barra("barra_sup", [nuevo, abrir, guardar, self.nombre, self.deshacer_btn, self.rehacer_btn, None,
+                                    self.escala, exportar, carpeta])
+
+    def _herramientas(self):
+        """La columna de herramientas: Selección y Mano se quedan puestas; las demás añaden una capa al momento."""
+        columna = QFrame()
+        columna.setObjectName("herr")
+        columna.setFixedWidth(44)
+        lay = QVBoxLayout(columna)
+        lay.setContentsMargins(4, 6, 4, 6)
+        lay.setSpacing(2)
+        self.seleccion = self._herramienta("mouse-pointer-2", t("Selección"), "V", lambda: self._modo(False))
+        self.mano = self._herramienta("hand", t("Mano: mueve la vista (o mantén la barra espaciadora)"), "H",
+                                      lambda: self._modo(True))
+        grupo = QButtonGroup(self)
+        for b in (self.seleccion, self.mano):
+            b.setCheckable(True)
+            grupo.addButton(b)
+            lay.addWidget(b)
+        self.seleccion.setChecked(True)
+        lay.addSpacing(8)
+        imagen = [(t("Desde un archivo…"), self._imagen_de_archivo), (t("Generar con IA…"), self.generar_ilustracion)]
+        fondo = [(t("Color liso…"), self.fondo_color), (t("Degradado…"), self.fondo_degradado),
+                 (t("Imagen…"), self.fondo_imagen)]
+        for b in (self._herramienta("type", t("Texto"), "T", self.anadir_texto),
+                  self._herramienta("square", t("Rectángulo"), "M", lambda: self.anadir_forma("rectangulo")),
+                  self._herramienta("circle", t("Elipse"), "L", lambda: self.anadir_forma("elipse")),
+                  self._herramienta("minus", t("Línea"), "\\", lambda: self.anadir_forma("linea")),
+                  self._herramienta("image", t("Imagen (mantén pulsado para generarla con IA)"), "Ctrl+Shift+P",
+                                    self._imagen_de_archivo, imagen),
+                  self._herramienta("shapes", t("Icono"), "I", lambda: self._cuadricula(
+                      t("Elige un icono"), iconos, self.anadir_icono)),
+                  self._herramienta("smile", t("Emoji"), "E", lambda: self._cuadricula(
+                      t("Elige un emoji"), emojis, self.anadir_emoji, celda=56)),
+                  self._herramienta("paint-bucket", t("Fondo"), "B", None, fondo),
+                  self._herramienta("sparkles", t("Generar con IA…"), "G", self.generar_ilustracion, color="#B9A6FF")):
+            lay.addWidget(b)
+        lay.addStretch()
+        return columna
+
+    def _herramienta(self, nombre, ayuda, tecla, accion, menu=None, color=COLOR):
+        """Botón de la columna con su atajo de teclado; con menú y sin acción, el clic abre el menú."""
+        b = QToolButton()
+        b.setIcon(icono(nombre, color))
+        b.setIconSize(QSize(20, 20))
+        b.setToolTip(f"{ayuda}  ({QKeySequence(tecla).toString(QKeySequence.NativeText)})")
+        b.setCursor(Qt.PointingHandCursor)
+        if menu:
+            _menu(b, menu)
+            b.setPopupMode(QToolButton.DelayedPopup if accion else QToolButton.InstantPopup)
+        if accion:
+            b.clicked.connect(accion)
+        # Las de una letra, solo con el lienzo activo (como en Illustrator): un desplegable o la lista de capas con el
+        # foco dejan pasar las letras y añadirían una capa
+        self._atajo(tecla, accion or b.showMenu, self.vista if len(tecla) == 1 else None)
+        return b
+
+    def _modo(self, mano: bool):
+        (self.mano if mano else self.seleccion).setChecked(True)
+        self.vista.mano_fija = mano
+        self.vista.poner_mano(mano)
+
+    def _barra_ia(self):
+        """Bajo el lienzo, en una fila: qué quieres, tipo de pieza, estilo, marca y Diseñar."""
+        chispa = QLabel()
+        chispa.setPixmap(icono("sparkles", "#B9A6FF").pixmap(18, 18))
+        self.pedido = QLineEdit()
+        self.pedido.setMaxLength(2000)
+        self.pedido.setPlaceholderText(t("Ej.: calavera gótica para camiseta, logo de mi barbería…"))
+        self.pedido.setToolTip(t("Pídeselo a la IA (Ctrl+K)"))
+        self.pedido.returnPressed.connect(self.disenar_con_ia)
+        self.tipo_ia, self.estilo_ia = _combo(TIPOS_IA), _combo(ESTILOS_IA)
+        self.usar_marca = QCheckBox(t("Usar mi marca"))
+        self.usar_marca.setChecked(True)
+        mi_marca = boton(t("Mi marca…"))
+        mi_marca.clicked.connect(lambda: DialogoMarca(self).exec())
+        self.disenar = boton(f"✨  {t('Diseñar')}", "principal")
+        self.disenar.clicked.connect(self.disenar_con_ia)
+        return _barra("barra_ia", [chispa, self.pedido, _rotulo(t("Tipo")), self.tipo_ia, _rotulo(t("Estilo")),
+                                   self.estilo_ia, self.usar_marca, mi_marca, self.disenar], (10, 6, 10, 6))
+
+    def _barra_estado(self):
+        """Abajo: zoom, tamaño de la mesa, capa elegida y lo que está pasando."""
+        self.zoom_btn = QToolButton()
+        self.zoom_btn.setPopupMode(QToolButton.InstantPopup)
+        self.zoom_btn.setToolTip(t("Zoom: Ctrl+rueda del ratón · Ctrl+0 ajustar · Ctrl+1 al 100 %"))
+        _menu(self.zoom_btn, [(t("Ajustar a la ventana"), self.vista.encajar)] +
+              [(f"{n} %", lambda n=n: self.vista.zoom(n / 100)) for n in (25, 50, 100, 200, 400)])
+        self.mesa, self.capa_txt, self.estado = _rotulo(""), _rotulo(""), _rotulo("", Estado)
+        self.estado.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)  # un aviso largo se corta, no ensancha
+        self.progreso = QProgressBar()
+        self.progreso.setRange(0, 100)
+        self.progreso.setFixedWidth(160)
+        self.progreso.hide()
+        barra = _barra("barra_estado", [self.zoom_btn, self.mesa, self.capa_txt, self.estado, self.progreso],
+                       (6, 2, 10, 2))
+        barra.layout().setSpacing(14)
+        barra.layout().setStretchFactor(self.estado, 1)
+        return barra
 
     def _paneles(self):
         panel = QWidget()
+        panel.setObjectName("panel")
         col = QVBoxLayout(panel)
-        col.setContentsMargins(0, 0, 0, 0)
-        props, props_lay = tarjeta()
-        self.titulo_props = etiqueta("", "sub")
+        col.setContentsMargins(10, 6, 10, 8)
+        col.setSpacing(6)
+        self.titulo_props = etiqueta("", "seccion")
         self.form = QFormLayout()
         self.form.setRowWrapPolicy(QFormLayout.WrapLongRows)  # una fila que no cabe al lado de su nombre va debajo
-        props_lay.addWidget(self.titulo_props)
-        props_lay.addLayout(self.form)
+        self.form.setVerticalSpacing(6)
+        col.addWidget(self.titulo_props)
+        col.addLayout(self.form)
         self.w, self.filas = {}, []
-        self._fila(t("Posición"), self._numero("x", -LIMITE, LIMITE), self._numero("y", -LIMITE, LIMITE))
-        self._fila(t("Tamaño"), self._numero("ancho", 1, 20000), self._numero("alto", 1, 20000))
-        self._fila(t("Giro"), self._numero("rotacion", -360, 360, "°"), self._numero("opacidad", 0, 100, " %"))
+        self._fila(t("Posición"), "X", self._numero("x", -LIMITE, LIMITE), "Y", self._numero("y", -LIMITE, LIMITE))
+        self._fila(t("Tamaño"), t("An"), self._numero("ancho", 1, 20000), t("Al"), self._numero("alto", 1, 20000))
+        self._fila(t("Giro"), self._numero("rotacion", -360, 360, "°"))
+        self._fila(t("Opacidad"), self._numero("opacidad", 0, 100, " %"))
         texto = self.w["texto"] = QTextEdit()
         texto.setAcceptRichText(False)  # pegar desde una web mete solo el texto
-        texto.setFixedHeight(64)
+        texto.setFixedHeight(60)
         texto.textChanged.connect(lambda: self._cambiar("texto", texto=texto.toPlainText()[:2000]))
         self._fila(t("Texto"), texto)
         self._fila(t("Fuente"), self._opciones("fuente", fuentes()))
@@ -444,39 +709,34 @@ class PaginaDiseno(QWidget):
         self._fila(t("Esquinas"), self._numero("redondeo", 0, 10000, " px"))
         self._fila(t("Ajuste"), self._opciones("ajuste", {"cubrir": t("Cubrir la caja"),
                                                           "contener": t("Imagen entera")}))
-        capas, capas_lay = tarjeta()
-        capas_lay.addWidget(etiqueta(t("Capas (la de arriba se ve encima)"), "sub"))
+        col.addWidget(etiqueta(t("Alinear a la mesa"), "seccion"))
+        col.addWidget(_botonera([(nombre, ayuda, lambda _=False, c=c: self.alinear(c))
+                                 for c, (nombre, ayuda) in ALINEAR.items()]))
+        col.addWidget(etiqueta(t("Capas (la de arriba se ve encima)"), "seccion"))
         self.capas = QListWidget()
-        self.capas.setMinimumHeight(170)
+        self.capas.setMinimumHeight(150)
         self.capas.currentRowChanged.connect(self._elegir_de_lista)
-        fila = QHBoxLayout()
-        for texto_b, ayuda, accion in (("▲", t("Subir"), lambda: self.mover_capa(1)),
-                                       ("▼", t("Bajar"), lambda: self.mover_capa(-1)),
-                                       ("📋", t("Duplicar"), self.duplicar_capa),  # solo el icono: cabe en
-                                       ("🗑", t("Borrar"), self.borrar_capa)):     # cualquier idioma
-            b = boton(texto_b)
-            b.setToolTip(ayuda)
-            b.clicked.connect(accion)
-            fila.addWidget(b)
-        capas_lay.addWidget(self.capas, 1)
-        capas_lay.addLayout(fila)
-        col.addWidget(props)
-        col.addWidget(capas, 1)
+        col.addWidget(self.capas, 1)
+        col.addWidget(_botonera([("arrow-up", t("Subir"), lambda: self.mover_capa(1)),
+                                 ("arrow-down", t("Bajar"), lambda: self.mover_capa(-1)),
+                                 ("copy", t("Duplicar"), self.duplicar_capa), ("trash-2", t("Borrar"), self.borrar_capa)]))
         # Con su propia barra: así el panel (alto con un texto elegido) no estira la página y el lienzo cabe sin bajar
         desplazable = QScrollArea()
+        desplazable.setObjectName("lateral")
         desplazable.setWidgetResizable(True)
         desplazable.setFrameShape(QFrame.NoFrame)
         desplazable.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         desplazable.setWidget(panel)
-        desplazable.setFixedWidth(356)
+        desplazable.setFixedWidth(290)
         return desplazable
 
     def _fila(self, texto, *widgets):
+        """Una fila de propiedades; los textos sueltos son rótulos (X, Y…) delante de su campo."""
         fila = QWidget()
         lay = QHBoxLayout(fila)
         lay.setContentsMargins(0, 0, 0, 0)
         for w in widgets:
-            lay.addWidget(w)
+            lay.addWidget(_rotulo(w) if isinstance(w, str) else w)
         self.form.addRow(texto, fila)
         self.filas.append((fila, [c for c, w in self.w.items() if w in widgets]))
 
@@ -493,12 +753,7 @@ class PaginaDiseno(QWidget):
         return c
 
     def _opciones(self, campo, opciones):
-        c = self.w[campo] = QComboBox()
-        # Que no pida el ancho de su opción más larga (una fuente de nombre largo): el panel se cortaría por la derecha
-        c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        c.setMinimumContentsLength(8)
-        for valor, texto in opciones.items():
-            c.addItem(texto, valor)
+        c = self.w[campo] = _combo(opciones)
         c.currentIndexChanged.connect(lambda _: self._cambiar(campo, **{campo: c.currentData()}))
         return c
 
@@ -514,15 +769,22 @@ class PaginaDiseno(QWidget):
         if self.escena:
             self.escena.blockSignals(True)  # la escena vieja se destruye: que no avise de cambios de selección
         escena = diseno.escena(self.diseno, self.carpeta or diseno.CARPETA)
+        centro = self.vista.mapToScene(self.vista.viewport().rect().center())
         self.vista.setScene(escena)
+        a, h = self.diseno["ancho"], self.diseno["alto"]
+        self.vista.setSceneRect(-a, -h, 3 * a, 3 * h)  # margen: sin él, el zoom bajo el ratón y la mano topan con la mesa
         self.escena = escena
         for item in self._items():
             item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
             item.setSelected(item.data(0) == elegir)
         escena.selectionChanged.connect(self._al_elegir)
-        self.vista.encajar()
+        if self.vista.ajustar:
+            self.vista.encajar()
+        else:
+            self.vista.centerOn(centro)  # con zoom, añadir o deshacer no mueve la vista
         if self.nombre.text() != self.diseno["nombre"]:
             self.nombre.setText(self.diseno["nombre"])
+        self.mesa.setText(t("Mesa: {ancho} × {alto} px", ancho=self.diseno["ancho"], alto=self.diseno["alto"]))
         self._cargando = True
         self.capas.clear()
         for capa in reversed(self.diseno["capas"]):  # arriba, la que se ve encima
@@ -531,6 +793,10 @@ class PaginaDiseno(QWidget):
         self._al_elegir()
         self.deshacer_btn.setEnabled(bool(self.deshacer_pila))
         self.rehacer_btn.setEnabled(bool(self.rehacer_pila))
+
+    def _al_zoom(self):
+        z = round(self.vista.transform().m11() * 100)
+        self.zoom_btn.setText(t("Ajustar · {zoom} %", zoom=z) if self.vista.ajustar else f"{z} %")
 
     def _items(self):
         return [i for i in self.escena.items() if isinstance(i, diseno.ItemCapa) and i.data(0) is not None]
@@ -565,6 +831,7 @@ class PaginaDiseno(QWidget):
         self._cargando = True
         self.titulo_props.setText(t("Propiedades · {capa}", capa=_nombre_capa(capa)) if capa else
                                   t("Elige una capa en el lienzo o en la lista para cambiarla"))
+        self.capa_txt.setText(t("Capa: {capa}", capa=_nombre_capa(capa)) if capa else t("Sin capa elegida"))
         for fila, campos in self.filas:
             self.form.setRowVisible(fila, bool(capa) and any(c in capa for c in campos))
         for campo, w in self.w.items():
@@ -627,6 +894,12 @@ class PaginaDiseno(QWidget):
         if self.capas.currentItem():
             self.capas.currentItem().setText(_nombre_capa(capa))
 
+    def alinear(self, como):
+        """Pega la capa elegida a un borde o al centro de la mesa (un «deshacer» por clic)."""
+        _, capa = self.elegido()
+        if capa:
+            self._cambiar(object(), **alineado(capa, como, self.diseno["ancho"], self.diseno["alto"]))
+
     def _elegir_color(self, campo):
         _, capa = self.elegido()
         color = capa and pedir_color(self, capa[campo])
@@ -684,17 +957,24 @@ class PaginaDiseno(QWidget):
     def _lado(self):
         return min(self.diseno["ancho"], self.diseno["alto"])
 
-    def anadir(self, capa):
-        """Añade la capa encima de todo y la deja elegida. Lo que falte toma su valor por defecto."""
+    def _con_capa(self, capa) -> dict | None:
+        """El diseño con la capa añadida encima (validado), o None si no cabe (ya avisado)."""
         if len(self.diseno["capas"]) >= diseno.MAX_CAPAS:
-            return mensaje(self, t("Demasiadas capas"), t("Un diseño puede tener hasta {n} capas.", n=diseno.MAX_CAPAS))
+            mensaje(self, t("Demasiadas capas"), t("Un diseño puede tener hasta {n} capas.", n=diseno.MAX_CAPAS))
+            return None
         try:  # validar el diseño entero también le da a la capa nueva un id que no choca con otro
-            limpio = diseno.validar({**self.diseno, "capas": self.diseno["capas"] + [capa]})
+            return diseno.validar({**self.diseno, "capas": self.diseno["capas"] + [capa]})
         except ValueError as e:
-            return mensaje_error(self, t("No se pudo añadir"), e)
-        self._recordar()
-        self.diseno = limpio
-        self._dibujar(limpio["capas"][-1]["id"])
+            mensaje_error(self, t("No se pudo añadir"), e)
+
+    def anadir(self, capa) -> bool:
+        """Añade la capa encima de todo y la deja elegida. Lo que falte toma su valor por defecto. False si no cupo."""
+        limpio = self._con_capa(capa)
+        if limpio:
+            self._recordar()
+            self.diseno = limpio
+            self._dibujar(limpio["capas"][-1]["id"])
+        return bool(limpio)
 
     def anadir_texto(self):
         tamano = max(12, round(self._lado() / 10))
@@ -715,19 +995,28 @@ class PaginaDiseno(QWidget):
     def anadir_emoji(self, emoji):
         self.anadir({"tipo": "emoji", "texto": emoji, **self._caja(self._lado() / 5, self._lado() / 5)})
 
-    def anadir_imagen(self, ruta, centro=None):
+    def anadir_imagen(self, ruta, centro=None) -> bool:
         nombre = self._importar(ruta)
         if not nombre:
-            return
+            return False
         lector = QImageReader(str(self.carpeta / "imagenes" / nombre))
         tam = lector.size()
         # El núcleo pinta con setAutoTransform(True), pero size() no aplica el giro del EXIF (fotos de móvil)
         if lector.transformation() & QImageIOHandler.TransformationRotate90:
             tam.transpose()
+        del lector  # suelta el archivo: Windows no deja borrarlo abierto si luego no cabe
         ancho, alto = (1, 1) if tam.isEmpty() else (tam.width(), tam.height())
         escala = min(self.diseno["ancho"] * 0.6 / ancho, self.diseno["alto"] * 0.6 / alto)  # cabe y no se deforma
-        self.anadir({"tipo": "imagen", "archivo": nombre, **self._caja(max(1, ancho * escala), max(1, alto * escala),
-                                                                       centro)})
+        if self.anadir({"tipo": "imagen", "archivo": nombre, **self._caja(max(1, ancho * escala),
+                                                                          max(1, alto * escala), centro)}):
+            return True
+        (self.carpeta / "imagenes" / nombre).unlink(missing_ok=True)  # no cupo: que no quede una copia que nada usa
+        return False
+
+    def _imagen_de_archivo(self):
+        ruta = self._pedir_imagen()
+        if ruta:
+            self.anadir_imagen(ruta)
 
     def _importar(self, ruta) -> str | None:
         """Copia la imagen (validada) a la carpeta del diseño y da su nombre; None si no vale (ya se avisó)."""
@@ -812,6 +1101,7 @@ class PaginaDiseno(QWidget):
         diseno._leer_imagen.cache_clear()  # las fotos del diseño anterior (hasta 64 MB cada una) no se quedan en memoria
         self.diseno, self.carpeta = nuevo, carpeta
         self.deshacer_pila, self.rehacer_pila, self._ultima, self.sucio = [], [], None, False
+        self.vista.ajustar = True  # otro diseño (quizá de otro tamaño): entero a la vista
         self._dibujar()
 
     def _descartar_ok(self):
@@ -853,8 +1143,10 @@ class PaginaDiseno(QWidget):
                           next((f for f, t in FORMATOS.items() if t == filtro), "png"))
 
     def exportar(self, destino, formato="png"):
+        """Exporta a la escala elegida arriba (1x, 2x o 4x)."""
         try:
-            hecho = diseno.exportar(self.diseno, self.carpeta or diseno.CARPETA, destino, formato)
+            hecho = diseno.exportar(self.diseno, self.carpeta or diseno.CARPETA, destino, formato,
+                                    self.escala.currentData())
         except (ValueError, RuntimeError, OSError) as e:
             mensaje_error(self, t("No se pudo exportar"), e)
             return None
@@ -870,26 +1162,65 @@ class PaginaDiseno(QWidget):
 
     # ---------- IA ----------
 
-    def disenar_con_ia(self):
-        pedido = self.pedido.text().strip()
-        if not pedido:
-            return mensaje(self, t("Falta el pedido"), t("Escribe qué diseño quieres."))
+    def _ia(self):
+        """motor/diseno_ia, o None (ya avisado). Se importa aquí y no arriba: si falta, el resto del editor funciona."""
         try:
-            from motor import diseno_ia  # aquí y no arriba: si esta parte aún no está, el resto del editor funciona
+            from motor import diseno_ia
+            return diseno_ia
         except ImportError:
-            return mensaje_error(self, t("Aún no disponible"), t("La IA diseñadora todavía no está instalada en "
-                                                                 "esta versión de Ráfaga Studio."))
+            mensaje_error(self, t("Aún no disponible"), t("La IA diseñadora todavía no está instalada en esta versión "
+                                                          "de Ráfaga Studio."))
+
+    def _libre(self) -> bool:
+        if self.tarea and self.tarea.isRunning():
+            mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
+            return False
+        return True
+
+    def _lanzar(self, funcion, al_terminar, prefijo=""):
+        """Corre funcion(aviso) en segundo plano con su progreso abajo. La tarea anterior se guarda también: esta se
+        puede lanzar desde su «listo», con su hilo aún cerrándose, y soltarla tumbaría la app."""
         self.disenar.setEnabled(False)
         self.progreso.setValue(0)
         self.progreso.show()
-        self.tarea = Tarea(diseno_ia.crear, pedido=pedido, tipo=self.tipo_ia.currentData(),
-                           usar_marca=self.usar_marca.isChecked())
-        self.tarea.progreso.connect(lambda t, f: (self.estado.setText(t), self.progreso.setValue(int(f * 100))))
-        self.tarea.listo.connect(self._diseno_listo)
-        self.tarea.fallo.connect(lambda e: (self.estado.setText(""),
-                                            mensaje_error(self, t("La IA no pudo diseñar"), e)))
-        self.tarea.finished.connect(lambda: (self.disenar.setEnabled(True), self.progreso.hide()))
-        self.tarea.start()
+        self._anterior, self.tarea = self.tarea, Tarea(funcion)
+        tarea = self.tarea
+        tarea.progreso.connect(lambda texto, f: (self.estado.setText(prefijo + texto),
+                                                 self.progreso.setValue(int(f * 100))))
+        tarea.listo.connect(al_terminar)
+        tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("La IA no pudo diseñar"), e)))
+        tarea.finished.connect(lambda: tarea is self.tarea and (self.disenar.setEnabled(True), self.progreso.hide()))
+        tarea.start()
+
+    def disenar_con_ia(self):
+        """Primero la IA entiende el pedido (sin gastar imágenes) y pregunta si duda; luego diseña."""
+        pedido = self.pedido.text().strip()
+        if not pedido:
+            return mensaje(self, t("Falta el pedido"), t("Escribe qué diseño quieres."))
+        diseno_ia = self._ia()
+        if diseno_ia and self._libre():
+            tipo, estilo, usar_marca = self.tipo_ia.currentData(), self.estilo_ia.currentData(), self.usar_marca.isChecked()
+            self.estado.setText(t("Entendiendo el pedido…"))
+            self._lanzar(lambda aviso: _entender(diseno_ia, pedido, tipo),
+                         lambda r: self._crear_con_ia(diseno_ia, pedido, tipo, estilo, usar_marca, r))
+
+    def _crear_con_ia(self, diseno_ia, pedido, tipo, estilo, usar_marca, r):
+        entendido = str(r.get("entendido") or pedido)
+        if not r.get("seguro", True):
+            entendido = elegir_opcion(self, str(r.get("pregunta") or ""), [str(o) for o in r.get("opciones") or
+                                                                            [entendido]])
+            if not entendido:
+                return self.estado.setText(t("Cancelado: no se gastó ninguna imagen."))
+        # La pieza que eligió el usuario; en «Automático», la que entendió la IA
+        tipo = next(c for c in (tipo, r.get("tipo"), "ilustracion", "post") if c in diseno_ia.TIPOS)
+        estilos = getattr(diseno_ia, "ESTILOS", None)  # un diseno_ia sin estilos tampoco los acepta en crear()
+        if estilo == "auto" and r.get("estilo") in (estilos or {}):
+            estilo = r["estilo"]
+        entendi = t("Entendí: {pedido}", pedido=entendido)
+        self.estado.setText(entendi)
+        self._lanzar(lambda aviso: diseno_ia.crear(pedido=entendido, tipo=tipo, usar_marca=usar_marca, aviso=aviso,
+                                                   **({"estilo": estilo} if estilos else {})),
+                     self._diseno_listo, f"{entendi} · ")
 
     def _diseno_listo(self, resultado):
         # Se pregunta al terminar y no al empezar: mientras la IA trabajaba se pudo seguir editando
@@ -897,7 +1228,28 @@ class PaginaDiseno(QWidget):
             self.abrir(resultado["carpeta"])  # se vuelve a leer y validar: lo hizo la IA
             self.estado.setText(f"✨ {t('Listo: cada capa se puede mover y cambiar.')}")
         else:
-            self.estado.setText("✨ " + t("El diseño de la IA quedó guardado en {carpeta}: ábrelo con «Abrir».",
-                                          carpeta=resultado["carpeta"]))
+            guardado = t("El diseño de la IA quedó guardado en {carpeta}: ábrelo con «Abrir».",
+                         carpeta=resultado["carpeta"])
+            self.estado.setText(f"✨ {guardado}")
+            mensaje(self, t("Diseño con IA"), guardado)  # la barra de estado lo cortaría y hay que leerlo entero
         if resultado.get("avisos"):
             mensaje(self, t("Terminado con avisos"), resumen_avisos(resultado["avisos"]))
+
+    def generar_ilustracion(self):
+        """«Generar con IA…»: la IA dibuja una ilustración y entra como capa nueva; el diseño abierto se queda."""
+        diseno_ia = self._ia()
+        # Antes de gastar una imagen de la IA: ¿cabe otra capa de imagen? (topes de capas e imágenes)
+        cabe = diseno_ia and self._libre() and self._con_capa({"tipo": "imagen", "archivo": "ilustracion.png"})
+        pedido = cabe and pedir_ilustracion(self)
+        if pedido:
+            destino = Path(tempfile.gettempdir()) / f"rafaga-ilustracion-{uuid.uuid4().hex}.png"
+            self.estado.setText(t("Dibujando con IA…"))
+            self._lanzar(lambda aviso: {"ruta": str(_ilustrar(diseno_ia, *pedido, destino))}, self._ilustracion_lista)
+
+    def _ilustracion_lista(self, resultado):
+        ruta = Path(resultado["ruta"])
+        if self.anadir_imagen(str(ruta)):  # se copia (validada) a la carpeta del diseño
+            ruta.unlink(missing_ok=True)
+            self.estado.setText(f"✨ {t('Ilustración añadida como capa nueva.')}")
+        else:  # mientras dibujaba se llenó el diseño (ya avisado): la ilustración no se pierde
+            mensaje(self, t("Generar con IA"), t("La ilustración no se añadió; quedó guardada en {ruta}", ruta=ruta))

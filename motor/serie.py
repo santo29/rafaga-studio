@@ -1,4 +1,4 @@
-"""Serie animada: dibujos animados capítulo por capítulo, con personajes que se mantienen iguales.
+"""Dibujos animados: una serie capítulo por capítulo, con personajes que se mantienen iguales.
 
 Cada serie vive en datos/series/<nombre>/:
 - serie.json: título, sinopsis, estilo visual, formato, voz del narrador y personajes (nombre, apariencia fija en
@@ -56,6 +56,12 @@ ESQUEMA_EPISODIO = {"type": "object", "properties": {
         "required": ["descripcion", "personajes", "habla", "texto"], "additionalProperties": False}}},
     "required": ["titulo", "resumen", "planos"], "additionalProperties": False}
 
+# La misma regla en todas las instrucciones de la app (contrato D del plan)
+FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
+          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
+          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+ESTADOS = ("listo", "incompleto", "sin_dibujos")  # de un capítulo, según cuántos planos tienen su dibujo
+
 INSTRUCCIONES_SERIE = """Eres creador de series animadas. Con la idea del usuario crea la biblia de una serie ORIGINAL.
 - titulo: corto y con gancho. sinopsis: 3 o 4 frases con el mundo, el conflicto y el tono.
 - personajes: los que pide el usuario. Para cada uno:
@@ -65,7 +71,8 @@ INSTRUCCIONES_SERIE = """Eres creador de series animadas. Con la idea del usuari
   - personalidad: 1 o 2 frases.
   - genero: hombre, mujer u otro.
 - Si la idea se inspira en una obra que existe, toma su tono y su género, nunca sus personajes, nombres ni diseños.
-- Título, sinopsis, nombres y personalidades en {idioma}."""
+- Título, sinopsis, nombres y personalidades en {idioma}.
+""" + FALTAS
 
 INSTRUCCIONES_EPISODIO = """Eres guionista y director de storyboard de una serie animada. Escribe el capítulo {numero}.
 Serie: {titulo}
@@ -77,12 +84,14 @@ Lo que pasó en los capítulos anteriores:
 
 Divide el capítulo en planos, como un storyboard. Cada plano:
 - descripcion: lo que se ve, en inglés y muy visual: lugar, acción, tipo de plano y cámara, luz. Nombra a los
-  personajes que salen. Sin texto escrito en la imagen.
+  personajes que salen. NO describas la ropa ni el aspecto de los personajes (se añaden solos); estilo de la serie:
+  {estilo}. Sin texto escrito en la imagen.
 - personajes: los nombres de los que salen en el plano (puede estar vacío).
 - habla: el nombre del personaje que habla en ese plano, o "Narrador".
 - texto: lo que dice, 1 o 2 frases cortas, en {idioma}.
 Empieza con un gancho, mantén la continuidad con lo anterior y termina dejando ganas del siguiente capítulo.
-titulo y resumen (2 o 3 frases) en {idioma}."""
+titulo y resumen (2 o 3 frases) en {idioma}.
+""" + FALTAS
 
 
 # ---------- Leer y guardar ----------
@@ -142,17 +151,68 @@ def lamina(carpeta: Path, personaje: dict) -> Path:
     return carpeta / "personajes" / f"{personaje['id']}.png"
 
 
+def _imagen(ep: Path, i: int) -> Path:
+    return ep / f"video_final_imagen_{i:02d}.png"  # el nombre que le da desde_prompt.montar
+
+
+def _leer_guion(ep: Path, numero) -> dict:
+    try:
+        guion = json.loads((ep / "guion.json").read_text(encoding="utf-8"))
+        if not isinstance(guion, dict) or not isinstance(guion.get("planos"), list):
+            raise ValueError
+    except (OSError, ValueError):
+        raise ValueError(t("El guion del capítulo {n} está dañado.", n=numero)) from None
+    return guion
+
+
+def _planos(guion: dict) -> list[dict]:
+    """Los planos que se montan (los que son planos de verdad): el índice de cada uno es el de su imagen y su escena."""
+    return [p for p in guion["planos"] if isinstance(p, dict)][:MAX_PLANOS]
+
+
+def _capitulo(episodio: str) -> Path:
+    """La carpeta de un capítulo de una serie: nunca otra ruta que llegue de fuera."""
+    ep = diseno._local(episodio).resolve()
+    if CARPETA.resolve() not in ep.parents or not (ep / "episodio.json").is_file():
+        raise ValueError(t("Eso no es un capítulo de una serie."))
+    return ep
+
+
+def _estado(ep: Path, planos: int) -> str:
+    """Uno de ESTADOS, contando los dibujos que hay de verdad (también en los capítulos de antes de guardarlo)."""
+    dibujos = sum(_imagen(ep, i).is_file() for i in range(planos))
+    return "listo" if dibujos == planos else "incompleto" if dibujos else "sin_dibujos"
+
+
 def _episodios(carpeta: Path) -> list[dict]:
     lista = []
     for archivo in sorted((carpeta / "episodios").glob("*/episodio.json")):
         try:
             e = json.loads(archivo.read_text(encoding="utf-8"))
+            try:
+                planos = len(_planos(_leer_guion(archivo.parent, archivo.parent.name)))
+            except ValueError:
+                planos = 0
+            miniatura = min(archivo.parent.glob("video_final_imagen_*.png"), default="")
             lista.append({"numero": int(archivo.parent.name), "titulo": _texto(e.get("titulo"), 120),
                           "resumen": _texto(e.get("resumen"), 1000), "carpeta": str(archivo.parent),
-                          "video": str(archivo.parent / "video_final.mp4")})
+                          "video": str(archivo.parent / "video_final.mp4"), "estado": _estado(archivo.parent, planos),
+                          "planos": planos, "miniatura": str(miniatura)})
         except (OSError, ValueError, TypeError, AttributeError):
             continue  # uno roto no impide ver los demás
     return lista
+
+
+def guion_grafico(episodio: str) -> list[dict]:
+    """El guion gráfico de un capítulo: lo que se ve, quién habla, qué dice y su dibujo ("" si no salió)."""
+    ep = _capitulo(episodio)
+    try:
+        lista = _planos(_leer_guion(ep, ep.name))
+    except ValueError:
+        return []
+    return [{"descripcion": _texto(p.get("descripcion"), 1000), "habla": _texto(p.get("habla"), 60),
+             "texto": _texto(p.get("texto"), 400), "imagen": str(_imagen(ep, i)) if _imagen(ep, i).is_file() else ""}
+            for i, p in enumerate(lista)]
 
 
 def resumen(carpeta: Path, datos: dict) -> dict:
@@ -200,20 +260,21 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
     if formato not in video.FORMATOS:
         raise ValueError(t("Formato desconocido: {formato!r:.20}.", formato=formato))
     cuantos = max(1, min(int(personajes), MAX_PERSONAJES))
+    # el nombre del estilo en cualquier idioma de la app (el MCP lo manda en español)
+    estilo = ESTILOS.get(estilo) or ESTILOS.get(t(str(estilo))) or _texto(estilo, 300)
     if biblia is None:
         aviso(t("La IA está creando la serie y sus personajes…"), 0.05)
+        # con el estilo, la apariencia que escribe encaja con el dibujo (un gato de caricatura no es uno de cine)
         biblia = ia.texto_json(INSTRUCCIONES_SERIE.replace("{idioma}", IDIOMAS[actual()]),
-                               f"Título: {titulo or '(elígelo tú)'}\nIdea: {idea or titulo}\nPersonajes: {cuantos}",
-                               ESQUEMA_SERIE)
+                               f"Título: {titulo or '(elígelo tú)'}\nIdea: {idea or titulo}\nPersonajes: {cuantos}"
+                               + (f"\nEstilo de dibujo: {estilo}" if estilo else ""), ESQUEMA_SERIE)
     else:
         cuantos = MAX_PERSONAJES  # los que escribió el agente, con el tope de siempre
     crudos = [p for p in biblia["personajes"] if _texto(p.get("nombre"), 60)][:cuantos]
     if not crudos:
         raise RuntimeError(t("La IA no inventó ningún personaje. Inténtalo de nuevo."))
     datos = _limpia({"titulo": titulo or biblia["titulo"], "sinopsis": biblia["sinopsis"], "idea": idea,
-                     # el nombre del estilo en cualquier idioma de la app (el MCP lo manda en español)
-                     "estilo": ESTILOS.get(estilo) or ESTILOS.get(t(str(estilo))) or _texto(estilo, 300),
-                     "formato": formato, "personajes": crudos})
+                     "estilo": estilo, "formato": formato, "personajes": crudos})
     _asignar_voces(datos["personajes"], [str(p.get("genero", "")) for p in crudos])
     CARPETA.mkdir(parents=True, exist_ok=True)
     base = CARPETA / f"{time.strftime('%Y%m%d-%H%M%S')}-{_slug(datos['titulo'])}"
@@ -223,26 +284,46 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         carpeta = base.with_name(f"{base.name}-{n}")
     (carpeta / "personajes").mkdir(parents=True)
     diseno.escribir_json(carpeta / "serie.json", datos)
-    avisos = []
+    avisos, faltan = [], []
     for i, p in enumerate(datos["personajes"]):
         aviso(t("Dibujando a {nombre}…", nombre=p["nombre"]), 0.2 + 0.75 * i / len(datos["personajes"]))
         try:
-            ia.imagen(f"character reference sheet of {p['nombre']}: {p['descripcion']}. Full body, front view, "
-                      f"standing, neutral pose, plain light grey background, {datos['estilo']}", *LAMINA,
-                      lamina(carpeta, p))
-        except Exception as e:  # sin cuota hoy: la serie queda creada y la lámina se hace o se elige después
+            ia.imagen(_prompt_lamina(p, datos["estilo"]), *LAMINA, lamina(carpeta, p))
+        except Exception as e:  # sin cuota hoy: la serie queda creada y la lámina se dibuja o se elige después
+            faltan.append(p["nombre"])
             avisos.append(t("No salió la lámina de {nombre} ({causa}).", nombre=p["nombre"],
                             causa=str(e).replace("\n", " · ")[:300]))
     aviso(t("¡Listo!"), 1.0)
-    return {**resumen(carpeta, datos), "avisos": avisos, "resultados": []}
+    return {**resumen(carpeta, datos), "avisos": avisos, "faltan_laminas": faltan, "resultados": []}
+
+
+def _prompt_lamina(p: dict, estilo: str) -> str:
+    return (f"character reference sheet of {p['nombre']}: {p['descripcion']}. Full body, front view, standing, "
+            f"neutral pose, plain light grey background, single character only, centered, no text, no letters, {estilo}")
+
+
+def _personaje(datos: dict, personaje: str) -> dict:
+    p = next((x for x in datos["personajes"] if personaje in (x["id"], x["nombre"])), None)
+    if p is None:
+        raise ValueError(t("Esa serie no tiene el personaje «{nombre}».", nombre=str(personaje)[:60]))
+    return p
+
+
+def dibujar_lamina(serie: str, personaje: str, aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
+    """Dibuja con la IA la lámina de un personaje (la que no salió al crear la serie, o una nueva versión)."""
+    carpeta, datos = _abrir(serie)
+    p = _personaje(datos, personaje)
+    aviso(t("Dibujando a {nombre}…", nombre=p["nombre"]), 0.1)
+    lamina(carpeta, p).parent.mkdir(exist_ok=True)
+    ia.imagen(_prompt_lamina(p, datos["estilo"]), *LAMINA, lamina(carpeta, p))
+    aviso(t("¡Listo!"), 1.0)
+    return {**resumen(carpeta, datos), "resultados": []}
 
 
 def cambiar_lamina(serie: str, personaje: str, archivo: str) -> str:
     """La lámina de un personaje desde tu imagen o un fotograma de tu video (p. ej. de un capítulo que ya tenías)."""
     carpeta, datos = _abrir(serie)
-    p = next((x for x in datos["personajes"] if personaje in (x["id"], x["nombre"])), None)
-    if p is None:
-        raise ValueError(t("Esa serie no tiene el personaje «{nombre}».", nombre=str(personaje)[:60]))
+    p = _personaje(datos, personaje)
     real = seguro.archivo_medio(archivo, seguro.IMAGENES | seguro.VIDEOS, t("imagen del personaje"))
     momento = video.duracion(real) / 3 if real.suffix.lower() in seguro.VIDEOS - seguro.IMAGENES else 0
     destino = lamina(carpeta, p)
@@ -251,11 +332,51 @@ def cambiar_lamina(serie: str, personaje: str, archivo: str) -> str:
     return str(destino)
 
 
+def _escenas(datos: dict, guion: dict) -> list[dict]:
+    """Cada plano como escena de desde_prompt.montar: su voz y su dibujo, con la apariencia fija de quien sale."""
+    nombres = {p["nombre"].lower(): p for p in datos["personajes"]}
+    # Las imágenes salen cuadradas y se recortan a 16:9: que nadie quede con la cabeza o los pies fuera
+    encuadre = ", characters fully inside the central band, no text" if datos["formato"] == "16:9" else ", no text"
+    escenas = []
+    for plano in _planos(guion):
+        salen = [nombres[n.lower()] for n in plano.get("personajes", []) if isinstance(n, str) and n.lower() in nombres]
+        habla = nombres.get(str(plano.get("habla", "")).lower())
+        fijas = "; ".join(f"{p['nombre']}: {p['descripcion']}" for p in salen)
+        escenas.append({"narracion": _texto(plano.get("texto"), 400) or "…",
+                        "imagen": _texto(plano.get("descripcion"), 1000) + (f". Characters: {fijas}" if fijas else "")
+                        + encuadre, "voz": habla["voz"] if habla else datos["narrador"],
+                        "ref": salen[0] if salen else None})
+    return escenas
+
+
+def _dibujar(carpeta: Path, escena: dict, prompt: str, ancho: int, alto: int, destino: Path) -> Path:
+    ref = escena["ref"]
+    if ref and lamina(carpeta, ref).is_file() and ia.puede_referencia():
+        return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False)
+    return ia.imagen(prompt, ancho, alto, destino)
+
+
+def _edicion(ep: Path, nombre: str) -> Path:
+    """La carpeta del editor del capítulo: al rehacerlo se pone al día la misma (no se llena Mis proyectos de copias),
+    salvo que la retocaras a mano después: entonces va a otra y tu retoque se queda."""
+    try:
+        ed = diseno._local(json.loads((ep / "episodio.json").read_text(encoding="utf-8"))["edicion"]).resolve()
+        if ed.parent == edicion.CARPETA.resolve() and \
+                (ed / "proyecto.json").stat().st_mtime <= (ep / "episodio.json").stat().st_mtime:
+            return ed
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return edicion.nueva_carpeta(nombre)
+
+
 def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0,
-                   aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None) -> dict:
+                   aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None,
+                   dibujar: bool = True) -> dict:
     """Escribe el capítulo siguiente (o rehace el `numero` que ya existe, con su mismo guion y las imágenes que ya
     salieron) y lo convierte en video: imagen, animación y voz de cada plano. Queda también como proyecto del editor.
-    guion: ya escrito (forma de ESQUEMA_EPISODIO) por quien maneja el estudio; entonces no se usa la IA de texto."""
+    Si no sale ningún dibujo no hay video: el guion queda guardado (estado «sin_dibujos») y se avisa con un error.
+    guion: ya escrito (forma de ESQUEMA_EPISODIO) por quien maneja el estudio; entonces no se usa la IA de texto.
+    dibujar=False: al rehacer no pide ningún dibujo; solo vuelve a montar los planos que no tienen escena."""
     escrito = ia.de_fuera(guion, ESQUEMA_EPISODIO, t("El guion del capítulo")) if guion is not None else None
     carpeta, datos = _abrir(serie)
     planos = max(3, min(int(planos), MAX_PLANOS))
@@ -264,13 +385,9 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
     if numero < 0 or numero > MAX_EPISODIOS:
         raise ValueError(t("El número de capítulo va de 1 a {n}.", n=MAX_EPISODIOS))
     ep = carpeta / "episodios" / f"{numero:02d}" if numero else None
-    if ep and (ep / "guion.json").is_file() and escrito is None:
-        try:
-            guion = json.loads((ep / "guion.json").read_text(encoding="utf-8"))
-            if not isinstance(guion, dict) or not isinstance(guion.get("planos"), list):
-                raise ValueError
-        except (OSError, ValueError):
-            raise ValueError(t("El guion del capítulo {n} está dañado.", n=numero)) from None
+    rehacer = bool(ep and (ep / "guion.json").is_file() and escrito is None)
+    if rehacer:
+        guion = _leer_guion(ep, numero)
     else:
         numero = numero or max([e["numero"] for e in anteriores] + [0]) + 1
         ep = carpeta / "episodios" / f"{numero:02d}"
@@ -283,7 +400,8 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
             instrucciones = INSTRUCCIONES_EPISODIO
             for clave, valor in (("{numero}", str(numero)), ("{titulo}", datos["titulo"]),
                                  ("{sinopsis}", datos["sinopsis"]), ("{personajes}", lista),
-                                 ("{antes}", antes or "(es el primero)"), ("{idioma}", IDIOMAS[actual()])):
+                                 ("{antes}", antes or "(es el primero)"), ("{idioma}", IDIOMAS[actual()]),
+                                 ("{estilo}", datos["estilo"])):
                 instrucciones = instrucciones.replace(clave, valor)
             guion = ia.texto_json(instrucciones, f"Idea para este capítulo: {_texto(idea, 2000) or 'sigue la historia'}"
                                                  f"\nPlanos: unos {planos}.", ESQUEMA_EPISODIO)
@@ -294,52 +412,85 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         for vieja in ep.glob("video_final_imagen_*.png"):  # un guion nuevo pide imágenes nuevas (si no, se reusarían)
             vieja.unlink()
         diseno.escribir_json(ep / "guion.json", guion)
-    nombres = {p["nombre"].lower(): p for p in datos["personajes"]}
-    escenas = []
-    for plano in [p for p in guion["planos"] if isinstance(p, dict)][:MAX_PLANOS]:
-        salen = [nombres[n.lower()] for n in plano.get("personajes", []) if isinstance(n, str) and n.lower() in nombres]
-        habla = nombres.get(str(plano.get("habla", "")).lower())
-        fijas = "; ".join(f"{p['nombre']}: {p['descripcion']}" for p in salen)
-        escenas.append({"narracion": _texto(plano.get("texto"), 400) or "…",
-                        "imagen": _texto(plano.get("descripcion"), 1000) + (f". Characters: {fijas}" if fijas else ""),
-                        "voz": habla["voz"] if habla else datos["narrador"], "ref": salen[0] if salen else None})
+    escenas = _escenas(datos, guion)
     if not escenas:
         raise ValueError(t("El guion del capítulo {n} está dañado.", n=numero))
+    # Al rehacer, el plano que ya tenía su dibujo se queda como está (ni se vuelve a narrar ni a montar); sin dibujar,
+    # también los que no lo tienen: esos son de «Dibujar lo que falta»
+    hechas = {i: ep / f"video_final_escena_{i:02d}.mp4" for i in range(len(escenas))
+              if rehacer and (_imagen(ep, i).is_file() or not dibujar)
+              and (ep / f"video_final_escena_{i:02d}.mp4").is_file()}
 
     def crear_imagen(prompt, ancho, alto, destino):
         if destino.is_file():  # al rehacer el capítulo, lo que ya salió no se vuelve a pedir
             return destino
-        ref = escenas[int(destino.stem.rsplit("_", 1)[1])]["ref"]
-        if ref and lamina(carpeta, ref).is_file() and ia.puede_referencia():
-            return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False)
-        return ia.imagen(prompt, ancho, alto, destino)
+        if not dibujar:
+            raise RuntimeError(t("se dibuja con «Dibujar lo que falta»"))
+        return _dibujar(carpeta, escenas[int(destino.stem.rsplit("_", 1)[1])], prompt, ancho, alto, destino)
     notas = []
     final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
-                                datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas)
+                                datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas, hablados=hechas)
+    dibujos = sum(_imagen(ep, i).is_file() for i in range(len(escenas)))
+    estado = _estado(ep, len(escenas))
+    capitulo = {"numero": numero, "titulo": _texto(guion.get("titulo"), 120),
+                "resumen": _texto(guion.get("resumen"), 1000), "estado": estado, "avisos": notas}
+    if estado == "sin_dibujos":  # un video de manchas de color no es un capítulo: queda el guion para dibujarlo luego
+        final.unlink(missing_ok=True)
+        diseno.escribir_json(ep / "episodio.json", capitulo)
+        raise RuntimeError(t("No salió ningún dibujo: seguramente se acabó la cuota gratis de imágenes de hoy. El guion "
+                             "quedó guardado; pulsa «Dibujar lo que falta» más tarde o conecta Pollinations gratis en "
+                             "Claves de IA."))
+    if estado == "incompleto":
+        notas.append(t("Faltan {n} dibujos: pulsa «Dibujar lo que falta» para hacerlos.", n=len(escenas) - dibujos))
     nombre = f"{datos['titulo']} · {t('Capítulo {n}', n=numero)}"
     proyecto = edicion.nuevo(nombre[:80], datos["formato"])
     for i in range(len(escenas)):  # para retocarlo a mano: cada plano es un clip en el editor de video
         proyecto = edicion.anadir_medio(proyecto, str(ep / f"video_final_escena_{i:02d}.mp4"))
-    ed = edicion.nueva_carpeta(proyecto["nombre"])
+    ed = _edicion(ep, proyecto["nombre"])
     edicion.guardar(proyecto, ed)
-    diseno.escribir_json(ep / "episodio.json", {"numero": numero, "titulo": _texto(guion.get("titulo"), 120),
-                                                "resumen": _texto(guion.get("resumen"), 1000), "edicion": str(ed),
-                                                "avisos": notas})
+    diseno.escribir_json(ep / "episodio.json", {**capitulo, "edicion": str(ed)})
     aviso(t("¡Listo!"), 1.0)
     return {"tipo": "episodio", "formato": datos["formato"], "carpeta": str(ep), "edicion": str(ed),
-            "titulo": nombre, "avisos": notas,
+            "titulo": nombre, "avisos": notas, "estado": estado,
             "resultados": [{"archivo": str(final), "titulo": f"{nombre}: {_texto(guion.get('titulo'), 120)}",
                             "descripcion": _texto(guion.get("resumen"), 1000), "hashtags": []}]}
 
 
-# ---------- Retocar a mano ----------
+# ---------- Retocar ----------
+
+def rehacer_plano(episodio: str, i: int, descripcion: str | None = None, texto: str | None = None,
+                  aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
+    """Vuelve a dibujar el plano `i` (desde 0) de un capítulo, si se pasa con otra descripción (en inglés) u otro
+    texto, y monta otra vez el video: los demás planos se quedan como están. Gasta 1 imagen, aunque falten otras."""
+    ep = _capitulo(episodio)
+    carpeta, datos = _abrir(ep.parent.parent.name)
+    guion = _leer_guion(ep, ep.name)
+    lista, i = _planos(guion), int(i)
+    if not 0 <= i < len(lista):
+        raise ValueError(t("Ese capítulo no tiene el plano {n}.", n=i + 1))
+    if descripcion:
+        lista[i]["descripcion"] = _texto(descripcion, 1000)
+    if texto:
+        lista[i]["texto"] = _texto(texto, 400)
+    # Primero el dibujo nuevo, aparte: sin cuota, el plano bueno (y su guion) se quedan como estaban
+    escena, nuevo = _escenas(datos, guion)[i], ep / "plano_nuevo.png"
+    aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=len(lista)), 0.05)
+    try:  # el mismo prompt que le pondría desde_prompt.montar
+        _dibujar(carpeta, escena, f"{escena['imagen']}, {datos['estilo']}", *video.FORMATOS[datos["formato"]], nuevo)
+    except Exception as e:
+        nuevo.unlink(missing_ok=True)
+        raise RuntimeError(t("El plano {n} no se pudo dibujar ({causa}). Se quedó como estaba.", n=i + 1,
+                             causa=str(e).replace("\n", " · ")[:300])) from None
+    diseno.escribir_json(ep / "guion.json", guion)
+    os.replace(nuevo, _imagen(ep, i))
+    (ep / f"video_final_escena_{i:02d}.mp4").unlink(missing_ok=True)
+    return crear_episodio(carpeta.name, numero=int(ep.name), aviso=aviso, dibujar=False)
+
 
 def exportar_cuadros(episodio: str, fps: int = 12) -> str:
     """Los cuadros de cada plano en PNG (cuadros/plano_NN/0001.png…), a 12 por segundo como la animación a mano:
     se importan como secuencia de imágenes en OpenToonz, Pencil2D o Krita."""
-    ep = diseno._local(episodio).resolve()
-    if CARPETA.resolve() not in ep.parents or not (ep / "episodio.json").is_file():
-        raise ValueError(t("Eso no es un capítulo de una serie."))
+    ep = _capitulo(episodio)
     fps = max(1, min(int(fps), 30))
     planos = sorted(ep.glob("video_final_escena_*.mp4"))
     cuadros = sum(video.duracion(p) for p in planos) * fps

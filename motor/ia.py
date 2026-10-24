@@ -296,6 +296,9 @@ def puede_referencia() -> bool:
 
 SIN_REFERENCIA = t("Para editar con IA hace falta una IA de imágenes que edite fotos: conecta Gemini, OpenAI o "
                    "Pollinations (con su clave) en «Claves de IA» y elígela en «Imágenes».")
+# US$ por edición con OpenAI en calidad media: la imagen de 1536 px (0,063 con gpt-image-1) más la foto que se le manda,
+# redondeado hacia arriba para que el aviso de costo no se quede corto
+PRECIO_EDITAR_OPENAI = 0.08
 
 
 def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
@@ -307,11 +310,12 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
     size = "1024x1536" if alto > ancho else "1536x1024" if ancho > alto else "1024x1024"
     base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
     modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
+    # OpenAI, en calidad fija: con «auto» podía salir en alta, sin precio conocido (ver PRECIO_EDITAR_OPENAI)
+    extra = {"quality": "medium"} if c["proveedor"] == "openai" else {"private": "true"}
     with open(foto, "rb") as f:
         r = httpx.post(f"{base}/images/edits", timeout=300, headers={"Authorization": f"Bearer {c['clave']}"},
                        files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
-                       data={"model": modelo, "prompt": pedido, "size": size, "n": "1",
-                             **({"private": "true"} if c["proveedor"] == "pollinations" else {})})
+                       data={"model": modelo, "prompt": pedido, "size": size, "n": "1", **extra})
     r.raise_for_status()
     d = r.json()["data"][0]
     destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
@@ -324,7 +328,7 @@ def editar_imagen(foto: Path, instruccion: str, destino: Path, calidad: str = "1
     («ponle gorra roja y humo verde») y deja el resto igual. Necesita una IA que edite con referencia
     (puede_referencia: Gemini, OpenAI o Pollinations); si no, SinClave. calidad: la de Gemini (1K, 2K o 4K)."""
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QImageReader
+    from PySide6.QtGui import QImage, QImageReader
     instruccion = " ".join(str(instruccion or "").split())[:1000]
     if not instruccion:
         raise ValueError(t("Escribe qué quieres cambiar en la imagen."))
@@ -342,11 +346,20 @@ def editar_imagen(foto: Path, instruccion: str, destino: Path, calidad: str = "1
     if not imagen.save(str(original), "PNG"):
         raise RuntimeError(t("No se pudo preparar la imagen."))
     try:
-        return _con_referencia(f"Edit this image: {instruccion}. Change only that and keep everything else exactly the "
-                               "same (composition, framing, subject, faces, colors, lighting and style).", original,
-                               imagen.width(), imagen.height(), destino, calidad)
+        _con_referencia(f"Edit this image: {instruccion}. Change only that and keep everything else exactly the same "
+                        "(composition, framing, subject, faces, colors, lighting and style).", original,
+                        imagen.width(), imagen.height(), destino, calidad)
     finally:
         original.unlink(missing_ok=True)
+    # La IA solo da ciertas proporciones (OpenAI, 2:3, 3:2 o 1:1): recortada al centro a la de la foto, la capa no
+    # cambia de encuadre
+    hecha, proporcion = QImage(str(destino)), imagen.width() / imagen.height()
+    w, h = hecha.width(), hecha.height()
+    ancho, alto = min(w, round(h * proporcion)), min(h, round(w / proporcion))
+    if not hecha.isNull() and (ancho, alto) != (w, h):
+        if not hecha.copy((w - ancho) // 2, (h - alto) // 2, ancho, alto).save(str(destino), "PNG"):
+            raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
+    return destino
 
 
 def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True) -> Path:

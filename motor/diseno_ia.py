@@ -472,8 +472,14 @@ FONDO_VERDE = ("Replace the whole background with a flat, pure green (#00FF00) b
 
 def quitar_fondo_con_ia(foto: Path, destino: Path, calidad: str = "1K") -> Path:
     """Para una imagen sin fondo liso: la IA de imágenes (con referencia) le pone un fondo verde puro y luego se quita
-    aquí, gratis, con diseno.quitar_fondo. De pago: quien la llama avisa antes del costo."""
-    return diseno.quitar_fondo(ia.editar_imagen(foto, FONDO_VERDE, destino, calidad), destino)
+    aquí, gratis, con diseno.quitar_fondo. De pago: quien la llama avisa antes del costo. Si el verde no se puede
+    quitar, RuntimeError que dice dónde quedó la imagen ya pagada."""
+    hecha = ia.editar_imagen(foto, FONDO_VERDE, destino, calidad)
+    try:  # ya se sabe que el fondo es verde: no tiene que ser liso todo el borde (un busto llega abajo y a los lados)
+        return diseno.quitar_fondo(hecha, destino, fondo=(0, 255, 0))
+    except (ValueError, RuntimeError) as error:
+        raise RuntimeError(t("La IA hizo la imagen, pero no se le pudo quitar el fondo: {causa} La imagen (ya pagada) "
+                             "quedó guardada en {ruta}", causa=error, ruta=hecha)) from None
 
 
 def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,

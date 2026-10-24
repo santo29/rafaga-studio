@@ -30,8 +30,9 @@ Topes para que un diseño ajeno no cuelgue el editor ni llene la memoria (los ap
   caracteres en los textos con contorno (contorno y grosor_contorno > 0), sumando todos; y más de MAX_PIXELES_EMOJI
   (16 millones) de emojis: en un texto, cada emoji (con repeticiones) cuenta tamano²; una capa emoji cuenta
   min(ancho × alto, caracteres × min(ancho, alto)²); con una fuente de emojis cuenta TODO el texto (hasta ♡ sale en
-  color); y más de MAX_SOMBRAS (12) textos con sombra. Una sombra que al pintarse pasaría de MAX_PIXELES_SOMBRA
-  (p. ej. exportando a mucha escala) se omite en ese pintado.
+  color); más de MAX_SOMBRAS (12) textos con sombra, y más de MAX_FUSIONES (12) capas con fusión (como una sombra,
+  cada una se pinta aparte como imagen). Una sombra que al pintarse pasaría de MAX_PIXELES_SOMBRA (p. ej. exportando a
+  mucha escala) se omite en ese pintado.
 """
 import json
 import math
@@ -66,6 +67,7 @@ MAX_CAPAS = 80
 FACTOR_CAPA, FRACCION_CONTORNO = 2, 0.25  # topes: ver el docstring del módulo
 MAX_IMAGENES, MAX_LETRAS_CONTORNO, MAX_PIXELES_EMOJI = 12, 2000, 16_000_000
 MAX_SOMBRAS, MAX_PIXELES_SOMBRA = 12, 16_000_000  # cada sombra se pinta aparte como imagen (en el PDF, a 300 ppp)
+MAX_FUSIONES = 12  # cada capa con fusión, también
 _ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
 # Nombres que Windows abre como dispositivos aunque lleven extensión (leer «CON.png» se quedaría esperando la consola)
 _RESERVADOS = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
@@ -260,6 +262,8 @@ def validar(diseno: dict) -> dict:
         raise ValueError(t("Demasiados emojis grandes en el diseño: hazlos más pequeños o quita alguno."))
     if sum(c["tipo"] == "texto" and c["sombra"] for c in d["capas"]) > MAX_SOMBRAS:
         raise ValueError(t("Un diseño puede tener hasta {n} textos con sombra: quítasela a alguno.", n=MAX_SOMBRAS))
+    if sum(c["fusion"] != "normal" for c in d["capas"]) > MAX_FUSIONES:
+        raise ValueError(t("Un diseño puede tener hasta {n} capas con fusión: pon alguna en «Normal».", n=MAX_FUSIONES))
     return d
 
 
@@ -585,30 +589,44 @@ class ItemCapa(QGraphicsItem):
             else:
                 destino.setWidth(destino.width() * proporcion)
             destino.moveCenter(caja.center())
+        dibujo = destino
         if any(c[k] for k in AJUSTES):
-            imagen, origen = self._con_ajustes(p, imagen, origen, destino, c)
+            ajustada = self._con_ajustes(p, imagen, origen, destino, c)
+            if ajustada is None:  # no se ve nada de ella
+                return
+            imagen, origen, dibujo = ajustada
         r = min(c["redondeo"], destino.width() / 2, destino.height() / 2)
         camino = QPainterPath()
         camino.addRoundedRect(destino, r, r)
         p.setClipPath(camino, Qt.IntersectClip)
-        p.drawImage(destino, imagen, origen)
+        p.drawImage(dibujo, imagen, origen)
 
     def _con_ajustes(self, p: QPainter, imagen: QImage, origen: QRectF, destino: QRectF,
-                     c: dict) -> tuple[QImage, QRectF]:
-        """El trozo `origen` de la imagen con los ajustes de la capa, a los píxeles con que se va a ver (sin pasar de
-        los de la foto): así el lienzo no va lento. En caché hasta que cambien la imagen, el zoom o los ajustes."""
-        t = p.worldTransform()
-        f = min(math.hypot(t.m11(), t.m12()) * destino.width() / origen.width(), 1,
-                4096 / max(origen.width(), origen.height()))
-        ancho, alto = max(1, round(origen.width() * f)), max(1, round(origen.height() * f))
+                     c: dict) -> tuple[QImage, QRectF, QRectF] | None:
+        """Solo el trozo de `origen` que se ve (con zoom, el resto de la foto no se calcula), con los ajustes de la capa
+        y a los píxeles con que se va a ver, también en pantallas HiDPI (sin pasar de los de la foto): así el lienzo no
+        va lento. Da (imagen, su rectángulo, dónde va en la capa), o None si no se ve nada. En caché hasta que cambien
+        la imagen, lo que se ve, el zoom o los ajustes."""
+        # De la capa a la foto; lo que se ve lleva un margen para que el desenfoque no cambie en el borde de la vista
+        a_foto = QTransform.fromTranslate(origen.x(), origen.y()).scale(
+            origen.width() / destino.width(), origen.height() / destino.height()).translate(-destino.x(), -destino.y())
+        m = 2 * c["desenfoque"]
+        visible = p.worldTransform().inverted()[0].mapRect(QRectF(p.window())).adjusted(-m, -m, m, m) & destino
+        trozo = a_foto.mapRect(visible).toAlignedRect() & origen.toAlignedRect()
+        if trozo.isEmpty():
+            return None
+        dibujo = a_foto.inverted()[0].mapRect(QRectF(trozo))  # justo donde van esos píxeles: nada se mueve
+        t = p.deviceTransform()  # la del mundo, con la escala de la pantalla (HiDPI)
+        f = min(math.hypot(t.m11(), t.m12()) * dibujo.width() / trozo.width(), 1,
+                4096 / max(trozo.width(), trozo.height()))
+        ancho, alto = max(1, round(trozo.width() * f)), max(1, round(trozo.height() * f))
         ajustes = tuple(c[k] for k in AJUSTES)
-        clave = (imagen.cacheKey(), origen.getRect(), ancho, alto, ajustes)
+        clave = (imagen.cacheKey(), trozo.getRect(), ancho, alto, ajustes)
         if self._ajustada[0] != clave:
-            trozo = imagen.copy(origen.toAlignedRect()).scaled(ancho, alto, Qt.IgnoreAspectRatio,
-                                                               Qt.SmoothTransformation)
+            pequena = imagen.copy(trozo).scaled(ancho, alto, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
             # El desenfoque va en px del diseño: en los de este trozo, a su escala
-            self._ajustada = clave, ajustar_imagen(trozo, *ajustes[:3], ajustes[3] * ancho / destino.width())
-        return self._ajustada[1], QRectF(self._ajustada[1].rect())
+            self._ajustada = clave, ajustar_imagen(pequena, *ajustes[:3], ajustes[3] * ancho / dibujo.width())
+        return self._ajustada[1], QRectF(self._ajustada[1].rect()), dibujo
 
 
 def _suavizar(a):
@@ -774,14 +792,14 @@ class FondoNoLiso(ValueError):
 
 def _crecer(marca, dentro, veces: int):
     """La marca extendida a sus vecinos (arriba, abajo y a los lados) que están `dentro` (None: a todos), hasta que no
-    crece más o tras `veces` pasos."""
+    crece más o tras `veces` pasos. Con números, cada píxel se queda con el mayor de su alrededor."""
     import numpy as np
     for _ in range(veces):
         nueva = marca.copy()
-        nueva[1:] |= marca[:-1]
-        nueva[:-1] |= marca[1:]
-        nueva[:, 1:] |= marca[:, :-1]
-        nueva[:, :-1] |= marca[:, 1:]
+        np.maximum(nueva[1:], marca[:-1], out=nueva[1:])
+        np.maximum(nueva[:-1], marca[1:], out=nueva[:-1])
+        np.maximum(nueva[:, 1:], marca[:, :-1], out=nueva[:, 1:])
+        np.maximum(nueva[:, :-1], marca[:, 1:], out=nueva[:, :-1])
         if dentro is not None:
             nueva &= dentro
         if np.array_equal(nueva, marca):
@@ -790,12 +808,14 @@ def _crecer(marca, dentro, veces: int):
     return marca
 
 
-def quitar_fondo(origen: Path, destino: Path, tolerancia: float = 60) -> Path:
+def quitar_fondo(origen: Path, destino: Path, tolerancia: float = 60, fondo=None) -> Path:
     """Quita el fondo liso de una imagen (como las ilustraciones que pide la IA «isolated on plain solid background»),
     gratis y en el PC, y la guarda en `destino` como PNG con transparencia. El fondo es el color del borde: se quita lo
     que se le parece (a menos de `tolerancia` en distancia RGB) y llega al borde sin cruzar el dibujo, así lo de dentro
     del mismo color (unos ojos blancos sobre fondo blanco) se queda. El filo sale suave y sin el halo del fondo.
-    FondoNoLiso si el borde no es de un solo color (una foto).
+    FondoNoLiso si el borde no es de un solo color (una foto). fondo: el color (R, G, B) si ya se sabe (el verde que se
+    pidió a la IA); entonces basta con que llegue al borde (un retrato toca abajo y los lados). Tarda unos segundos con
+    una 4K: quien la llama la corre en segundo plano.
     ponytail: un fondo con viñeta muy marcada (el centro a más de `tolerancia` del borde) deja una mancha: con IA."""
     import numpy as np
     imagen = _leer_imagen(str(origen), Path(origen).stat().st_mtime_ns).convertToFormat(QImage.Format_RGBA8888)
@@ -805,33 +825,53 @@ def quitar_fondo(origen: Path, destino: Path, tolerancia: float = 60) -> Path:
     a = np.frombuffer(imagen.constBits(), np.uint8).reshape(h, imagen.bytesPerLine())[:, :4 * w].reshape(h, w, 4)
     if np.mean(np.concatenate([a[0, :, 3], a[-1, :, 3], a[:, 0, 3], a[:, -1, 3]]) < 128) > 0.5:
         raise ValueError(t("Esta imagen ya no tiene fondo: su borde es transparente."))
-    rgb = a[..., :3].astype(np.float32)
-    borde = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
-    fondo = np.median(borde, axis=0)
-    if np.mean(np.linalg.norm(borde - fondo, axis=1) < tolerancia) < 0.7:
-        raise FondoNoLiso(t("El fondo de esta imagen no es liso (de un solo color): sin IA no se puede quitar bien."))
-    cerca = np.linalg.norm(rgb - fondo, axis=2) < tolerancia
-    # Lo que llega al borde se busca en pequeño, que es rápido: un bloque cuenta solo si es todo fondo, así una raya
-    # fina del dibujo no deja pasar; luego se termina píxel a píxel hasta el filo
-    paso = max(1, math.ceil(max(w, h) / 512))
-    filas, columnas = -(-h // paso), -(-w // paso)
-    bloques = np.pad(cerca, ((0, filas * paso - h), (0, columnas * paso - w)), constant_values=True)
-    bloques = bloques.reshape(filas, paso, columnas, paso).all(axis=(1, 3))
-    semilla = np.zeros_like(bloques)
-    semilla[[0, -1]] = bloques[[0, -1]]
-    semilla[:, [0, -1]] |= bloques[:, [0, -1]]
-    fuera = np.repeat(np.repeat(_crecer(semilla, bloques, 4 * (filas + columnas)), paso, 0), paso, 1)[:h, :w]
-    fuera = _crecer(fuera, cerca, 2 * paso)
-    # El fondo, transparente del todo; en el filo (a los dos lados), cada píxel es alfa × dibujo + (1 − alfa) × fondo:
-    # la opacidad es lo que se aparta del fondo hacia el blanco o el negro (sin el ruido de menos del 4 %), y el color,
-    # el del dibujo sin el del fondo mezclado (así no queda un halo del color del fondo)
-    lado = max(2, round(max(w, h) / 400))
-    filo = _crecer(fuera, None, lado) & _crecer(~fuera, None, lado)
-    techo = np.where(rgb > fondo, 255 - fondo, fondo)
-    mezcla = np.clip(((np.abs(rgb - fondo) / np.maximum(techo, 1)).max(axis=2) - 0.04) / 0.96, 0, 1)
-    alfa = np.where(filo, mezcla, np.where(fuera, 0, 1))[..., None]
-    rgb = np.clip((rgb - (1 - alfa) * fondo) / np.maximum(alfa, 1e-3), 0, 255)
-    datos = np.ascontiguousarray(np.dstack([rgb, alfa * a[..., 3:]]).round().astype(np.uint8))
+    try:
+        borde = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])[:, :3].astype(np.float32)
+        if fondo is None:
+            fondo = np.median(borde, axis=0)
+            if np.mean(np.linalg.norm(borde - fondo, axis=1) < tolerancia) < 0.7:
+                raise FondoNoLiso(t("El fondo de esta imagen no es liso (de un solo color): sin IA no se puede quitar "
+                                    "bien."))
+        else:  # el tono que de verdad trae el borde, aunque el dibujo tape parte de él
+            junto = np.linalg.norm(borde - fondo, axis=1) < 2 * tolerancia
+            fondo = np.median(borde[junto], axis=0) if junto.any() else np.asarray(fondo, np.float32)
+        # Canal a canal y en float32: con la imagen entera en float64 una 4K pedía unos 2 GB
+        canales = [(a[..., k], f) for k, f in enumerate(fondo)]
+        cerca = sum((c - f) ** 2 for c, f in canales) < tolerancia ** 2
+        # Lo que llega al borde se busca en pequeño, que es rápido: un bloque cuenta solo si es todo fondo, así una raya
+        # fina del dibujo no deja pasar; luego se termina píxel a píxel hasta el filo
+        paso = max(1, math.ceil(max(w, h) / 512))
+        filas, columnas = -(-h // paso), -(-w // paso)
+        bloques = np.pad(cerca, ((0, filas * paso - h), (0, columnas * paso - w)), constant_values=True)
+        bloques = bloques.reshape(filas, paso, columnas, paso).all(axis=(1, 3))
+        semilla = np.zeros_like(bloques)
+        semilla[[0, -1]] = bloques[[0, -1]]
+        semilla[:, [0, -1]] |= bloques[:, [0, -1]]
+        fuera = np.repeat(np.repeat(_crecer(semilla, bloques, 4 * (filas + columnas)), paso, 0), paso, 1)[:h, :w]
+        fuera = _crecer(fuera, cerca, 2 * paso)
+        if not fuera.any():
+            raise FondoNoLiso(t("No encuentro el fondo en el borde de la imagen."))
+        # Lo que se aparta del fondo hacia el blanco o el negro, en el canal que más (sin el ruido de menos del 4 %)
+        mezcla = np.zeros((h, w), np.float32)
+        for c, f in canales:
+            d = c - f
+            np.maximum(mezcla, np.maximum(d / max(255 - f, 1), -d / max(f, 1)), out=mezcla)
+        np.clip((mezcla - 0.04) / 0.96, 0, 1, out=mezcla)
+        # El fondo, transparente del todo; en el filo (a los dos lados), cada píxel es alfa × dibujo + (1 − alfa) ×
+        # fondo. La opacidad: lo que se aparta del fondo comparado con lo que se aparta el dibujo de al lado (un dibujo
+        # color piel sobre blanco se aparta poco y es opaco); el color, el del dibujo sin el del fondo (sin halo)
+        lado = max(2, round(max(w, h) / 400))
+        filo = _crecer(fuera, None, lado) & _crecer(~fuera, None, lado)
+        vecino = _crecer(np.where(fuera, np.float32(0), mezcla), None, 2 * lado)
+        alfa = np.minimum(mezcla[filo] / np.maximum(vecino[filo], 1e-3), 1)[:, None]
+        datos = a.copy()
+        datos[fuera, 3] = 0
+        pixeles = a[filo]
+        color = np.clip((pixeles[:, :3] - (1 - alfa) * fondo) / np.maximum(alfa, 1e-3), 0, 255)
+        datos[filo] = np.hstack([color, alfa * pixeles[:, 3:]]).round()
+    except MemoryError:
+        raise RuntimeError(t("No hay memoria libre para quitar el fondo de una imagen tan grande: cierra otros "
+                             "programas y vuelve a probar.")) from None
     if not QImage(datos.data, w, h, 4 * w, QImage.Format_RGBA8888).save(str(destino), "PNG"):
         raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
     return Path(destino)

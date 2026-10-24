@@ -5,11 +5,12 @@ import os
 import re
 import tempfile
 import time
+import tracemalloc
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")  # los textos que se comprueban están en español
-from PySide6.QtCore import QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QShortcut  # noqa: E402
 from PySide6.QtPdf import QPdfDocument  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
@@ -93,6 +94,11 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
                         ("desenfoque", "5")):
         falla(diseno.validar, {"capas": [{"tipo": "imagen", "archivo": "a.png", campo: malo}]})
     assert set(diseno.FUSIONES) == set(pd.FUSIONES)  # lo que ofrece la pantalla es lo que pinta el motor
+    # Cada capa con fusión se pinta aparte como imagen (80 a lienzo completo: 2 s por repintado): tienen tope
+    fundidas = [{"tipo": "forma", "fusion": "multiplicar"}] * diseno.MAX_FUSIONES + [{"tipo": "forma"}] * 20
+    assert len(diseno.validar({"capas": fundidas})["capas"]) == diseno.MAX_FUSIONES + 20
+    e = falla(diseno.validar, {"capas": fundidas + [{"tipo": "texto", "fusion": "trama"}]})
+    assert f"hasta {diseno.MAX_FUSIONES} capas con fusión" in str(e)
 
     # ---------- Ajustes de imagen (numpy) ----------
     gris = plano(["#808080"])
@@ -152,6 +158,31 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     escena.render(p)
     p.end()
     assert item._ajustada[1] is not hecha
+    # Con zoom, solo se calcula el trozo que se ve (antes, la foto entera en cada tick: 640 ms con zoom 4), en su sitio
+    assert plano(["#FF0000", "#0000FF"], 2000, 1000).save(str(carpeta / "imagenes" / "grande.png"))
+
+    def vista(tamano=(200, 100), dpr=1, origen=QRectF(175, 80, 50, 25), **ajustes):
+        """El diseño con la foto de 2000 px pintado en una imagen de `tamano` px (por defecto, el centro con zoom ×4)
+        y la imagen ajustada que calculó la capa."""
+        capa = {**con_ajustes["capas"][0], "archivo": "grande.png", "brillo": 0, **ajustes}
+        escena = diseno.escena({**con_ajustes, "capas": [capa]}, carpeta)
+        imagen = QImage(*tamano, QImage.Format_ARGB32_Premultiplied)
+        imagen.setDevicePixelRatio(dpr)
+        imagen.fill(Qt.white)
+        p = QPainter(imagen)
+        escena.render(p, QRectF(0, 0, tamano[0] / dpr, tamano[1] / dpr), origen)
+        p.end()
+        return imagen, next(i for i in escena.items() if i.data(0))._ajustada[1]
+
+    def raya(imagen):  # la primera columna que ya no es roja
+        return next(x for x in range(imagen.width()) if imagen.pixelColor(x, imagen.height() // 2).red() < 128)
+    normal, _ = vista()
+    con_brillo, ajustada = vista(brillo=1)
+    assert ajustada.width() <= 210 and ajustada.height() <= 110, ajustada.size()  # no 1600 × 800
+    assert 95 <= raya(normal) <= 105 and abs(raya(con_brillo) - raya(normal)) <= 1
+    # En una pantalla al 200 % (HiDPI), a sus píxeles reales: no a la mitad y ampliada (borrosa)
+    _, ajustada = vista((800, 400), 2, QRectF(0, 0, 400, 200), brillo=1)
+    assert ajustada.size().toTuple() == (800, 400), ajustada.size()
 
     # ---------- Modos de fusión, en el PNG, el JPG, el PDF y el SVG ----------
     def con_fusion(fusion, encima=True, opacidad=1):
@@ -212,12 +243,34 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     filo = [hecha.pixelColor(x, 200) for x in range(140, 160)]  # el borde del círculo: suave y sin halo oscuro
     assert any(0 < c.alpha() < 255 for c in filo), [c.alpha() for c in filo]
     assert all(c.lightness() > 200 for c in filo if c.alpha() > 30), [c.name() for c in filo]
-    # Una ilustración grande (sobre fondo claro) también, y deprisa
+    # Una ilustración grande (sobre fondo claro) también, deprisa y sin llenar la memoria (antes, 2 GB con una 4K)
     inicio = time.monotonic()
+    tracemalloc.start()
     grande = QImage(str(diseno.quitar_fondo(ilustracion(d / "grande.jpg", "#F4F1EA", 2048, 2048, "#7C5CFF"),
                                             d / "grande.png")))
+    pico = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
     assert grande.pixelColor(10, 10).alpha() == 0 and grande.pixelColor(1024, 500).alpha() == 255
-    assert time.monotonic() - inicio < 30
+    assert time.monotonic() - inicio < 30 and pico < 200 * 1024 ** 2, pico
+    # Sin memoria para tanto: un aviso claro, no un error vacío
+    crecer_real, diseno._crecer = diseno._crecer, lambda *a: (_ for _ in ()).throw(MemoryError())
+    try:
+        e = falla(diseno.quitar_fondo, d / "ilu.png", d / "x.png", error=RuntimeError)
+    finally:
+        diseno._crecer = crecer_real
+    assert "memoria" in str(e) and not (d / "x.png").exists()
+    # Un dibujo claro sobre blanco (o uno oscuro sobre negro) no pierde opacidad ni color en su filo
+    for color, fondo in (("#FFE0B0", "#FFFFFF"), ("#F2D16B", "#FFFFFF"), ("#303030", "#000000")):
+        claro = QImage(1024, 1024, QImage.Format_RGB32)
+        claro.fill(QColor(fondo))
+        pintor = QPainter(claro)
+        pintor.fillRect(256, 256, 512, 512, QColor(color))  # sin suavizar: el filo es de un píxel
+        pintor.end()
+        assert claro.save(str(d / "claro.png"))
+        hecha = QImage(str(diseno.quitar_fondo(d / "claro.png", d / "claro_sin.png")))
+        assert hecha.pixelColor(250, 512).alpha() == 0 and hecha.pixelColor(255, 512).alpha() == 0
+        dentro = [hecha.pixelColor(x, 512) for x in range(256, 270)]
+        assert all(c.alpha() == 255 and parecido(c, color, 2) for c in dentro), (color, [c.alpha() for c in dentro])
     # Una foto (fondo de varios colores): aviso claro, no un recorte malo; sin fondo ya: tampoco
     assert plano(["#FF0000", "#00FF00", "#0000FF"]).save(str(d / "foto3.png"))
     e = falla(diseno.quitar_fondo, d / "foto3.png", d / "x.png", error=diseno.FondoNoLiso)
@@ -299,6 +352,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         url, datos, enviada = pedidos[-1]
         assert url == "https://api.openai.com/v1/images/edits" and datos["size"] == "1536x1024"
         assert "ponle gorra" in datos["prompt"] and enviada.startswith(b"\x89PNG")
+        assert datos["quality"] == "medium"  # fija: con «auto» podía salir en alta, sin precio conocido
+        # Vuelve en 2:3 (lo que da OpenAI a una foto vertical): se recorta al centro a la 4:5 de la foto, así la capa
+        # no cambia de encuadre
+        assert plano(["#00AA00"], 64, 96).save(str(hecha_ia))
+        assert plano(["#FF0000"], 800, 1000).save(str(d / "vertical.png"))
+        assert QImage(str(ia.editar_imagen(d / "vertical.png", "ponle gorra", d / "v.png"))).size().toTuple() == (64, 80)
+        assert pedidos[-1][1]["size"] == "1024x1536"
         # Quitar el fondo con IA: le pide un fondo verde puro y luego lo quita aquí
         verde = d / "verde.png"
         ilustracion(verde, "#00FF00")
@@ -311,10 +371,33 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         editar_real, ia.editar_imagen = ia.editar_imagen, editar_falso
         try:
             hecho = QImage(str(diseno_ia.quitar_fondo_con_ia(grande_foto, d / "con_ia.png", "2K")))
+            assert editadas == [(grande_foto, diseno_ia.FONDO_VERDE, "2K")] and "#00FF00" in diseno_ia.FONDO_VERDE
+            assert hecho.pixelColor(3, 3).alpha() == 0 and hecho.pixelColor(300, 120).alpha() == 255
+            # Un busto (lo normal en las fotos): la cabeza y los hombros tocan abajo y los lados, así que menos del 70 %
+            # del borde es verde. Ya se sabe que el fondo es verde: se quita igual
+            retrato = QImage(800, 1000, QImage.Format_RGB32)
+            retrato.fill(QColor("#00FF00"))
+            pintor = QPainter(retrato)
+            pintor.setRenderHint(QPainter.Antialiasing)
+            pintor.setPen(Qt.NoPen)
+            pintor.setBrush(QColor("#C68642"))
+            pintor.drawEllipse(QPointF(400, 380), 170, 220)
+            pintor.setBrush(QColor("#2B4C7E"))
+            pintor.drawRoundedRect(QRectF(-10, 640, 820, 500), 160, 160)
+            pintor.end()
+            assert retrato.save(str(verde))
+            falla(diseno.quitar_fondo, verde, d / "x.png", error=diseno.FondoNoLiso)  # sin saber el color, no
+            hecho = QImage(str(diseno_ia.quitar_fondo_con_ia(grande_foto, d / "busto.png")))
+            assert hecho.pixelColor(5, 5).alpha() == 0 and hecho.pixelColor(795, 600).alpha() == 0
+            assert hecho.pixelColor(400, 380).alpha() == 255 and hecho.pixelColor(400, 990).alpha() == 255
+            assert hecho.pixelColor(3, 990).alpha() == 255  # el hombro que toca el borde se queda
+            # Si aun así no se puede (la IA no puso el verde), se dice dónde quedó la imagen ya pagada, y no «sin IA»
+            assert plano(["#FF0000", "#00AAFF", "#0000FF"]).save(str(verde))
+            e = falla(diseno_ia.quitar_fondo_con_ia, grande_foto, d / "pagada.png", error=RuntimeError)
+            assert "ya pagada" in str(e) and str(d / "pagada.png") in str(e) and "sin IA" not in str(e)
+            assert QImage(str(d / "pagada.png")).size().toTuple() == (200, 200)
         finally:
             ia.editar_imagen = editar_real
-        assert editadas == [(grande_foto, diseno_ia.FONDO_VERDE, "2K")] and "#00FF00" in diseno_ia.FONDO_VERDE
-        assert hecho.pixelColor(3, 3).alpha() == 0 and hecho.pixelColor(300, 120).alpha() == 255
     finally:
         ia.httpx.post, claves.para = post_real, para_real
         ia._elegidos.clear()
@@ -405,6 +488,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.editar_con_ia()
     assert editadas == [] and "Cancelado" in p.estado.text()
     assert "ponle gorra roja" in preguntas[-1] and "US$0.07" in preguntas[-1], preguntas[-1]  # el precio más alto
+    pd.claves.para = lambda uso: {"proveedor": "openai", "clave": "sk-x"}  # OpenAI: también con su importe
+    p.editar_con_ia()
+    assert editadas == [] and "US$0.08 con OpenAI (calidad media" in preguntas[-1], preguntas[-1]
+    pd.claves.para = lambda uso: {"proveedor": "gemini", "clave": "AIzaPrueba"}
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a: preguntas.append(texto) or QMessageBox.Yes)
     pila = len(p.deshacer_pila)
     p.editar_con_ia()
@@ -431,10 +518,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert any(QKeySequence(a.key()) == QKeySequence("Ctrl+Shift+G") for a in p.findChildren(QShortcut))
     assert any(QKeySequence(a.key()) == QKeySequence("Ctrl+Shift+B") for a in p.findChildren(QShortcut))
 
-    # Quitar fondo: liso, gratis y al momento (un «deshacer»)
+    # Quitar fondo: liso, gratis y en segundo plano, que con una 4K tarda unos segundos (un «deshacer»)
     elegir_imagen()
     pila = len(p.deshacer_pila)
     p.quitar_fondo()
+    assert not p.disenar.isEnabled() and p.diseno["capas"][-1]["archivo"] == original  # la ventana no se congela
+    esperar(lambda: p.disenar.isEnabled())
     capa = p.diseno["capas"][-1]
     sin = QImage(str(p.carpeta / "imagenes" / capa["archivo"]))
     assert capa["archivo"] != original and sin.hasAlphaChannel() and sin.pixelColor(2, 2).alpha() == 0
@@ -454,6 +543,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     diseno_ia.quitar_fondo_con_ia = quitar_falso
     m = len(preguntas)
     p.quitar_fondo()
+    esperar(lambda: len(preguntas) > m)
     assert "no es liso" in preguntas[m] and "verde" in preguntas[m] and "US$" in preguntas[m]
     esperar(lambda: p.disenar.isEnabled() and con_ia)
     assert next(c for c in p.diseno["capas"] if c["id"] == foto_id)["archivo"] != archivo_foto
@@ -463,6 +553,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     elegir_imagen()
     n = len(avisos)
     p.quitar_fondo()
+    esperar(lambda: p.disenar.isEnabled() and len(avisos) > n)
     assert "no es liso" in avisos[-1] and ia.SIN_REFERENCIA in avisos[-1] and len(con_ia) == 1
     diseno_ia.quitar_fondo_con_ia = quitar_real
     pd.ia.puede_referencia, pd.ia.editar_imagen, pd.claves.para, pd.pedir_cambio = (referencia_real, editar_real,

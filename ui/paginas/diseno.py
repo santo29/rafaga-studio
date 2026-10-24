@@ -14,8 +14,8 @@ from PySide6.QtCore import QByteArray, QPointF, QRectF, QSize, QStandardPaths, Q
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QIcon, QImageIOHandler, QImageReader, QKeySequence, QPainter,
                            QPen, QPixmap, QPolygonF, QShortcut)
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog,
-                               QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGraphicsItem, QGraphicsView,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+                               QFileDialog, QFormLayout, QFrame, QGraphicsItem, QGraphicsView,
                                QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
                                QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
@@ -182,6 +182,14 @@ def _ilustrar(diseno_ia, prompt: str, estilo: str, destino: Path, calidad: str) 
     from motor import ia  # ponytail: respaldo para el diseno_ia sin ilustracion(); sobra cuando llegue (contrato A)
     return ia.imagen(f"{prompt}, flat vector illustration, bold clean outlines{diseno_ia._SIN_TEXTO}", 1024, 1024,
                      destino)
+
+
+def _sin_fondo(ruta: Path, destino: Path) -> dict:
+    """{"ruta"} con el fondo ya quitado, o {"no_liso": el aviso} si sin IA no se puede."""
+    try:
+        return {"ruta": str(diseno.quitar_fondo(ruta, destino))}
+    except diseno.FondoNoLiso as e:
+        return {"no_liso": str(e)}
 
 
 def _combo(opciones: dict) -> QComboBox:
@@ -1384,7 +1392,8 @@ class PaginaDiseno(QWidget):
             costo = t("unos US${precio} con Gemini (calidad {calidad}, según el precio de Google)", calidad=calidad,
                       precio=f"{ia.precio_imagen_gemini(c['clave'], calidad):.2f}")
         elif c.get("proveedor") == "openai":
-            costo = t("una imagen de OpenAI, de pago en tu cuenta")
+            costo = t("unos US${precio} con OpenAI (calidad media, según el precio de OpenAI)",
+                      precio=f"{ia.PRECIO_EDITAR_OPENAI:.2f}")
         else:
             costo = t("una imagen del saldo (pollen) de tu cuenta de Pollinations")
         if QMessageBox.question(self, t("Antes de gastar"), t("{que}\n\nCuesta {costo}. ¿Seguir?", que=que,
@@ -1412,27 +1421,25 @@ class PaginaDiseno(QWidget):
                          error=t("La IA no pudo editar la imagen"))
 
     def quitar_fondo(self):
-        """Quita el fondo liso de la imagen elegida, gratis y en este PC; si no es liso, ofrece hacerlo con IA."""
+        """Quita el fondo liso de la imagen elegida, gratis y en este PC (en segundo plano: una 4K tarda unos
+        segundos); si no es liso, ofrece hacerlo con IA."""
         foto = self._libre() and self._foto()
         if not foto:
             return
         capa, ruta = foto
-        QApplication.setOverrideCursor(Qt.WaitCursor)  # una imagen grande tarda un par de segundos
-        try:
-            hecha = diseno.quitar_fondo(ruta, self._temporal())
-        except (ValueError, OSError, RuntimeError) as e:
-            hecha = e
-        finally:
-            QApplication.restoreOverrideCursor()
-        if not isinstance(hecha, Exception):
-            return self._imagen_editada(capa["id"], str(hecha), t("Fondo quitado: la imagen ya es transparente."))
-        if not isinstance(hecha, diseno.FondoNoLiso):
-            return mensaje_error(self, t("No se pudo quitar el fondo"), hecha)
+        self.estado.setText(t("Quitando el fondo…"))
+        self._lanzar(lambda aviso: _sin_fondo(ruta, self._temporal()), lambda r: self._fondo_quitado(capa, ruta, r),
+                     error=t("No se pudo quitar el fondo"))
+
+    def _fondo_quitado(self, capa, ruta, r):
+        if "ruta" in r:
+            return self._imagen_editada(capa["id"], r["ruta"], t("Fondo quitado: la imagen ya es transparente."))
+        self.estado.setText("")
         if not ia.puede_referencia():
-            return mensaje(self, t("Quitar fondo"), f"{hecha}\n\n{ia.SIN_REFERENCIA}")
+            return mensaje(self, t("Quitar fondo"), f"{r['no_liso']}\n\n{ia.SIN_REFERENCIA}")
         diseno_ia = self._ia()
         calidad = diseno_ia and self._costo_ia(t("{error} La IA puede ponerle un fondo verde liso, que luego se "
-                                                 "quita aquí.", error=hecha))
+                                                 "quita aquí.", error=r["no_liso"]))
         if calidad:
             self.estado.setText(t("Quitando el fondo con IA…"))
             self._lanzar(lambda aviso: {"ruta": str(diseno_ia.quitar_fondo_con_ia(ruta, self._temporal(), calidad))},

@@ -386,11 +386,10 @@ def crear_falso(pedido, tipo, usar_marca=True, aviso=None, propuesta=None, estil
     return {"tipo": "diseno", "carpeta": "C:/x/d", "archivo": "C:/x/d/vista_previa.png", "titulo": "t"}
 
 
-guardados = {n: getattr(diseno_ia, n, None) for n in ("entender", "crear", "ESTILOS", "TIPOS")}
+guardados = {n: getattr(diseno_ia, n) for n in ("entender", "crear", "ESTILOS")}
 _imagen = ia.imagen
 diseno_ia.entender, diseno_ia.crear = entender_falso, crear_falso
 diseno_ia.ESTILOS = {"auto": "", "vector": "flat vector", "tatuaje": "tattoo flash"}
-diseno_ia.TIPOS = {**diseno_ia.TIPOS, "ilustracion": None, "estampado": None}  # el contrato A de P1
 ia.imagen = lambda *a, **k: llamado["imagen"].append(a)
 try:
     entendido.update(entendido="carabela gótica", seguro=False, pregunta="¿Calavera o carabela (barco)?",
@@ -436,25 +435,10 @@ try:
         assert "Estilo desconocido" in res and "tatuaje" in res and "unhashable" not in res, res
     herramientas.crear_diseno("   ")
     assert not llamado["entender"] and not llamado["imagen"]
-    # Con el diseno_ia de antes (sin entender, estilos ni los tipos nuevos) sigue funcionando
-    del diseno_ia.entender, diseno_ia.ESTILOS
-    diseno_ia.TIPOS = guardados["TIPOS"]
-    diseno_ia.crear = lambda pedido, tipo, usar_marca=True, aviso=None, propuesta=None, calidad="1K": (
-        llamado["crear"].append(tipo) or {"tipo": "diseno"})
-    assert json.loads(herramientas.crear_diseno("calavera")) == {"tipo": "diseno"} and llamado["crear"][-1] == "post"
-    if "estampado" not in diseno_ia.TIPOS:  # la camiseta que mandan las instrucciones no falla sin P1: cae en post
-        assert json.loads(herramientas.crear_diseno("calavera gótica para camiseta", tipo="estampado")) == {
-            "tipo": "diseno"} and llamado["crear"][-1] == "post"
-        _, res = director._usar("crear_diseno", json.dumps({"pedido": "calavera", "tipo": "ilustracion"}),
-                                lambda *a: None, lambda n: None, "", "")
-        assert not res.startswith("ERROR") and llamado["crear"][-1] == "post", res
 finally:
     ia.imagen = _imagen
     for nombre, valor in guardados.items():
-        if valor is not None:
-            setattr(diseno_ia, nombre, valor)
-        elif hasattr(diseno_ia, nombre):
-            delattr(diseno_ia, nombre)
+        setattr(diseno_ia, nombre, valor)
 
 # crear_video: una voz inventada falla antes de gastar nada
 _generar, generados = desde_prompt.generar, []

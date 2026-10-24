@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -361,6 +362,12 @@ with tempfile.TemporaryDirectory() as d:
         assert sum(b < 200 for b in (d / "e.gray").read_bytes()) > 200, estilo  # se ve algo escrito
     assert len(textos) == len(edicion.ESTILOS_SUBTITULOS)
     assert "\\kf50}HOLA" in video.subtitulos_ass(pal, "9:16", d / "k.ass", estilo="karaoke").read_text(encoding="utf-8")
+    # Un grupo no junta dos frases: se corta tras el punto o tras un silencio, aunque quepa otra palabra
+    frases = [{"palabra": p, "inicio": a, "fin": b} for p, a, b in (
+        ("de", 0, 0.2), ("verdad.", 0.2, 0.5), ("¿Cansado", 0.5, 0.9), ("y", 0.9, 1.0), ("sin", 2.0, 2.2))]
+    texto = video.subtitulos_ass(frases, "16:9", d / "f.ass", estilo="karaoke").read_text(encoding="utf-8")
+    assert [re.sub(r"\{[^}]*\}", "", linea.split(",,")[-1]) for linea in texto.splitlines()
+            if linea.startswith("Dialogue")] == ["DE VERDAD.", "¿CANSADO Y", "SIN"], texto
 
     archivo = edicion.guardar(real, carpeta)
     assert archivo == carpeta / "proyecto.json" and edicion.abrir(carpeta) == real

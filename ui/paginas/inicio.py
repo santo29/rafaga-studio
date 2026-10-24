@@ -283,14 +283,14 @@ class PaginaInicio(QWidget):
 
     def _presentacion(self) -> QPushButton | None:
         """El video de presentación de la app (ejemplos/presentacion-app.mp4), arriba del todo: qué es Ráfaga Studio
-        en un minuto, hecho con su propio editor. Sin el video, no sale."""
+        en 30 segundos, hecho con su propio editor. Sin el video, no sale."""
         video_app = pagina_director.EJEMPLOS / "presentacion-app.mp4"
         if not (video_app.is_file() and video_app.with_suffix(".jpg").is_file()):
             return None
         b = QPushButton()
         b.setObjectName("acceso")
         b.setCursor(Qt.PointingHandCursor)
-        b.setAccessibleName(t("Conoce Ráfaga Studio en un minuto"))
+        b.setAccessibleName(t("Conoce Ráfaga Studio en 30 segundos"))
         b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         fila = QHBoxLayout(b)
         fila.setContentsMargins(16, 16, 22, 16)
@@ -300,7 +300,7 @@ class PaginaInicio(QWidget):
         textos = QVBoxLayout()
         dibujo = QLabel()
         dibujo.setPixmap(icono("circle-play", "#FF4D8D").pixmap(34, 34))
-        for w in (dibujo, etiqueta(t("Conoce Ráfaga Studio en un minuto"), "acceso_titulo"),
+        for w in (dibujo, etiqueta(t("Conoce Ráfaga Studio en 30 segundos"), "acceso_titulo"),
                   etiqueta(t("Todo lo que puedes crear: video con IA, diseño, edición y dibujos animados. Hecho con "
                              "su propio editor."), "sub")):
             textos.addWidget(w)

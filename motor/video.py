@@ -97,6 +97,18 @@ def _estilo_ass(fuente, tam, letra, antes, contorno, fondo, negrita, borde, gros
             f"{grosor},{sombra},{alineacion},60,60,{margen},1")
 
 
+def _grupos(palabras: list[dict], por_grupo: int) -> list[list[dict]]:
+    """Grupos de por_grupo palabras como mucho, sin juntar dos frases: se corta tras un punto o un silencio."""
+    grupos = []
+    for p in palabras:
+        if grupos and len(ultimo := grupos[-1]) < por_grupo and p["inicio"] - ultimo[-1]["fin"] <= 0.6 \
+                and not ultimo[-1]["palabra"].rstrip().endswith((".", "?", "!", "…")):
+            ultimo.append(p)
+        else:
+            grupos.append([p])
+    return grupos
+
+
 def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo: int = 3,
                    estilo: str = "clasico") -> Path:
     """Subtítulos estilo CapCut: grupos de pocas palabras, grandes, con la palabra que suena resaltada. estilo: una
@@ -141,8 +153,7 @@ def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo:
         "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     brillo = "{\\blur5}" if estilo == "neon" else ""
-    for i in range(0, len(palabras), por_grupo):
-        grupo = palabras[i:i + por_grupo]
+    for grupo in _grupos(palabras, por_grupo):
         letras = [_texto_ass(p["palabra"].upper() if mayusculas else p["palabra"]) for p in grupo]
         if estilo in ("karaoke", "minimal"):  # una sola línea por grupo
             if estilo == "karaoke":  # cada palabra se llena hasta que empieza la siguiente (\kf va en centésimas)

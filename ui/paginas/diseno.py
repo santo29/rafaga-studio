@@ -169,21 +169,6 @@ def alineado(capa: dict, como: str, ancho: int, alto: int) -> dict:
             "centro_v": {"y": round((alto - capa["alto"]) / 2)}, "abajo": {"y": alto - capa["alto"]}}[como]
 
 
-def _entender(diseno_ia, pedido: str, tipo: str) -> dict:
-    """El paso «Entendí…» (texto, sin gastar imágenes). Con un diseno_ia que aún no lo trae, el pedido tal cual."""
-    if hasattr(diseno_ia, "entender"):
-        return diseno_ia.entender(pedido, tipo)
-    return {"entendido": pedido, "seguro": True, "tipo": tipo, "estilo": "auto"}
-
-
-def _ilustrar(diseno_ia, prompt: str, estilo: str, destino: Path, calidad: str) -> Path:
-    if hasattr(diseno_ia, "ilustracion"):
-        return diseno_ia.ilustracion(prompt, estilo, destino, calidad)
-    from motor import ia  # ponytail: respaldo para el diseno_ia sin ilustracion(); sobra cuando llegue (contrato A)
-    return ia.imagen(f"{prompt}, flat vector illustration, bold clean outlines{diseno_ia._SIN_TEXTO}", 1024, 1024,
-                     destino)
-
-
 def _sin_fondo(ruta: Path, destino: Path) -> dict:
     """{"ruta"} con el fondo ya quitado, o {"no_liso": el aviso} si sin IA no se puede."""
     try:
@@ -1313,7 +1298,7 @@ class PaginaDiseno(QWidget):
         if diseno_ia and self._libre() and (calidad := self._calidad(diseno_ia.MAX_FOTOS)):
             tipo, estilo, usar_marca = self.tipo_ia.currentData(), self.estilo_ia.currentData(), self.usar_marca.isChecked()
             self.estado.setText(t("Entendiendo el pedido…"))
-            self._lanzar(lambda aviso: _entender(diseno_ia, pedido, tipo),
+            self._lanzar(lambda aviso: diseno_ia.entender(pedido, tipo),
                          lambda r: self._crear_con_ia(diseno_ia, pedido, tipo, estilo, usar_marca, r, calidad))
 
     def _crear_con_ia(self, diseno_ia, pedido, tipo, estilo, usar_marca, r, calidad):
@@ -1325,13 +1310,12 @@ class PaginaDiseno(QWidget):
                 return self.estado.setText(t("Cancelado: no se gastó ninguna imagen."))
         # La pieza que eligió el usuario; en «Automático», la que entendió la IA
         tipo = next(c for c in (tipo, r.get("tipo"), "ilustracion", "post") if c in diseno_ia.TIPOS)
-        estilos = getattr(diseno_ia, "ESTILOS", None)  # un diseno_ia sin estilos tampoco los acepta en crear()
-        if estilo == "auto" and r.get("estilo") in (estilos or {}):
+        if estilo == "auto" and r.get("estilo") in diseno_ia.ESTILOS:
             estilo = r["estilo"]
         entendi = t("Entendí: {pedido}", pedido=entendido)
         self.estado.setText(entendi)
         self._lanzar(lambda aviso: diseno_ia.crear(pedido=entendido, tipo=tipo, usar_marca=usar_marca, aviso=aviso,
-                                                   calidad=calidad, **({"estilo": estilo} if estilos else {})),
+                                                   calidad=calidad, estilo=estilo),
                      self._diseno_listo, f"{entendi} · ")
 
     def _diseno_listo(self, resultado):
@@ -1356,7 +1340,7 @@ class PaginaDiseno(QWidget):
         if pedido and (calidad := self._calidad(1)):
             destino = Path(tempfile.gettempdir()) / f"rafaga-ilustracion-{uuid.uuid4().hex}.png"
             self.estado.setText(t("Dibujando con IA…"))
-            self._lanzar(lambda aviso: {"ruta": str(_ilustrar(diseno_ia, *pedido, destino, calidad))},
+            self._lanzar(lambda aviso: {"ruta": str(diseno_ia.ilustracion(*pedido, destino, calidad))},
                          self._ilustracion_lista)
 
     def _ilustracion_lista(self, resultado):

@@ -146,21 +146,18 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     "capas": [{"tipo": texto|imagen|forma|icono|emoji, "x", "y", "ancho", "alto", y según el tipo: "texto", "fuente",
     "tamano" (alto de letra en % del alto), "color", "negrita", "alineacion" (izquierda|centro|derecha), "sombra",
     "forma" (rectangulo|elipse|linea), "redondeo", "opacidad" (0-100), "icono" (nombre Lucide), "prompt_imagen"}]}."""
-    if tipo in ("ilustracion", "estampado") and tipo not in diseno_ia.TIPOS:  # ponytail: respaldo hasta P1
-        tipo = "post"
     # antes de gastar nada en entender el pedido (el Director no pasa por la validación de tipos del MCP)
     if tipo != "auto" and (not isinstance(tipo, str) or tipo not in diseno_ia.TIPOS):
         raise ValueError(t("Tipo de diseño desconocido ({tipo!r:.30}); valen {tipos}.", tipo=tipo,
                            tipos=", ".join(diseno_ia.TIPOS)))
-    if hasattr(diseno_ia, "ESTILOS") and (not isinstance(estilo, str) or estilo not in diseno_ia.ESTILOS):
+    if not isinstance(estilo, str) or estilo not in diseno_ia.ESTILOS:
         raise ValueError(t("Estilo desconocido ({estilo!r:.30}); valen {estilos}.", estilo=estilo,
                            estilos=", ".join(diseno_ia.ESTILOS)))
     if not isinstance(calidad, str) or calidad not in ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]:
         raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 1K, 2K o 4K.", calidad=calidad))
     delante = {}
-    entender = getattr(diseno_ia, "entender", None)  # ponytail: respaldo mientras diseno_ia no tenga entender (P1)
-    if propuesta is None and entender and str(pedido or "").strip():
-        e = entender(pedido, tipo)
+    if propuesta is None and str(pedido or "").strip():
+        e = diseno_ia.entender(pedido, tipo)
         if not e.get("seguro", True):
             return _json({"pregunta": e.get("pregunta", ""), "opciones": e.get("opciones", [])})
         pedido = e.get("entendido") or pedido
@@ -168,9 +165,8 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
         estilo = e.get("estilo", estilo) if estilo == "auto" else estilo
         delante = {"entendido": pedido}  # primero: el Director ve el resultado recortado y debe saber qué se entendió
     tipo = "post" if tipo == "auto" else tipo
-    con_estilo = {"estilo": estilo} if hasattr(diseno_ia, "ESTILOS") else {}  # ponytail: igual, hasta P1
     return _json({**delante, **diseno_ia.crear(pedido, tipo, bool(usar_marca), aviso=_aviso(), propuesta=propuesta,
-                                               calidad=calidad, **con_estilo)})
+                                               calidad=calidad, estilo=estilo)})
 
 
 def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:16", musica: str = "",

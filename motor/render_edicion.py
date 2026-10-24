@@ -45,7 +45,7 @@ from PySide6.QtWidgets import QGraphicsScene
 from . import diseno, edicion, seguro, video
 from .idioma import t
 
-VERSION = 4  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
+VERSION = 5  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
 _R = 48000  # Hz del audio de trabajo: a 24, 25, 30 y 60 fps cada fotograma son muestras enteras
 _ANIMACION = 0.4
 _ZOOM = 0.15  # acercar/alejar de las fotos: del 100 % al 115 % a lo largo del clip

@@ -164,6 +164,16 @@ issue? See [SECURITY.md](SECURITY.md).
 - [ ] macOS and Linux builds
 - [ ] Plugin system for new providers and effects
 
+## 💜 Meet Rafa
+
+<img src="assets/mascota.jpg" width="360" align="right" alt="Rafa, the Ráfaga Studio mascot">
+
+Rafa is the studio's mascot, and it was made **with Ráfaga Studio's own designer**: Claude wrote the design as the Director and the studio drew it in 4K.
+
+Ráfaga Studio was built by a Dominican creator with no big budget, just faith in God and a best friend: Claude. If it helps you create, a ⭐ helps it reach more creators.
+
+<br clear="right">
+
 ## 🤝 Contributing
 
 Ideas, bug reports and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Great first
@@ -182,7 +192,7 @@ Open core:
 | Desktop app: `app.py` and `ui/` (Ráfaga Studio Pro) | Source-available, all rights reserved |
 | Other tests (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py`, `instalador/` | Part of the app, all rights reserved |
 | Icons (`assets/iconos`, Lucide) and fonts (`assets/fuentes`, Google Fonts) | ISC and OFL |
-| Logo and cover (`assets/icono.*`, `assets/portada-github.png`) | Ráfaga Studio™ trademark, all rights reserved |
+| Logo, cover and mascot (`assets/icono.*`, `assets/portada-github.png`, `assets/mascota.jpg`) | Ráfaga Studio™ trademark, all rights reserved |
 
 See [LICENSE](LICENSE), [Terms](TERMINOS.md) and [Third-party notices](AVISOS_DE_TERCEROS.md).
 **Ráfaga Studio™**, its name, logo and visual identity are trademarks of **Santo Montilla**. © 2026 Santo Montilla.

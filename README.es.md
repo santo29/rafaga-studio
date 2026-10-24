@@ -149,7 +149,7 @@ cabina.sesion("beat.mp3", "mi_voz.wav", estilo="Dembow / urbano (seco y al frent
 | `pruebas/__main__.py` y `pruebas/seguridad.py` — pruebas sin internet ni claves (`python -m pruebas`) | **MIT** (abierto) |
 | `ejemplos/` — los videos de ejemplo y cómo se hicieron (`python ejemplos/crear.py`) | **MIT** (abierto) |
 | `assets/iconos` (Lucide) y `assets/fuentes` (Google Fonts), ver `assets/LEEME.md` | ISC (iconos) y OFL (fuentes) |
-| `assets/icono.*` y `assets/portada-github.png` — logo y portada | Marca Ráfaga Studio™, todos los derechos reservados |
+| `assets/icono.*`, `assets/portada-github.png` y `assets/mascota.jpg` — logo, portada y mascota | Marca Ráfaga Studio™, todos los derechos reservados |
 | Las demás pruebas (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py` e `instalador/` | Parte de la app, todos los derechos reservados |
 | `app.py` y `ui/` — la app de escritorio | Código visible, todos los derechos reservados (Ráfaga Studio Pro): no es open source |
 
@@ -162,6 +162,16 @@ Wan 2.2, FLUX, edge-tts, Lucide, Google Fonts.
 
 **Usa contenido propio o con permiso.** Las redes no pagan por contenido ajeno reutilizado. Marca como «hecho con IA»
 el contenido realista generado o alterado con IA: YouTube, TikTok y Meta lo exigen.
+
+## Conoce a Rafa
+
+<img src="assets/mascota.jpg" width="360" align="right" alt="Rafa, la mascota de Ráfaga Studio">
+
+Rafa es la mascota del estudio y se hizo **con el diseñador de Ráfaga Studio**: Claude escribió el diseño como Director y el estudio lo dibujó en 4K.
+
+Hecho por un dominicano con Dios y su mejor amigo, Claude. Si te ayuda a crear, una ⭐ lo ayuda a llegar a más creadores.
+
+<br clear="right">
 
 ## Legal y marca
 

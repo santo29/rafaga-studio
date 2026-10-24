@@ -7,7 +7,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtGui import QColor, QFont, QImage, QTextDocument, QTextOption
+from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QTextDocument, QTextOption
 
 from . import diseno, ia, marca, memoria, recursos
 from .idioma import actual, IDIOMAS, t
@@ -307,6 +307,32 @@ def _prompt(prompt: str, estilo: str, ilustra: bool = False, fondo: str = "") ->
     return ", ".join(p for p in partes if p) + _SIN_TEXTO
 
 
+def _borde_liso(imagen: QImage, tolerancia: int = 24) -> bool:
+    """Si todo el borde es del color de la esquina, como pide el prompt (un dibujo con humo o luces no lo cumple)."""
+    w, h, esquina = imagen.width(), imagen.height(), imagen.pixelColor(2, 2)
+    puntos = [(2 + i * (w - 5) // 15, y) for i in range(16) for y in (2, h - 3)]
+    puntos += [(x, 2 + i * (h - 5) // 15) for i in range(16) for x in (2, w - 3)]
+    return all(max(abs(c.red() - esquina.red()), abs(c.green() - esquina.green()),
+                   abs(c.blue() - esquina.blue())) <= tolerancia for c in (imagen.pixelColor(*p) for p in puntos))
+
+
+def _fundir_bordes(imagen: QImage, fraccion: float = 0.08) -> QImage:
+    """El borde se vuelve transparente poco a poco, para que no se vea el cuadrado sobre el fondo liso."""
+    imagen = imagen.convertToFormat(QImage.Format_ARGB32_Premultiplied)
+    w, h = imagen.width(), imagen.height()
+    m = max(1, round(min(w, h) * fraccion))
+    p = QPainter(imagen)
+    p.setCompositionMode(QPainter.CompositionMode_DestinationIn)  # solo multiplica el alfa de la franja que pinta
+    for x0, y0, x1, y1, caja in ((0, 0, m, 0, (0, 0, m, h)), (w, 0, w - m, 0, (w - m, 0, m, h)),
+                                 (0, 0, 0, m, (0, 0, w, m)), (0, h, 0, h - m, (0, h - m, w, m))):
+        degradado = QLinearGradient(x0, y0, x1, y1)
+        degradado.setColorAt(0, QColor(0, 0, 0, 0))
+        degradado.setColorAt(1, QColor(0, 0, 0, 255))
+        p.fillRect(*caja, degradado)
+    p.end()
+    return imagen
+
+
 def _comprobar(tipo: str = "post", estilo: str = "auto") -> None:
     """ValueError claro si el tipo o el estilo no existen (llegan también del Director y del MCP)."""
     if not isinstance(tipo, str) or tipo not in TIPOS:
@@ -574,6 +600,8 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
                 dibujo = QImage(str(hecha))
                 if not dibujo.isNull():
                     d["fondo"]["colores"] = [dibujo.pixelColor(2, 2).name()]
+                    if not _borde_liso(dibujo):  # humo o luces hasta el borde: se funde con el fondo
+                        _fundir_bordes(dibujo).save(str(hecha))
         except Exception as error:  # cuota agotada o servicio caído: el diseño sale igual, sin esa foto
             causa = _causa(error)
             if es_fondo:

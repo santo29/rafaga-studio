@@ -38,6 +38,11 @@ def imagen(prompt, ancho, alto, destino, calidad="1K"):
         raise RuntimeError("Ninguna opción pudo hacerlo.\nservicio caído")
     foto = QImage(ancho, alto, QImage.Format_RGB32)
     foto.fill(QColor("#00AA00"))
+    if "HUMO" in prompt:  # humo claro que llega al borde de abajo, como en el arte oscuro con neón
+        foto.fill(QColor("#06041A"))
+        for y in range(alto * 3 // 4, alto):
+            for x in range(ancho):
+                foto.setPixelColor(x, y, QColor("#5A4A8C"))
     assert foto.save(str(destino))
     return destino
 
@@ -502,6 +507,18 @@ with tempfile.TemporaryDirectory() as d:
     crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False,
           fondo_prompt_imagen="dark brick wall")
     assert len(fotos) == 2 and "isolated" not in fotos[1][0] and fotos[1][0].startswith("skull")
+    # Con el borde liso, el dibujo queda igual; con humo hasta el borde, se funde con el fondo y no se ve el cuadrado
+    r = crear([capa(tipo="imagen", prompt_imagen="skull", x=30, y=30, ancho=40, alto=40)], "ilustracion", False)
+    liso = QImage(str(diseno.ruta_imagen(Path(r["carpeta"]), r["diseno"]["capas"][0]["archivo"])))
+    assert not liso.hasAlphaChannel() and r["diseno"]["fondo"]["colores"] == ["#00AA00"]
+    r = crear([capa(tipo="imagen", prompt_imagen="HUMO robot", x=5, y=5, ancho=90, alto=90)], "ilustracion", False,
+              estilo="neon_oscuro")
+    humo = QImage(str(diseno.ruta_imagen(Path(r["carpeta"]), r["diseno"]["capas"][0]["archivo"])))
+    lado = humo.width()
+    assert r["diseno"]["fondo"]["colores"] == ["#06041A"]
+    assert humo.pixelColor(lado // 2, lado - 1).alpha() < 20 and humo.pixelColor(0, lado // 2).alpha() < 20
+    assert humo.pixelColor(lado // 2, lado * 7 // 8).alpha() == 255  # el dibujo, entero
+    assert humo.pixelColor(lado // 2, lado // 2).name() == "#06041a" and humo.pixelColor(lado // 2, lado // 2).alpha() == 255
     antes = set(diseno.CARPETA.iterdir())
     for estilo in ("VECTOR", "", None, "acuarela", ["vector"]):
         assert "Estilo desconocido" in falla(lambda: diseno_ia.crear("pizza", "post", estilo=estilo))

@@ -4,13 +4,14 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QRadialGradient
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
                                QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QProxyStyle,
-                               QPushButton, QScrollArea, QSlider, QStyle, QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
+                               QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from motor import desde_prompt, seguro
 from motor.idioma import t
@@ -20,9 +21,15 @@ from ui.iconos import COLOR, icono, poner, separar
 # Vidrio 3D con los colores de la marca. QSS no tiene box-shadow ni desenfoque de fondo: el volumen sale de degradados
 # rgba (arriba más claro), un borde de arriba más brillante (el reflejo) y uno de abajo más oscuro. Al pulsar se hunde:
 # el reflejo pasa abajo. Los bordes miden lo mismo en todos los estados para que nada salte al pasar el ratón.
+# Para que el vidrio se note tiene que haber algo detrás: una luz violeta de ambiente en el fondo de las páginas.
+# El foco (solo con el teclado: los botones son Qt.TabFocus) pinta los lados y el borde de abajo, nunca el reflejo
+# de arriba; va después de :checked y antes de :pressed para que al pulsar se vea el hundido.
 ESTILO = """
 * { font-family: 'Segoe UI'; color: #ECECF1; font-size: 16px; }
-QMainWindow, #contenido, QScrollArea, QScrollArea > QWidget > QWidget { background: #0F0F13; }
+QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget { background: #0F0F13; }
+#contenido { background: qradialgradient(cx:0.82, cy:0, radius:1.05, fx:0.82, fy:0, stop:0 #2A1D52,
+                                         stop:0.45 #17142A, stop:1 #0F0F13); }
+QScrollArea#pagina, QScrollArea#pagina > QWidget, QScrollArea#pagina > QWidget > QWidget { background: transparent; }
 #barra { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1A1A22, stop:1 #131318);
          border-right: 1px solid rgba(255, 255, 255, 0.06); }
 #marca { font-size: 22px; font-weight: 800; color: #FFFFFF; padding-left: 4px; }
@@ -34,16 +41,17 @@ QMainWindow, #contenido, QScrollArea, QScrollArea > QWidget > QWidget { backgrou
 #nav:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(168, 146, 255, 0.62),
                                            stop:0.55 rgba(124, 92, 255, 0.38), stop:1 rgba(118, 86, 250, 0.26));
                border-color: rgba(150, 125, 255, 0.40); border-top-color: rgba(225, 215, 255, 0.60); color: #FFFFFF; }
+#nav:focus { border-left-color: rgba(61, 245, 255, 0.55); border-right-color: rgba(61, 245, 255, 0.55);
+             border-bottom-color: rgba(61, 245, 255, 0.55); }
 #nav:pressed { background: rgba(124, 92, 255, 0.18); border-top-color: rgba(0, 0, 0, 0.30);
                border-bottom-color: rgba(200, 185, 255, 0.45); }
-#nav:focus { border-color: rgba(61, 245, 255, 0.55); }
 #titulo { font-size: 28px; font-weight: 700; }
 #sub { color: #8D8D9A; }
-#tarjeta { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(200, 190, 255, 0.075),
-                                       stop:1 rgba(200, 190, 255, 0.035));
-           border: 1px solid rgba(255, 255, 255, 0.07); border-top-color: rgba(255, 255, 255, 0.14); border-radius: 16px; }
+#tarjeta { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.07),
+                                       stop:1 rgba(255, 255, 255, 0.025));
+           border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.18); border-radius: 16px; }
 QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateTimeEdit { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 10px; padding: 10px; }
-QLineEdit, QTextEdit, QSpinBox, QDateTimeEdit { border-top-color: #23232B; border-bottom-color: #383844; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateTimeEdit { border-top-color: #23232B; border-bottom-color: #383844; }
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDateTimeEdit:focus { border: 1px solid #7C5CFF; }
 QDateTimeEdit::drop-down { border: none; width: 28px; }
 QCalendarWidget QAbstractItemView { background: #17171D; alternate-background-color: #20202A;
@@ -53,9 +61,11 @@ QComboBox { padding-right: 30px; }
 QComboBox:hover { border: 1px solid #3C3C48; }
 QComboBox::drop-down { border: none; width: 28px; }
 QComboBox QAbstractItemView { background: #17171D; color: #ECECF1; border: 1px solid #2C2C36;
-                              padding: 4px; outline: none; selection-background-color: #2A2340; selection-color: #FFFFFF; }
+                              padding: 4px; outline: none; selection-background-color: rgba(124, 92, 255, 0.34);
+                              selection-color: #FFFFFF; }
 QComboBox QAbstractItemView::item { min-height: 30px; padding: 4px 8px; }
-QComboBox QAbstractItemView::item:hover { background: #2A2340; }
+QComboBox QAbstractItemView::item:hover, QMenu::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.42), stop:1 rgba(124, 92, 255, 0.20)); }
 QSpinBox::up-button, QSpinBox::down-button { width: 22px; border: none; background: #20202A; }
 QScrollBar:vertical { background: transparent; width: 10px; }
 QScrollBar::handle:vertical { background: #2C2C36; border-radius: 5px; min-height: 30px; }
@@ -67,7 +77,6 @@ QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QToolTip { background: #17171D; color: #ECECF1; border: 1px solid #2C2C36; }
 QMenu { background: #17171D; border: 1px solid #2C2C36; padding: 4px; }
 QMenu::item { padding: 8px 18px; border-radius: 6px; }
-QMenu::item:selected { background: #2A2340; }
 QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #3C3C48; border-radius: 5px; background: #0F0F13; }
 QCheckBox::indicator:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9A80FF, stop:1 #6A4BF0);
                                border: 1px solid #7C5CFF; border-top-color: #C9BBFF; }
@@ -79,28 +88,32 @@ QCheckBox::indicator:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:
 #formato:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.55),
                                                stop:0.55 rgba(124, 92, 255, 0.34), stop:1 rgba(124, 92, 255, 0.24));
                    border-color: rgba(150, 125, 255, 0.55); border-top-color: rgba(230, 222, 255, 0.70); color: #FFFFFF; }
-#formato:focus { border-color: rgba(61, 245, 255, 0.70); }
-/* Un selector de opciones (SelectorFormato) es UNA pieza: una cápsula de vidrio con la elegida en relieve */
+#formato:focus { border-left-color: rgba(61, 245, 255, 0.70); border-right-color: rgba(61, 245, 255, 0.70);
+                 border-bottom-color: rgba(61, 245, 255, 0.70); }
+/* Un grupo de opciones (Segmentos) es UNA pieza: una cápsula de vidrio con la elegida en relieve. La elegida es vidrio
+   claro y casi neutro; el color es la luz violeta que Segmentos pinta debajo y que se ve a través */
 #segmentos { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.075),
                                          stop:1 rgba(255, 255, 255, 0.025));
              border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.17); border-radius: 22px; }
 #segmentos #formato { background: transparent; border: 1px solid transparent; border-radius: 17px; padding: 7px 16px; }
 #segmentos #formato:hover { background: rgba(255, 255, 255, 0.06); color: #FFFFFF; }
-#segmentos #formato:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(182, 162, 255, 0.74),
-                                                          stop:0.5 rgba(132, 102, 255, 0.52), stop:1 rgba(108, 76, 236, 0.42));
-                              border-color: rgba(160, 136, 255, 0.55); border-top-color: rgba(235, 228, 255, 0.75);
-                              border-bottom-color: rgba(60, 40, 140, 0.60); color: #FFFFFF; }
-#segmentos #formato:focus { border-color: rgba(61, 245, 255, 0.70); }
-/* El botón de la acción principal: violeta→rosa de la marca, un tono más hondo para que el texto blanco pase AA */
+#segmentos #formato:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.20),
+                                                          stop:1 rgba(255, 255, 255, 0.07));
+                              border-color: rgba(255, 255, 255, 0.16); border-top-color: rgba(255, 255, 255, 0.60);
+                              border-bottom-color: rgba(255, 255, 255, 0.10); color: #FFFFFF; }
+#segmentos #formato:focus { border-left-color: rgba(61, 245, 255, 0.70); border-right-color: rgba(61, 245, 255, 0.70);
+                            border-bottom-color: rgba(61, 245, 255, 0.70); }
+/* El botón de la acción principal: violeta→rosa de la marca, un tono más hondo para que el texto blanco pase AA
+   (también al pasar el ratón: #7656FA y #D63470 siguen por encima de 4.5:1) */
 #principal { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6C4BF5, stop:1 #C92A66);
              border: 1px solid rgba(255, 255, 255, 0.14); border-top-color: rgba(255, 255, 255, 0.45);
              border-bottom-color: rgba(0, 0, 0, 0.35); border-radius: 12px; padding: 11px 22px; font-weight: 700;
              color: #FFFFFF; }
-#principal:hover { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7050F7, stop:1 #CF2D6A);
-                   border-top-color: rgba(255, 255, 255, 0.65); }
+#principal:hover { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7656FA, stop:1 #D63470);
+                   border-color: rgba(255, 255, 255, 0.24); border-top-color: rgba(255, 255, 255, 0.75); }
+#principal:focus { border-left-color: #3DF5FF; border-right-color: #3DF5FF; border-bottom-color: #3DF5FF; }
 #principal:pressed { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5A3CDB, stop:1 #AE225B);
                      border-top-color: rgba(0, 0, 0, 0.40); border-bottom-color: rgba(255, 255, 255, 0.30); }
-#principal:focus { border-color: #3DF5FF; }
 #principal:disabled { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); color: #8D8D9A; }
 #secundario { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.10),
                                           stop:1 rgba(255, 255, 255, 0.04));
@@ -109,16 +122,18 @@ QCheckBox::indicator:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:
 #secundario:hover { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.15),
                                                 stop:1 rgba(255, 255, 255, 0.06));
                     border-color: rgba(150, 125, 255, 0.45); border-top-color: rgba(210, 198, 255, 0.60); }
-#secundario:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.22),
-                                                  stop:1 rgba(255, 255, 255, 0.07));
-                      border-top-color: rgba(0, 0, 0, 0.40); border-bottom-color: rgba(255, 255, 255, 0.16); }
 #secundario:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.52),
                                                   stop:1 rgba(124, 92, 255, 0.22));
                       border-color: rgba(150, 125, 255, 0.50); border-top-color: rgba(225, 215, 255, 0.65); }
-#secundario:focus { border-color: rgba(61, 245, 255, 0.70); }
+#secundario:focus { border-left-color: rgba(61, 245, 255, 0.70); border-right-color: rgba(61, 245, 255, 0.70);
+                    border-bottom-color: rgba(61, 245, 255, 0.70); }
+#secundario:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.22),
+                                                  stop:1 rgba(255, 255, 255, 0.07));
+                      border-top-color: rgba(0, 0, 0, 0.40); border-bottom-color: rgba(255, 255, 255, 0.16); }
 #secundario:disabled { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.05); color: #6E6E7A; }
 QProgressBar { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 6px; height: 10px; text-align: center; font-size: 12px; }
-QProgressBar::chunk { background: #7C5CFF; border-radius: 6px; }
+QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9A80FF, stop:1 #6A4BF0);
+                      border-radius: 6px; }
 QListWidget { background: #0F0F13; border: 1px solid #24242C; border-radius: 10px; padding: 6px; }
 QListWidget::item { padding: 10px; border-radius: 8px; }
 QListWidget::item:selected { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.42),
@@ -133,13 +148,18 @@ QDialog QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0
                       border: 1px solid rgba(255, 255, 255, 0.10); border-top-color: rgba(255, 255, 255, 0.22);
                       border-radius: 10px; padding: 8px 22px; min-width: 80px; font-weight: 600; }
 QDialog QPushButton:hover { border-color: rgba(150, 125, 255, 0.50); border-top-color: rgba(210, 198, 255, 0.65); }
-QDialog QPushButton:pressed { background: rgba(0, 0, 0, 0.20); border-top-color: rgba(0, 0, 0, 0.40); }
 QDialog QPushButton:default { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6A4AEC, stop:1 #5338D2);
                               border: 1px solid #7C5CFF; border-top-color: #C9BBFF; border-bottom-color: #3F2AA6;
                               color: #FFFFFF; }
-QDialog QPushButton:default:hover { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6A4AEC,
+QDialog QPushButton:default:hover { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7656F5,
                                                                       stop:1 #6044E3); }
-QDialog QPushButton:focus { border-color: rgba(61, 245, 255, 0.75); }
+/* el botón por defecto tiene el foco al abrirse: el anillo va en los lados y abajo, el reflejo de arriba se queda */
+QDialog QPushButton:focus { border-left-color: rgba(61, 245, 255, 0.75); border-right-color: rgba(61, 245, 255, 0.75);
+                            border-bottom-color: rgba(61, 245, 255, 0.75); }
+QDialog QPushButton:pressed { background: rgba(0, 0, 0, 0.20); border-top-color: rgba(0, 0, 0, 0.40);
+                              border-bottom-color: rgba(255, 255, 255, 0.16); }
+QDialog QPushButton:default:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4A31B8, stop:1 #5338D2);
+                                      border-top-color: #2A1C70; border-bottom-color: #C9BBFF; }
 """
 # Al dar estilo a ::drop-down y a los botones de los números, Qt deja de pintar sus flechas: se ponen a mano
 _ASSETS = (Path(__file__).resolve().parent.parent / "assets").as_posix()
@@ -147,13 +167,19 @@ ESTILO += f"""
 QComboBox::down-arrow {{ image: url("{_ASSETS}/flecha-abajo.svg"); width: 14px; height: 14px; }}
 QAbstractSpinBox::up-arrow {{ image: url("{_ASSETS}/flecha-arriba.svg"); width: 12px; height: 12px; }}
 QAbstractSpinBox::down-arrow {{ image: url("{_ASSETS}/flecha-abajo.svg"); width: 12px; height: 12px; }}
-#principal, #secundario, #secundario:checked, #nav:checked, #formato:checked, #segmentos #formato:checked,
-QDialog QPushButton, QDialog QPushButton:default {{
-    background-image: url("{_ASSETS}/brillo.svg"); background-repeat: repeat-x; background-position: top; }}
 """
 # El reflejo de arriba del vidrio: QSS no deja dos fondos en una regla, así que va como imagen encima del degradado.
 # El atajo «background:» de un estado lo borra: al pasar el ratón se cambia solo «background-color» para conservarlo,
-# y al pulsar o desactivado se usa el atajo a propósito (el botón se hunde o se apaga).
+# y al pulsar o desactivado se usa el atajo a propósito (el botón se hunde o se apaga). QSS no escala la imagen: en
+# las piezas bajas (menú, barras de Diseño, pestañas) va la fina, de 8 px, para que sea un canto de luz y no media cara.
+REFLEJO = f'background-image: url("{_ASSETS}/brillo.svg"); background-repeat: repeat-x; background-position: top;'
+REFLEJO_FINO = REFLEJO.replace("brillo.svg", "brillo-fino.svg")
+ESTILO += f"""
+#principal, #secundario, #secundario:checked, #tarjeta, #formato:checked, #segmentos #formato:checked,
+QDialog QPushButton, QDialog QPushButton:default {{ {REFLEJO} }}
+#nav:checked {{ {REFLEJO_FINO} }}
+#nav:checked:pressed, #secundario:checked:disabled {{ background-image: none; }}
+"""
 
 
 class EstiloApp(QProxyStyle):
@@ -227,7 +253,7 @@ def etiqueta(texto, nombre=None):
 
 def resplandor(w, color="#7C5CFF", alfa=130, radio=24, bajada=4):
     """El halo de color bajo una pieza de vidrio (QSS no tiene box-shadow). Cuesta al pintar y un widget solo admite
-    uno: va en el botón principal y en la opción elegida de un selector, nunca en listas."""
+    uno: va en el botón principal, nunca en listas (la opción elegida de Segmentos lleva su luz pintada)."""
     luz = QGraphicsDropShadowEffect(w)  # con padre: sin él, Python lo borra y el halo desaparece
     c = QColor(color)
     c.setAlpha(alfa)
@@ -239,11 +265,18 @@ def resplandor(w, color="#7C5CFF", alfa=130, radio=24, bajada=4):
 
 class _Halo(QObject):
     """El halo del botón principal, solo si está activo (con un trabajo en marcha parecería que se puede pulsar) y si
-    su padre le deja sitio: un widget no pinta fuera de su padre y el halo saldría cortado en seco (barras de Diseño)."""
+    su padre le deja sitio: un widget no pinta fuera de su padre y el halo saldría cortado en seco. Por eso no lo
+    llevan los de las barras de Diseño («Diseñar», «Exportar»: barras de 30-38 px), a propósito. Con el ratón encima
+    se aviva, para que se note que se puede pulsar."""
     SITIO = 16  # px libres alrededor que necesita el halo de boton()
+    ALFA, ALFA_ENCIMA = 130, 200
 
     def eventFilter(self, b, e):
-        if e.type() in (QEvent.EnabledChange, QEvent.Show, QEvent.Move, QEvent.Resize) and b.graphicsEffect():
+        if e.type() in (QEvent.Enter, QEvent.Leave) and b.graphicsEffect():
+            c = b.graphicsEffect().color()
+            c.setAlpha(self.ALFA_ENCIMA if e.type() == QEvent.Enter else self.ALFA)
+            b.graphicsEffect().setColor(c)
+        elif e.type() in (QEvent.EnabledChange, QEvent.Show, QEvent.Move, QEvent.Resize) and b.graphicsEffect():
             padre, s = b.parentWidget(), self.SITIO
             # ponytail: se mira al moverse o cambiar de tamaño el botón; si solo encoge el padre, no se vuelve a mirar
             cabe = padre is not None and padre.rect().adjusted(s, s // 2, -s, -s).contains(b.geometry())
@@ -259,10 +292,11 @@ def boton(texto, nombre="secundario"):
     b = QPushButton()
     b.setObjectName(nombre)
     b.setCursor(Qt.PointingHandCursor)
+    b.setFocusPolicy(Qt.TabFocus)  # el anillo del foco, solo con el teclado: un clic no lo deja puesto sobre el vidrio
     b.setIconSize(QSize(22, 22) if nombre == "nav" else QSize(18, 18))
     poner(b, texto, "#FFFFFF" if nombre == "principal" else COLOR)
     if nombre == "principal":
-        resplandor(b, "#B04BC8", 130, 24, 5)  # el violeta y el rosa del degradado, mezclados
+        resplandor(b, "#B04BC8", _Halo.ALFA, 24, 5)  # el violeta y el rosa del degradado, mezclados
         b.installEventFilter(_HALO)
     return b
 
@@ -276,31 +310,62 @@ def tarjeta():
     return f, lay
 
 
-class SelectorFormato(QWidget):
-    """Botones de formato como en CapCut: una cápsula de vidrio (#segmentos) con la opción elegida en relieve y su halo."""
+class Segmentos(QWidget):
+    """Un grupo de opciones como UNA pieza de vidrio: la cápsula (#segmentos) con la elegida en relieve y, debajo de
+    ella, la luz de la marca, que se ve a través del vidrio y se derrama bajo la cápsula. Se pinta aquí, en el padre
+    de la cápsula, con margen abajo: QSS no tiene box-shadow y un widget no puede pintar fuera de su padre."""
+    LUZ = 12  # px bajo la cápsula por los que se derrama la luz (la elipse se apaga justo antes del borde)
+
     def __init__(self):
         super().__init__()
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # si sobra alto, no se estira la cápsula
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        capsula = QFrame()
-        capsula.setObjectName("segmentos")
-        fila = QHBoxLayout(capsula)
-        fila.setContentsMargins(4, 4, 4, 4)
-        fila.setSpacing(4)
-        self.grupo = QButtonGroup(self)
-        # el halo sigue a la elegida (también si una página la cambia desde el código)
-        self.grupo.buttonToggled.connect(lambda b, si: resplandor(b) if si else b.setGraphicsEffect(None))
-        for clave, nombre in NOMBRES_FORMATO.items():
-            b = QPushButton(nombre)
-            b.setObjectName("formato")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setProperty("formato", clave)
-            self.grupo.addButton(b)
-            b.setChecked(clave == "9:16")
-            fila.addWidget(b)
-        lay.addWidget(capsula)
+        lay.setContentsMargins(0, 0, 0, self.LUZ)
+        self.capsula = QFrame()
+        self.capsula.setObjectName("segmentos")
+        self.capsula.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.fila = QHBoxLayout(self.capsula)
+        self.fila.setContentsMargins(4, 4, 4, 4)
+        self.fila.setSpacing(4)
+        lay.addWidget(self.capsula)
         lay.addStretch()
+        self.grupo = QButtonGroup(self)
+        self.grupo.buttonToggled.connect(lambda *_: self.update())  # la luz sigue a la elegida, también desde el código
+
+    def opcion(self, texto, id_=-1):
+        b = QPushButton(texto)
+        b.setObjectName("formato")
+        b.setCheckable(True)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFocusPolicy(Qt.TabFocus)  # como boton(): el anillo del foco, solo con el teclado
+        self.grupo.addButton(b, id_)
+        self.fila.addWidget(b)
+        return b
+
+    def paintEvent(self, e):
+        b = self.grupo.checkedButton()
+        if b is None or b.width() == 0:  # sin elegida o aún sin colocar: no hay luz que pintar
+            return
+        r = QRectF(b.geometry().translated(self.capsula.pos()))
+        ancho, alto = r.width() * 0.62, self.height() - r.bottom() - 1  # alto: hasta el borde de abajo, sin cortarse
+        luz = QRadialGradient(0, 0, ancho)
+        luz.setColorAt(0, QColor(180, 140, 255, 235))
+        luz.setColorAt(0.45, QColor(124, 92, 255, 125))
+        luz.setColorAt(1, QColor(124, 92, 255, 0))
+        p = QPainter(self)
+        p.translate(r.center().x(), r.bottom())
+        p.scale(1, alto / ancho)  # una elipse ancha y baja, centrada en el borde de abajo de la elegida
+        p.fillRect(QRectF(-ancho, -ancho, 2 * ancho, 2 * ancho), luz)
+
+
+class SelectorFormato(Segmentos):
+    """Botones de formato como en CapCut."""
+    def __init__(self):
+        super().__init__()
+        for clave, nombre in NOMBRES_FORMATO.items():
+            b = self.opcion(nombre)
+            b.setProperty("formato", clave)
+            b.setChecked(clave == "9:16")
 
     def valor(self):
         return self.grupo.checkedButton().property("formato")

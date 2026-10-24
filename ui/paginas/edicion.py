@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCh
 
 from motor import diseno, edicion, marca, seguro, video
 from motor.idioma import t
-from ui.comun import (archivo_valido, boton, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO, SelectorVoz, Tarea,
-                      tarjeta)
+from ui.comun import (archivo_valido, boton, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO, REFLEJO_FINO,
+                      SelectorVoz, Tarea, tarjeta)
 from ui import iconos
 from ui.linea_tiempo import Hilo, LineaTiempo, nombre, reloj, render
 import ui.paginas.diseno as pd
@@ -55,11 +55,19 @@ ESTILO_PAGINA = ("QDoubleSpinBox { background: #0F0F13; border: 1px solid #2C2C3
                  "#herramienta:checked { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
                  "stop:0 rgba(168, 146, 255, 0.55), stop:0.55 rgba(124, 92, 255, 0.30), stop:1 rgba(118, 86, 250, 0.18)); "
                  "border-color: rgba(150, 125, 255, 0.45); border-top-color: rgba(225, 215, 255, 0.60); color: #FFFFFF; "
-                 "font-weight: 700; } #herramienta:focus { border-color: rgba(61, 245, 255, 0.55); }"
-                 "#rejilla { font-size: 13px; } #rejilla::item { background: #20202A; border: 1px solid #2C2C36; "
-                 "border-radius: 8px; margin: 3px; padding: 2px; }"
-                 "#rejilla::item:selected { background: #1C1830; border: 1px solid #7C5CFF; color: #FFFFFF; }"
-                 "#plantilla { background: #20202A; border: 1px solid #2C2C36; border-radius: 10px; }"
+                 f"font-weight: 700; {REFLEJO_FINO} }} #herramienta:focus {{ border-left-color: rgba(61, 245, 255, 0.55); "
+                 "border-right-color: rgba(61, 245, 255, 0.55); border-bottom-color: rgba(61, 245, 255, 0.55); }"
+                 # las fichas de la rejilla y las plantillas, de vidrio como las tarjetas; la elegida, en violeta
+                 "#rejilla { font-size: 13px; } #rejilla::item { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                 "stop:0 rgba(255, 255, 255, 0.07), stop:1 rgba(255, 255, 255, 0.025)); border: 1px solid "
+                 "rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.16); border-radius: 8px; margin: 3px; "
+                 "padding: 2px; }"
+                 "#rejilla::item:selected { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                 "stop:0 rgba(150, 125, 255, 0.42), stop:1 rgba(124, 92, 255, 0.20)); border: 1px solid "
+                 "rgba(150, 125, 255, 0.70); border-top-color: rgba(225, 215, 255, 0.75); color: #FFFFFF; }"
+                 "#plantilla { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.07), "
+                 "stop:1 rgba(255, 255, 255, 0.025)); border: 1px solid rgba(255, 255, 255, 0.08); "
+                 "border-top-color: rgba(255, 255, 255, 0.16); border-radius: 10px; }"
                  "#plantilla_nombre { font-weight: 700; color: #FFFFFF; }"
                  "QSlider::sub-page:horizontal:disabled { background: #3C3C48; }"  # sin clip elegido se ve apagado
                  "QSlider::handle:horizontal:disabled { background: #5A5A66; } #secundario:disabled { color: #5A5A66; }"
@@ -523,6 +531,7 @@ class PaginaEdicion(QWidget):
             col.addWidget(caja)
         col.addStretch()
         desplazable = QScrollArea()
+        desplazable.setObjectName("desplazable")  # transparente, sobre la luz de ambiente como el resto de la página
         desplazable.setWidgetResizable(True)
         desplazable.setFrameShape(QFrame.NoFrame)
         desplazable.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)

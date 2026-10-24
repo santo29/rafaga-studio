@@ -9,13 +9,13 @@ from pathlib import Path
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout,
-                               QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar,
-                               QPushButton, QScrollArea, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea,
+                               QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from motor import claves, director, memoria, roles, voz
 from motor.idioma import t
-from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Tarea, tarjeta, ver_imagen
+from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Segmentos, Tarea, tarjeta, ver_imagen
 from ui.iconos import icono, poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
@@ -218,18 +218,12 @@ def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
     ventana.setWindowTitle(t("Hecho con Ráfaga Studio"))
     ventana.resize(1100, 680)
     lay = QVBoxLayout(ventana)
-    filtros = QHBoxLayout()
-    grupo = QButtonGroup(ventana)
+    filtros = Segmentos()  # la misma cápsula de vidrio que el selector de formato
     for i, nombre in enumerate([t("Todo"), *(titulo for titulo, _, _ in filas)]):
-        chip = QPushButton(nombre)
-        chip.setObjectName("formato")
-        chip.setCheckable(True)
-        chip.setChecked(i == 0)
-        grupo.addButton(chip, i)
-        filtros.addWidget(chip)
-    filtros.addStretch()
-    filtros.addWidget(casilla_animar())
-    lay.addLayout(filtros)
+        filtros.opcion(nombre, i).setChecked(i == 0)
+    filtros.layout().addWidget(casilla_animar())  # a la altura de la cápsula, no de su luz
+    grupo = filtros.grupo
+    lay.addWidget(filtros)
     if usar_pedido:
         lay.addWidget(etiqueta(t("Clic derecho: «Usar este pedido» en el Director"), "sub"))
     contenido = QWidget()
@@ -254,6 +248,7 @@ def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
     area.setWidget(contenido)
     lay.addWidget(area, 1)
     vigilar(ventana, tarjetas, 0)
+    area.setFocus()  # al abrir, el foco en la rejilla: no en «Todo», que saldría con el anillo cian sin usar el teclado
     ventana.show()
     return ventana
 

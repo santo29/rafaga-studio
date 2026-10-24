@@ -513,9 +513,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not ventana.edicion.tareas and ventana.edicion.proyecto["nombre"] == "Mi edición")
     assert ventana.close()
 
-# El halo del vidrio: el del botón principal se apaga si está desactivado o pegado al borde de su padre (saldría
-# cortado); en un selector de formato lo lleva solo la opción elegida, también si se cambia desde el código.
-from ui.comun import boton, SelectorFormato  # noqa: E402
+# El vidrio: el halo del botón principal se apaga si está desactivado o pegado al borde de su padre (saldría cortado)
+# y se aviva con el ratón encima; el anillo del foco solo llega con el teclado; el selector de formato no se estira en
+# alto, la opción elegida se ve distinta de las otras y la luz de debajo la sigue, también si se cambia desde el código.
+from PySide6.QtWidgets import QVBoxLayout  # noqa: E402
+
+from ui.comun import _Halo, boton, SelectorFormato  # noqa: E402
 
 padre = QWidget()
 padre.resize(300, 100)
@@ -529,12 +532,37 @@ principal.setEnabled(False)
 assert not principal.graphicsEffect().isEnabled()
 principal.setEnabled(True)
 assert principal.graphicsEffect().isEnabled()
+app.sendEvent(principal, QEvent(QEvent.Enter))
+assert principal.graphicsEffect().color().alpha() == _Halo.ALFA_ENCIMA
+app.sendEvent(principal, QEvent(QEvent.Leave))
+assert principal.graphicsEffect().color().alpha() == _Halo.ALFA
 principal.setGeometry(100, 60, 200, 40)  # toca los bordes de abajo y de la derecha
 app.processEvents()
 assert not principal.graphicsEffect().isEnabled()
-selector = SelectorFormato()
-assert [b.property("formato") for b in selector.grupo.buttons() if b.graphicsEffect()] == ["9:16"]
-selector.grupo.buttons()[1].setChecked(True)
-assert [b.property("formato") for b in selector.grupo.buttons() if b.graphicsEffect()] == ["16:9"]
+assert principal.focusPolicy() == Qt.TabFocus  # un clic no deja el anillo cian sobre el reflejo
 padre.close()
+caja = QWidget()
+QVBoxLayout(caja).addWidget(selector := SelectorFormato())
+caja.resize(900, 240)  # mucho más alto que el selector: la cápsula no debe estirarse
+caja.show()
+app.processEvents()
+assert selector.capsula.height() == selector.capsula.sizeHint().height()
+# ninguna toma el foco con un clic (Qt deja el Tab solo en la elegida: las flechas cambian de opción)
+assert [b.focusPolicy() for b in selector.grupo.buttons()] == [Qt.TabFocus] + [Qt.NoFocus] * 3
+elegida, otra = selector.grupo.buttons()[:2]
+assert selector.valor() == "9:16" and not any(b.graphicsEffect() for b in selector.grupo.buttons())
+
+
+def color(b, y, x=8):  # x=8: en el margen izquierdo de la opción, sin letras; x e y relativos a la opción
+    return caja.grab().toImage().pixelColor(b.mapTo(caja, QPoint(x, y)))
+
+
+bajo = selector.capsula.height() - elegida.y() + 2  # 2 px por debajo de la cápsula: solo llega la luz
+assert color(elegida, elegida.height() // 2) != color(otra, otra.height() // 2)  # la elegida no es transparente
+assert color(elegida, bajo, elegida.width() // 2) != color(otra, bajo, otra.width() // 2)
+antes = color(otra, bajo, otra.width() // 2)
+otra.setChecked(True)
+app.processEvents()
+assert color(otra, bajo, otra.width() // 2) != antes and selector.valor() == "16:9"  # la luz se fue con la elegida
+caja.close()
 print("Pruebas de la página de inicio pasadas.")

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QS
 
 from motor import claves, edicion, idioma, nubes, seguro, serie, shorts
 from motor.idioma import t
-from ui.comun import boton, etiqueta, Reproductor, tarjeta
+from ui.comun import boton, etiqueta, REFLEJO, Reproductor, tarjeta
 from ui import legal
 from ui.iconos import icono
 from ui.paginas import director as pagina_director
@@ -20,12 +20,12 @@ from ui.paginas.claves import NOMBRES_PROVEEDOR
 ESTILO_INICIO = """
 #portada { font-size: 34px; font-weight: 800; color: #FFFFFF; }
 #seccion { font-size: 19px; font-weight: 700; color: #FFFFFF; padding-top: 6px; }
-#acceso { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(200, 190, 255, 0.085),
-                                      stop:1 rgba(200, 190, 255, 0.035));
-          border: 1px solid rgba(255, 255, 255, 0.07); border-top-color: rgba(255, 255, 255, 0.15); border-radius: 16px;
+#acceso { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 0.07),
+                                      stop:1 rgba(255, 255, 255, 0.025));
+          border: 1px solid rgba(255, 255, 255, 0.08); border-top-color: rgba(255, 255, 255, 0.18); border-radius: 16px;
           text-align: left; }
-#acceso:hover, #acceso:focus { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.16),
-                                                           stop:1 rgba(124, 92, 255, 0.05));
+#acceso:hover, #acceso:focus { background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.20),
+                                                                 stop:1 rgba(124, 92, 255, 0.06));
                                border: 1px solid rgba(124, 92, 255, 0.70); border-top-color: rgba(205, 190, 255, 0.85); }
 #acceso:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.25),
                                               stop:1 rgba(124, 92, 255, 0.14));
@@ -36,6 +36,9 @@ ESTILO_INICIO = """
 #ejemplo { background: transparent; border: none; border-radius: 10px; padding: 6px; font-size: 14px; }
 #ejemplo:hover { background: #20202A; }
 """
+# El reflejo de arriba, como las tarjetas de ESTILO: esta hoja gana siempre a la de la app, así que va aquí (después de
+# «background:», que lo borraría); al pasar el ratón se cambia solo «background-color» y al pulsar se va a propósito
+ESTILO_INICIO += f"#acceso {{ {REFLEJO} }}"
 
 # Accesos rápidos, en el orden del menú: (icono, color, nombre, frase, página del menú a la que lleva; sin traducir,
 # como PAGINA del Director)
@@ -164,6 +167,7 @@ def _pulsable(nombre_icono, color, titulo, texto, al_pulsar) -> QPushButton:
     b = QPushButton()
     b.setObjectName("acceso")
     b.setCursor(Qt.PointingHandCursor)
+    b.setFocusPolicy(Qt.TabFocus)  # como boton(): al volver a Inicio no se queda iluminada la que se pulsó
     b.setAccessibleName(titulo)
     b.setAccessibleDescription(texto)
     b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)  # un botón es de alto fijo: cortaría el texto largo

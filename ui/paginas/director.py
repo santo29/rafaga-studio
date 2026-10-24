@@ -6,18 +6,22 @@ import threading
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMenu, QProgressBar,
-                               QScrollArea, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout,
+                               QHBoxLayout, QLineEdit, QMenu, QProgressBar, QPushButton, QScrollArea, QTextBrowser,
+                               QToolButton, QVBoxLayout, QWidget)
 
-from motor import director, voz
+from motor import claves, director, voz
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Tarea, tarjeta, ver_imagen
-from ui.iconos import poner
+from ui.iconos import icono, poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
+# ponytail: medido en un portátil de 4 hilos (3 GIF pequeños cuestan poco); en PCs potentes o con GPU se puede subir a 6
+MAX_VIVAS = 3
+_animar = None  # la casilla «Animar vistas previas», compartida por toda la app (ver accion_animar)
 # Qué página usa cada herramienta (su nombre en el menú): la app la ilumina mientras el Director trabaja en ella
 PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "crear_anuncios": "Anuncios",
           "crear_cancion": "Música", "crear_video_musical": "Música", "producir_cancion": "Cabina de grabación",
@@ -46,52 +50,240 @@ def disenos() -> list[dict]:
     return [e for e in lista if isinstance(e, dict) and (EJEMPLOS / f"{e.get('id')}.jpg").is_file()]
 
 
-def tarjeta_ejemplo(e: dict, al_pulsar) -> QToolButton:
-    """Un ejemplo (video o diseño) con su miniatura y su título, para las galerías del Director y de Inicio."""
+def accion_animar() -> QAction:
+    """Si las vistas previas se mueven (casilla «Animar vistas previas»; se apaga por accesibilidad o batería). Es una
+    sola acción para toda la app: así las casillas de Inicio, del Director y de «Ver todo» dicen siempre lo mismo.
+    Se guarda en ajustes.json."""
+    global _animar
+    if _animar is None:
+        _animar = QAction(QApplication.instance())
+        _animar.setCheckable(True)
+        _animar.setChecked(claves.ajustes().get("animar_vistas") != "no")
+        _animar.toggled.connect(lambda si: claves.elegir_por_defecto("animar_vistas", "si" if si else "no"))
+    return _animar
+
+
+def casilla_animar() -> QCheckBox:
+    casilla = QCheckBox(t("Animar vistas previas"))
+    casilla.setToolTip(t("Apágalo si prefieres menos movimiento o quieres ahorrar batería"))
+    casilla.setChecked(accion_animar().isChecked())
+    casilla.toggled.connect(accion_animar().setChecked)
+    accion_animar().toggled.connect(casilla.setChecked)  # Qt lo desconecta solo cuando la casilla se destruye
+    return casilla
+
+
+def tarjeta_ejemplo(e: dict, al_pulsar, usar_pedido=None) -> QToolButton:
+    """Un ejemplo (video o diseño) con su miniatura y su título, para las galerías del Director y de Inicio. Si hay
+    ejemplos/{id}.gif, se mueve cuando animar() lo deja; con usar_pedido(pedido), el clic derecho lo ofrece."""
     imagen = QPixmap(str(EJEMPLOS / f"{e['id']}.jpg"))
     alto = 176 if imagen.height() > imagen.width() else 135
     b = QToolButton()
     b.setObjectName("ejemplo")
     b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-    b.setIcon(QIcon(imagen))
+    b.foto = QIcon(imagen)
+    b.setIcon(b.foto)
     b.setIconSize(QSize(round(alto * imagen.width() / max(1, imagen.height())), alto))
     b.setText(str(e.get("titulo", ""))[:60])
-    b.setToolTip(t("Pedido: «{pedido}»", pedido=str(e.get("pedido", ""))[:300]))
+    pedido = str(e.get("pedido") or "")
+    b.setToolTip(t("Pedido: «{pedido}»", pedido=pedido[:300]))
     b.setCursor(Qt.PointingHandCursor)
     b.setStyleSheet("QToolButton { background: transparent; border: none; border-radius: 10px; padding: 6px;"
                     " font-size: 14px; } QToolButton:hover { background: #20202A; }")
     b.clicked.connect(lambda _=False: al_pulsar())
+    if usar_pedido and pedido:  # el «Recrear» de las galerías de IA: la galería es el punto de partida
+        b.setToolTip(f"{b.toolTip()}\n{t('Clic derecho: «Usar este pedido» en el Director')}")
+        # su propio menú: con addAction, el QToolButton pintaría una flechita y un clic lento abriría el menú
+        menu = QMenu(b)
+        menu.addAction(t("Usar este pedido")).triggered.connect(lambda: usar_pedido(pedido))
+        b.setContextMenuPolicy(Qt.CustomContextMenu)
+        b.customContextMenuRequested.connect(lambda punto: menu.exec(b.mapToGlobal(punto)))
+    # Un GIF pequeño con QMovie, no el MP4: 3 MP4 de 720p a la vez gastaban casi un núcleo de un portátil de 4 hilos
+    gif = EJEMPLOS / f"{e['id']}.gif"
+    b.gif = gif if gif.is_file() else None  # sin GIF (los diseños): se queda la miniatura fija
+    b.peli = None  # su QMovie, solo mientras se mueve (ver arrancar)
     return b
 
 
-def fila_ejemplos(lista: list[dict], abrir) -> QScrollArea:
-    """Una fila de ejemplos que se desplaza de lado si no cabe: así la página no se sale por la derecha a 1366 px."""
+def arrancar(b):
+    """Mueve la tarjeta. Su QMovie se crea aquí y se borra al pararla: abierto, Windows no deja reemplazar el GIF
+    (ejemplos/crear.py) y su decodificador ocupa memoria."""
+    if not b.peli:
+        b.peli = peli = QMovie(str(b.gif), parent=b)
+        peli.frameChanged.connect(lambda _: b.setIcon(QIcon(peli.currentPixmap())))
+        # roto: la miniatura, sin reintentar (un archivo que no es GIF avisa dos veces)
+        peli.error.connect(lambda _: (setattr(b, "gif", None), b.peli and parar(b)))
+    b.peli.start()
+
+
+def parar(b):
+    b.peli.stop()
+    b.peli.deleteLater()
+    b.peli = None
+    b.setIcon(b.foto)  # el JPG tiene mejor color que el cuadro del GIF
+
+
+def animar(tarjetas: list, limite: int = MAX_VIVAS):
+    """Mueve las tarjetas con GIF que se ven (como mucho «limite») y la que está bajo el ratón; las demás, quietas con
+    su JPG. Nada se mueve con la casilla apagada, la ventana sin foco o la página oculta (visibleRegion vacía)."""
+    si = accion_animar().isChecked()
+    vistas = [b for b in tarjetas if si and b.gif and b.window().isActiveWindow() and not b.visibleRegion().isEmpty()]
+    vivas = [b for b in vistas if b.underMouse()] + [b for b in vistas if not b.underMouse()][:limite]
+    for b in tarjetas:
+        if b in vivas and not (b.peli and b.peli.state() == QMovie.Running):
+            arrancar(b)
+        elif b.peli and b not in vivas:
+            parar(b)
+
+
+def vigilar(padre, tarjetas: list, limite: int = MAX_VIVAS):
+    """Revisa cada 400 ms qué tarjetas se mueven: así cuenta desplazarse, cambiar de página o de ventana sin engancharse
+    a cada cosa. El reloj muere con «padre»."""
+    reloj = QTimer(padre)
+    reloj.timeout.connect(lambda: animar(tarjetas, limite))
+    reloj.start(400)
+
+
+class Carrusel(QScrollArea):
+    """Fila que se desplaza de lado si no cabe (así la página no se sale por la derecha a 1366 px): con las flechas
+    de su cabecera, animado, y con la rueda del ratón."""
+
+    def __init__(self, contenido: QWidget):
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        self.setFixedHeight(230)
+        self.setWidget(contenido)
+        self.animacion = QPropertyAnimation(self.horizontalScrollBar(), b"value", self)
+        self.animacion.setDuration(350)
+        self.animacion.setEasingCurve(QEasingCurve.OutCubic)
+
+    def mover(self, sentido: int):
+        """Una pantalla a la derecha (1) o a la izquierda (-1)."""
+        barra = self.horizontalScrollBar()
+        self.animacion.stop()
+        self.animacion.setStartValue(barra.value())
+        self.animacion.setEndValue(max(0, min(barra.maximum(), barra.value() + sentido * barra.pageStep())))
+        self.animacion.start()
+
+    def wheelEvent(self, e):
+        """La rueda mueve la fila de lado; en el borde, la página sigue bajando como siempre."""
+        self.animacion.stop()
+        barra, giro = self.horizontalScrollBar(), e.angleDelta()
+        antes = barra.value()
+        barra.setValue(antes - (giro.x() if abs(giro.x()) > abs(giro.y()) else giro.y()))
+        if barra.value() == antes:
+            e.ignore()
+
+
+def fila_ejemplos(lista: list[dict], abrir, titulo: str = "", usar_pedido=None) -> QWidget:
+    """Una fila de ejemplos con su título y las flechas ‹ › (solo si no cabe entera). Sus tarjetas, en .tarjetas."""
     contenido = QWidget()
     fila = QHBoxLayout(contenido)
     fila.setContentsMargins(0, 0, 0, 0)
-    for e in lista:
-        fila.addWidget(tarjeta_ejemplo(e, lambda e=e: abrir(e)))
+    caja = QWidget()
+    caja.tarjetas = [tarjeta_ejemplo(e, lambda e=e: abrir(e), usar_pedido) for e in lista]
+    for b in caja.tarjetas:
+        fila.addWidget(b)
     fila.addStretch()
+    caja.carrusel = Carrusel(contenido)
+    lay = QVBoxLayout(caja)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(2)
+    cabecera = QHBoxLayout()
+    cabecera.addWidget(etiqueta(titulo, "sub"), 1)
+    for nombre, sentido, texto in (("chevron-left", -1, t("Ver anteriores")),
+                                   ("chevron-right", 1, t("Ver siguientes"))):
+        flecha = boton("")
+        flecha.setIcon(icono(nombre))
+        flecha.setToolTip(texto)
+        flecha.setAccessibleName(texto)
+        flecha.setStyleSheet("padding: 4px 10px;")
+        flecha.hide()
+        flecha.clicked.connect(lambda _=False, s=sentido: caja.carrusel.mover(s))
+        caja.carrusel.horizontalScrollBar().rangeChanged.connect(lambda _, maximo, f=flecha: f.setVisible(maximo > 0))
+        cabecera.addWidget(flecha)
+    lay.addLayout(cabecera)
+    lay.addWidget(caja.carrusel)
+    return caja
+
+
+def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
+    """«Ver todo», la vista aérea del carrusel: todos los ejemplos en rejilla, con filtros por fila. Aquí solo se
+    mueve el que está bajo el ratón, así nunca hay muchos GIF a la vez. Elegir uno cierra la ventana."""
+    ventana = QDialog(padre)
+    ventana.setAttribute(Qt.WA_DeleteOnClose)  # sus GIF no se quedan en memoria
+    ventana.setWindowTitle(t("Hecho con Ráfaga Studio"))
+    ventana.resize(1100, 680)
+    lay = QVBoxLayout(ventana)
+    filtros = QHBoxLayout()
+    grupo = QButtonGroup(ventana)
+    for i, nombre in enumerate([t("Todo"), *(titulo for titulo, _, _ in filas)]):
+        chip = QPushButton(nombre)
+        chip.setObjectName("formato")
+        chip.setCheckable(True)
+        chip.setChecked(i == 0)
+        grupo.addButton(chip, i)
+        filtros.addWidget(chip)
+    filtros.addStretch()
+    filtros.addWidget(casilla_animar())
+    lay.addLayout(filtros)
+    if usar_pedido:
+        lay.addWidget(etiqueta(t("Clic derecho: «Usar este pedido» en el Director"), "sub"))
+    contenido = QWidget()
+    columna = QVBoxLayout(contenido)
+    secciones, tarjetas = [], []
+    for titulo, lista, abrir in filas:
+        seccion = QWidget()
+        rejilla = QGridLayout(seccion)
+        rejilla.addWidget(etiqueta(titulo, "sub"), 0, 0, 1, 3)
+        for n, e in enumerate(lista):
+            b = tarjeta_ejemplo(e, lambda e=e, abrir=abrir: (ventana.close(), abrir(e)),
+                                usar_pedido and (lambda p: (ventana.close(), usar_pedido(p))))
+            rejilla.addWidget(b, 1 + n // 3, n % 3)
+            tarjetas.append(b)
+        secciones.append(seccion)
+        columna.addWidget(seccion)
+    columna.addStretch()
+    grupo.idClicked.connect(lambda i: [s.setVisible(i in (0, n + 1)) for n, s in enumerate(secciones)])
     area = QScrollArea()
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.NoFrame)
-    area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    area.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
-    area.setFixedHeight(230)
     area.setWidget(contenido)
-    return area
+    lay.addWidget(area, 1)
+    vigilar(ventana, tarjetas, 0)
+    ventana.show()
+    return ventana
 
 
-def galeria_ejemplos(padre, ver_video) -> QWidget:
+def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion=False) -> QWidget:
     """Los ejemplos hechos con el estudio: una fila de videos (ver_video(e) los reproduce) y otra de diseños (se
-    abren en grande). Sin ejemplos, no se ve."""
-    caja, lay = tarjeta()
-    lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"))
-    for lista, abrir in ((ejemplos(), ver_video),
-                         (disenos(), lambda d: ver_imagen(padre, EJEMPLOS / f"{d['id']}.jpg", str(d.get("titulo", ""))))):
-        if lista:
-            lay.addWidget(fila_ejemplos(lista, abrir))
-    caja.setVisible(bool(ejemplos() or disenos()))
+    abren en grande), con «Ver todo» y la casilla «Animar vistas previas». En Inicio (seccion) va sin marco y con
+    título de sección. Sin ejemplos, no se ve. Sus tarjetas, en .tarjetas."""
+    if seccion:
+        caja = QWidget()
+        lay = QVBoxLayout(caja)
+        lay.setContentsMargins(0, 12, 0, 0)
+    else:
+        caja, lay = tarjeta()
+    cabecera = QHBoxLayout()
+    cabecera.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "seccion" if seccion else "sub"), 1)
+    cabecera.addWidget(casilla_animar())
+    todo = boton(t("Ver todo"))
+    cabecera.addWidget(todo)
+    lay.addLayout(cabecera)
+    filas = [f for f in ((t("Videos"), ejemplos(), ver_video),
+                         (t("Diseños"), disenos(),
+                          lambda d: ver_imagen(padre, EJEMPLOS / f"{d['id']}.jpg", str(d.get("titulo", ""))))) if f[1]]
+    caja.tarjetas = []
+    for titulo, lista, abrir in filas:
+        fila = fila_ejemplos(lista, abrir, titulo, usar_pedido)
+        caja.tarjetas += fila.tarjetas
+        lay.addWidget(fila)
+    todo.clicked.connect(lambda: ver_todo(padre, filas, usar_pedido))
+    vigilar(caja, caja.tarjetas)  # MAX_VIVAS para toda la galería (las dos filas): es la página entera
+    caja.setVisible(bool(filas))
     return caja
 
 
@@ -226,7 +418,17 @@ class PaginaDirector(QWidget):
     # ---------- Ejemplos ----------
 
     def _galeria(self):
-        return galeria_ejemplos(self, self.ver_ejemplo)
+        return galeria_ejemplos(self, self.ver_ejemplo, self.usar_pedido)
+
+    def usar_pedido(self, pedido: str):
+        """«Usar este pedido» de un ejemplo: queda escrito para cambiarlo y pulsar «Hacer». No se envía solo: un
+        trabajo puede gastar cuota o dinero, y eso lo decide el usuario."""
+        self.pedido.setText(pedido)
+        self.pedido.setFocus()
+        # setFocus no desplaza la página, y la galería deja el campo debajo, fuera de la pantalla
+        area = self.parentWidget().parentWidget() if self.parentWidget() else None  # app.py la pone en un QScrollArea
+        if isinstance(area, QScrollArea):
+            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(self.pedido))
 
     def ver_ejemplo(self, e: dict):
         guion = e.get("guion") or {}

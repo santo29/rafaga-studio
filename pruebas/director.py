@@ -274,6 +274,15 @@ if ejemplos:
     pagina.ver_ejemplo(ejemplos[0])
     assert pagina.reproductor.isVisible() and pagina.reproductor.resultados[0]["archivo"].endswith(".mp4")
     pagina.reproductor.player.stop()
+    # Las tarjetas se mueven con su GIF (si lo tiene y Qt lo lee) y el clic derecho deja su pedido escrito, sin enviar
+    from PySide6.QtWidgets import QMenu, QToolButton  # noqa: E402
+    tarjetas = [b for b in pagina.findChildren(QToolButton) if b.objectName() == "ejemplo"]
+    assert len(tarjetas) == len(ejemplos) + len(disenos_ej)
+    for b, e in zip(tarjetas, ejemplos):
+        assert bool(b.gif) == (pagina_director.EJEMPLOS / f"{e['id']}.gif").is_file(), e["id"]
+    tarjetas[0].findChild(QMenu).actions()[0].trigger()
+    assert pagina.pedido.text() == ejemplos[0]["pedido"] and not pagina.ocupado()
+    pagina.pedido.clear()
 
 _dirigir = director.dirigir
 try:

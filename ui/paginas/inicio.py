@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QS
 
 from motor import claves, edicion, idioma, nubes, seguro, serie, shorts
 from motor.idioma import t
-from ui.comun import boton, etiqueta, Reproductor, tarjeta, ver_imagen
+from ui.comun import boton, etiqueta, Reproductor, tarjeta
 from ui import legal
 from ui.iconos import icono
 from ui.paginas import director as pagina_director
@@ -174,9 +174,10 @@ def _pulsable(nombre_icono, color, titulo, texto, al_pulsar) -> QPushButton:
 
 
 class PaginaInicio(QWidget):
-    def __init__(self, ir, abrir_edicion, abrir_serie):
+    def __init__(self, ir, abrir_edicion, abrir_serie, usar_pedido=None):
         """ir(nombre del menú, sin traducir) cambia de página; abrir_edicion(carpeta) y abrir_serie(nombre) abren lo
-        reciente en su página. Las páginas no se conocen: lo une app.py."""
+        reciente en su página; usar_pedido(pedido) lleva el de un ejemplo al Director. Las páginas no se conocen: lo
+        une app.py."""
         super().__init__()
         self.ir, self.abrir_edicion, self.abrir_serie = ir, abrir_edicion, abrir_serie
         self.recientes = []
@@ -207,7 +208,7 @@ class PaginaInicio(QWidget):
         self.vacio = etiqueta(t("Aún no hay nada por aquí. Crea tu primer video con uno de los accesos de arriba y lo "
                                 "verás aquí."), "sub")
         lay.addWidget(self.vacio)
-        self.galeria = self._galeria()
+        self.galeria = pagina_director.galeria_ejemplos(self, self._ver_ejemplo, usar_pedido, seccion=True)
         lay.addWidget(self.galeria)
         self.reproductor = Reproductor()
         self.reproductor.hide()
@@ -313,21 +314,6 @@ class PaginaInicio(QWidget):
             "archivo": str(video_app), "titulo": t("Presentación de Ráfaga Studio"), "descripcion": "",
             "hashtags": []}]}))
         return b
-
-    def _galeria(self):
-        """Los ejemplos (ejemplos/): los videos se ven aquí y los diseños se abren en grande. Sin ejemplos, no sale."""
-        caja = QWidget()
-        lay = QVBoxLayout(caja)
-        lay.setContentsMargins(0, 12, 0, 0)
-        lay.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "seccion"))
-        videos, disenos = pagina_director.ejemplos(), pagina_director.disenos()
-        for lista, abrir in ((videos, self._ver_ejemplo),
-                             (disenos, lambda d: ver_imagen(self, pagina_director.EJEMPLOS / f"{d['id']}.jpg",
-                                                            str(d.get("titulo", ""))))):
-            if lista:
-                lay.addWidget(pagina_director.fila_ejemplos(lista, abrir))
-        caja.setVisible(bool(videos or disenos))
-        return caja
 
     def _ver_ejemplo(self, e: dict):
         guion = e.get("guion") or {}

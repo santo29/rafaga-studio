@@ -66,7 +66,7 @@ class Ventana(QMainWindow):
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
         self.director = PaginaDirector(abrir_diseno=self._abrir_diseno, abrir_serie=self._abrir_serie)
         self.serie = PaginaSerie()
-        self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie)
+        self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie, self._usar_pedido)
         # Lo más buscado arriba: a 728 px de alto, Diseño y Dibujos animados se ven sin desplazar el menú
         paginas = [(f"🏠  {t('Inicio')}", self.inicio),
                    (f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
@@ -209,6 +209,11 @@ class Ventana(QMainWindow):
     def _crear_desde_idea(self, prompt):
         self.crear.prompt.setPlainText(prompt)
         self.ir_a(self.orden.index(self.crear))
+
+    def _usar_pedido(self, pedido):
+        """«Usar este pedido» de un ejemplo de Inicio: al Director, escrito y listo para cambiarlo."""
+        self.director.usar_pedido(pedido)
+        self.ir_a(self.orden.index(self.director))
 
 
 if __name__ == "__main__":

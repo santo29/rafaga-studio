@@ -17,8 +17,8 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGraphicsItem, QGraphicsView,
                                QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMenu,
-                               QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSpinBox, QTextEdit, QToolButton,
-                               QVBoxLayout, QWidget)
+                               QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTextEdit,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from motor import claves, diseno, ia, marca, recursos, seguro
 from motor.idioma import t
@@ -26,6 +26,8 @@ from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, re
 from ui.iconos import COLOR, icono
 
 FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Línea")}
+FUSIONES = {"normal": t("Normal"), "multiplicar": t("Multiplicar"), "trama": t("Trama"),  # las de diseno.FUSIONES
+            "superponer": t("Superponer"), "aclarar": t("Aclarar"), "oscurecer": t("Oscurecer")}
 # «auto»: la pieza la elige la IA al entender el pedido (motor/diseno_ia.entender); el resto, las claves de sus TIPOS
 TIPOS_IA = {"auto": t("Automático"), "ilustracion": t("Ilustración"), "estampado": t("Estampado (camiseta, sticker)"),
             "anuncio": t("Anuncio"), "post": t("Post"), "historia": t("Historia / Reel"),
@@ -141,6 +143,25 @@ def pedir_ilustracion(padre) -> tuple[str, str] | None:
     return (texto, estilo.currentData()) if texto else None
 
 
+def pedir_cambio(padre) -> str | None:
+    """Lo que la IA cambiará en la imagen elegida («ponle gorra roja y humo verde»); None si se cancela."""
+    dialogo = QDialog(padre)
+    dialogo.setWindowTitle(t("Editar con IA"))
+    dialogo.setStyleSheet(OSCURO)
+    dialogo.setMinimumWidth(480)
+    cambio = QLineEdit()
+    cambio.setMaxLength(1000)
+    cambio.setPlaceholderText(t("Ej.: ponle gorra roja y humo verde"))
+    botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    botones.accepted.connect(dialogo.accept)
+    botones.rejected.connect(dialogo.reject)
+    form = QFormLayout(dialogo)
+    form.addRow(t("Qué cambiar"), cambio)
+    form.addRow(_rotulo(t("Lo demás de la imagen se queda igual.")))
+    form.addRow(botones)
+    return (cambio.text().strip() if dialogo.exec() else "") or None
+
+
 def alineado(capa: dict, como: str, ancho: int, alto: int) -> dict:
     """La x o la y que pegan la caja de la capa a un borde o al centro de una mesa de ancho × alto."""
     return {"izquierda": {"x": 0}, "centro_h": {"x": round((ancho - capa["ancho"]) / 2)},
@@ -161,6 +182,14 @@ def _ilustrar(diseno_ia, prompt: str, estilo: str, destino: Path, calidad: str) 
     from motor import ia  # ponytail: respaldo para el diseno_ia sin ilustracion(); sobra cuando llegue (contrato A)
     return ia.imagen(f"{prompt}, flat vector illustration, bold clean outlines{diseno_ia._SIN_TEXTO}", 1024, 1024,
                      destino)
+
+
+def _sin_fondo(ruta: Path, destino: Path) -> dict:
+    """{"ruta"} con el fondo ya quitado, o {"no_liso": el aviso} si sin IA no se puede."""
+    try:
+        return {"ruta": str(diseno.quitar_fondo(ruta, destino))}
+    except diseno.FondoNoLiso as e:
+        return {"no_liso": str(e)}
 
 
 def _combo(opciones: dict) -> QComboBox:
@@ -552,7 +581,8 @@ class PaginaDiseno(QWidget):
         self.vista.zoom_cambiado.connect(self._al_zoom)
         for tecla, accion in ((QKeySequence.Undo, self.deshacer), (QKeySequence.Redo, self.rehacer),
                               ("Ctrl+0", self.vista.encajar), ("Ctrl+1", lambda: self.vista.zoom(1)),
-                              ("Ctrl+K", self.pedido.setFocus)):
+                              ("Ctrl+K", self.pedido.setFocus), ("Ctrl+Shift+G", self.editar_con_ia),
+                              ("Ctrl+Shift+B", self.quitar_fondo)):
             self._atajo(tecla, accion)
         self._dibujar()
 
@@ -609,7 +639,9 @@ class PaginaDiseno(QWidget):
             lay.addWidget(b)
         self.seleccion.setChecked(True)
         lay.addSpacing(8)
-        imagen = [(t("Desde un archivo…"), self._imagen_de_archivo), (t("Generar con IA…"), self.generar_ilustracion)]
+        imagen = [(t("Desde un archivo…"), self._imagen_de_archivo), (t("Generar con IA…"), self.generar_ilustracion),
+                  (t("Editar con IA la elegida…"), self.editar_con_ia), (t("Quitar el fondo de la elegida"),
+                                                                        self.quitar_fondo)]
         fondo = [(t("Color liso…"), self.fondo_color), (t("Degradado…"), self.fondo_degradado),
                  (t("Imagen…"), self.fondo_imagen)]
         for b in (self._herramienta("type", t("Texto"), "T", self.anadir_texto),
@@ -745,6 +777,7 @@ class PaginaDiseno(QWidget):
         self._fila(t("Tamaño"), t("An"), self._numero("ancho", 1, 20000), t("Al"), self._numero("alto", 1, 20000))
         self._fila(t("Giro"), self._numero("rotacion", -360, 360, "°"))
         self._fila(t("Opacidad"), self._numero("opacidad", 0, 100, " %"))
+        self._fila(t("Fusión"), self._opciones("fusion", FUSIONES))
         texto = self.w["texto"] = QTextEdit()
         texto.setAcceptRichText(False)  # pegar desde una web mete solo el texto
         texto.setFixedHeight(60)
@@ -764,6 +797,23 @@ class PaginaDiseno(QWidget):
         self._fila(t("Esquinas"), self._numero("redondeo", 0, 10000, " px"))
         self._fila(t("Ajuste"), self._opciones("ajuste", {"cubrir": t("Cubrir la caja"),
                                                           "contener": t("Imagen entera")}))
+        sin_ajustes = QToolButton()
+        sin_ajustes.setIcon(icono("rotate-ccw"))
+        sin_ajustes.setToolTip(t("Quitar los ajustes de la imagen"))
+        sin_ajustes.clicked.connect(lambda: self._cambiar(object(), **dict.fromkeys(diseno.AJUSTES, 0)))
+        self._fila(t("Brillo"), self._deslizador("brillo", -100, 100), sin_ajustes)
+        self._fila(t("Contraste"), self._deslizador("contraste", -100, 100))
+        self._fila(t("Saturación"), self._deslizador("saturacion", -100, 100))
+        self._fila(t("Desenfoque"), self._deslizador("desenfoque", 0, 100))
+        editar, quitar = boton(f"✨ {t('Editar con IA…')}"), boton(f"✂ {t('Quitar fondo')}")
+        for b, ayuda, tecla, accion in ((editar, t("Cambia lo que pidas y deja el resto igual"), "Ctrl+Shift+G",
+                                         self.editar_con_ia),
+                                        (quitar, t("Si el fondo es liso, gratis en tu PC; si no, con IA"),
+                                         "Ctrl+Shift+B", self.quitar_fondo)):
+            b.setToolTip(f"{ayuda}  ({QKeySequence(tecla).toString(QKeySequence.NativeText)})")
+            b.clicked.connect(accion)
+        self._fila(t("Imagen"), editar, campos=["archivo"])
+        self._fila("", quitar, campos=["archivo"])
         col.addWidget(etiqueta(t("Alinear a la mesa"), "seccion"))
         col.addWidget(_botonera([(nombre, ayuda, lambda _=False, c=c: self.alinear(c))
                                  for c, (nombre, ayuda) in ALINEAR.items()]))
@@ -785,15 +835,16 @@ class PaginaDiseno(QWidget):
         desplazable.setFixedWidth(290)
         return desplazable
 
-    def _fila(self, texto, *widgets):
-        """Una fila de propiedades; los textos sueltos son rótulos (X, Y…) delante de su campo."""
+    def _fila(self, texto, *widgets, campos=None):
+        """Una fila de propiedades; los textos sueltos son rótulos (X, Y…) delante de su campo. Se ve con las capas que
+        tienen alguno de sus campos (o de `campos`, si son botones)."""
         fila = QWidget()
         lay = QHBoxLayout(fila)
         lay.setContentsMargins(0, 0, 0, 0)
         for w in widgets:
             lay.addWidget(_rotulo(w) if isinstance(w, str) else w)
         self.form.addRow(texto, fila)
-        self.filas.append((fila, [c for c, w in self.w.items() if w in widgets]))
+        self.filas.append((fila, campos or [c for c, w in self.w.items() if w in widgets]))
 
     def _numero(self, campo, minimo, maximo, sufijo=""):
         n = self.w[campo] = QSpinBox()
@@ -801,6 +852,12 @@ class PaginaDiseno(QWidget):
         n.setSuffix(sufijo)
         n.valueChanged.connect(lambda v: self._cambiar(campo, **{campo: v / 100 if campo == "opacidad" else v}))
         return n
+
+    def _deslizador(self, campo, minimo, maximo):
+        d = self.w[campo] = QSlider(Qt.Horizontal)
+        d.setRange(minimo, maximo)
+        d.valueChanged.connect(lambda v: (d.setToolTip(str(v)), self._cambiar(campo, **{campo: v})))
+        return d
 
     def _casilla(self, campo, texto):
         c = self.w[campo] = QCheckBox(texto)
@@ -894,7 +951,7 @@ class PaginaDiseno(QWidget):
             w.setVisible(v is not None)
             if v is None:
                 continue
-            if isinstance(w, QSpinBox):
+            if isinstance(w, (QSpinBox, QSlider)):
                 w.setValue(round(v * 100 if campo == "opacidad" else v))
             elif isinstance(w, QCheckBox):
                 w.setChecked(v)
@@ -1232,7 +1289,7 @@ class PaginaDiseno(QWidget):
             return False
         return True
 
-    def _lanzar(self, funcion, al_terminar, prefijo=""):
+    def _lanzar(self, funcion, al_terminar, prefijo="", error=t("La IA no pudo diseñar")):
         """Corre funcion(aviso) en segundo plano con su progreso abajo. La tarea anterior se guarda también: esta se
         puede lanzar desde su «listo», con su hilo aún cerrándose, y soltarla tumbaría la app."""
         self.disenar.setEnabled(False)
@@ -1243,7 +1300,7 @@ class PaginaDiseno(QWidget):
         tarea.progreso.connect(lambda texto, f: (self.estado.setText(prefijo + texto),
                                                  self.progreso.setValue(int(f * 100))))
         tarea.listo.connect(al_terminar)
-        tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("La IA no pudo diseñar"), e)))
+        tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, error, e)))
         tarea.finished.connect(lambda: tarea is self.tarea and (self.disenar.setEnabled(True), self.progreso.hide()))
         tarea.start()
 
@@ -1311,3 +1368,100 @@ class PaginaDiseno(QWidget):
             aviso = t("La ilustración no se añadió; quedó guardada en {ruta}", ruta=ruta)
             self.estado.setText(f"⚠️ {aviso}")
             mensaje(self, t("Generar con IA"), aviso)
+
+    # ---------- Editar la imagen de una capa (un «deshacer»; la nueva queda en la carpeta del diseño) ----------
+
+    def _foto(self):
+        """(capa, ruta de su archivo) de la capa imagen elegida, o None (ya avisado)."""
+        _, capa = self.elegido()
+        if not capa or capa["tipo"] != "imagen":
+            mensaje(self, t("Elige una imagen"), t("Elige primero una capa de imagen en el lienzo o en la lista."))
+            return None
+        ruta = self.carpeta and diseno.ruta_imagen(self.carpeta, capa["archivo"])
+        if not ruta:
+            mensaje_error(self, t("Falta la imagen"), t("No encuentro el archivo de esta capa en la carpeta del "
+                                                        "diseño."))
+            return None
+        return capa, ruta
+
+    def _costo_ia(self, que: str) -> str | None:
+        """La calidad para la IA de imágenes (la de abajo: 2K y 4K solo con Gemini), si el usuario acepta lo que cuesta
+        hacer `que`; None si no (ya avisado)."""
+        c, calidad = claves.para("imagen") or {}, self.calidad.currentData()
+        if c.get("proveedor") == "gemini":
+            costo = t("unos US${precio} con Gemini (calidad {calidad}, según el precio de Google)", calidad=calidad,
+                      precio=f"{ia.precio_imagen_gemini(c['clave'], calidad):.2f}")
+        elif c.get("proveedor") == "openai":
+            costo = t("unos US${precio} con OpenAI (calidad media, según el precio de OpenAI)",
+                      precio=f"{ia.PRECIO_EDITAR_OPENAI:.2f}")
+        else:
+            costo = t("una imagen del saldo (pollen) de tu cuenta de Pollinations")
+        if QMessageBox.question(self, t("Antes de gastar"), t("{que}\n\nCuesta {costo}. ¿Seguir?", que=que,
+                                                                 costo=costo)) == QMessageBox.Yes:
+            return calidad
+        self.estado.setText(t("Cancelado: no se gastó ninguna imagen."))
+        return None
+
+    def editar_con_ia(self):
+        """«Editar con IA» (como el relleno generativo de Photoshop): la IA cambia en la imagen elegida solo lo que se
+        le pide y deja el resto igual."""
+        foto = self._libre() and self._foto()
+        if not foto:
+            return
+        if not ia.puede_referencia():
+            return mensaje(self, t("Editar con IA"), ia.SIN_REFERENCIA)
+        capa, ruta = foto
+        cambio = pedir_cambio(self)
+        calidad = cambio and self._costo_ia(t("La IA cambiará en la imagen: «{cambio}», y dejará el resto igual.",
+                                              cambio=cambio))
+        if calidad:
+            self.estado.setText(t("Editando con IA…"))
+            self._lanzar(lambda aviso: {"ruta": str(ia.editar_imagen(ruta, cambio, self._temporal(), calidad))},
+                         lambda r: self._imagen_editada(capa["id"], r["ruta"], t("Imagen editada con IA.")),
+                         error=t("La IA no pudo editar la imagen"))
+
+    def quitar_fondo(self):
+        """Quita el fondo liso de la imagen elegida, gratis y en este PC (en segundo plano: una 4K tarda unos
+        segundos); si no es liso, ofrece hacerlo con IA."""
+        foto = self._libre() and self._foto()
+        if not foto:
+            return
+        capa, ruta = foto
+        self.estado.setText(t("Quitando el fondo…"))
+        self._lanzar(lambda aviso: _sin_fondo(ruta, self._temporal()), lambda r: self._fondo_quitado(capa, ruta, r),
+                     error=t("No se pudo quitar el fondo"))
+
+    def _fondo_quitado(self, capa, ruta, r):
+        if "ruta" in r:
+            return self._imagen_editada(capa["id"], r["ruta"], t("Fondo quitado: la imagen ya es transparente."))
+        self.estado.setText("")
+        if not ia.puede_referencia():
+            return mensaje(self, t("Quitar fondo"), f"{r['no_liso']}\n\n{ia.SIN_REFERENCIA}")
+        diseno_ia = self._ia()
+        calidad = diseno_ia and self._costo_ia(t("{error} La IA puede ponerle un fondo verde liso, que luego se "
+                                                 "quita aquí.", error=r["no_liso"]))
+        if calidad:
+            self.estado.setText(t("Quitando el fondo con IA…"))
+            self._lanzar(lambda aviso: {"ruta": str(diseno_ia.quitar_fondo_con_ia(ruta, self._temporal(), calidad))},
+                         lambda r: self._imagen_editada(capa["id"], r["ruta"], t("Fondo quitado con IA.")),
+                         error=t("No se pudo quitar el fondo"))
+
+    @staticmethod
+    def _temporal() -> Path:
+        return Path(tempfile.gettempdir()) / f"rafaga-edicion-{uuid.uuid4().hex}.png"
+
+    def _imagen_editada(self, capa_id, ruta, hecho):
+        """Pone la imagen nueva (validada y copiada a la carpeta del diseño) en la capa, como un paso que se deshace:
+        la de antes se queda en la carpeta."""
+        ruta = Path(ruta)
+        capa = next((c for c in self.diseno["capas"] if c["id"] == capa_id and c["tipo"] == "imagen"), None)
+        nombre = capa and self._importar(str(ruta))
+        if not nombre:  # mientras trabajaba se borró la capa o se abrió otro diseño: la imagen no se pierde
+            aviso = t("La imagen nueva no se puso en ninguna capa; quedó guardada en {ruta}", ruta=ruta)
+            self.estado.setText(f"⚠️ {aviso}")
+            return mensaje(self, t("Editar imagen"), aviso)
+        ruta.unlink(missing_ok=True)
+        self._recordar()
+        capa["archivo"] = nombre
+        self._dibujar(capa_id)
+        self.estado.setText(f"✨ {hecho}")

@@ -248,10 +248,10 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
                          "(gratis) en «Claves de IA» para más calidad.", problema=problema))
 
 
-def texto_json(instrucciones: str, pedido: str, esquema: dict) -> dict:
-    """Pide a la IA de texto una respuesta JSON que cumpla `esquema`.
-    Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona)."""
-    c = claves.para("texto")
+def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto") -> dict:
+    """Pide a la IA de texto una respuesta JSON que cumpla `esquema`. uso: «texto», o «diseno» para la IA que diseña
+    (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona)."""
+    c = claves.para(uso)
     if not c or not c.get("clave"):
         return _texto_gratis(instrucciones, pedido, esquema)
     if c["proveedor"] == "anthropic":
@@ -294,31 +294,82 @@ def puede_referencia() -> bool:
     return bool(c and c.get("clave") and c["proveedor"] in ("openai", "pollinations", "gemini"))
 
 
+SIN_REFERENCIA = t("Para editar con IA hace falta una IA de imágenes que edite fotos: conecta Gemini, OpenAI o "
+                   "Pollinations (con su clave) en «Claves de IA» y elígela en «Imágenes».")
+# US$ por edición con OpenAI en calidad media: la imagen de 1536 px (0,063 con gpt-image-1) más la foto que se le manda,
+# redondeado hacia arriba para que el aviso de costo no se quede corto
+PRECIO_EDITAR_OPENAI = 0.08
+
+
+def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
+    """La IA de imágenes conectada (con referencia: ver puede_referencia) hace `pedido` a partir de la foto."""
+    c = claves.para("imagen")
+    if c["proveedor"] == "gemini":
+        destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad))
+        return destino
+    size = "1024x1536" if alto > ancho else "1536x1024" if ancho > alto else "1024x1024"
+    base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
+    modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
+    # OpenAI, en calidad fija: con «auto» podía salir en alta, sin precio conocido (ver PRECIO_EDITAR_OPENAI)
+    extra = {"quality": "medium"} if c["proveedor"] == "openai" else {"private": "true"}
+    with open(foto, "rb") as f:
+        r = httpx.post(f"{base}/images/edits", timeout=300, headers={"Authorization": f"Bearer {c['clave']}"},
+                       files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
+                       data={"model": modelo, "prompt": pedido, "size": size, "n": "1", **extra})
+    r.raise_for_status()
+    d = r.json()["data"][0]
+    destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
+                                     else seguro.descargar(d["url"])))
+    return destino
+
+
+def editar_imagen(foto: Path, instruccion: str, destino: Path, calidad: str = "1K") -> Path:
+    """Como el relleno generativo de Photoshop: la IA de imágenes cambia en la foto solo lo que pide `instruccion`
+    («ponle gorra roja y humo verde») y deja el resto igual. Necesita una IA que edite con referencia
+    (puede_referencia: Gemini, OpenAI o Pollinations); si no, SinClave. calidad: la de Gemini (1K, 2K o 4K)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage, QImageReader
+    instruccion = " ".join(str(instruccion or "").split())[:1000]
+    if not instruccion:
+        raise ValueError(t("Escribe qué quieres cambiar en la imagen."))
+    if not puede_referencia():
+        raise SinClave(SIN_REFERENCIA)
+    lector = QImageReader(str(foto))
+    lector.setAutoTransform(True)  # la foto de móvil, derecha
+    imagen = lector.read()
+    if imagen.isNull():
+        raise ValueError(t("No se pudo leer la imagen."))
+    # En PNG (lo aceptan las tres) y de 2048 px como mucho: Gemini no admite pedidos de más de 20 MB
+    if max(imagen.width(), imagen.height()) > 2048:
+        imagen = imagen.scaled(2048, 2048, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    original = destino.with_name(f"{destino.stem}-original.png")
+    if not imagen.save(str(original), "PNG"):
+        raise RuntimeError(t("No se pudo preparar la imagen."))
+    try:
+        _con_referencia(f"Edit this image: {instruccion}. Change only that and keep everything else exactly the same "
+                        "(composition, framing, subject, faces, colors, lighting and style).", original,
+                        imagen.width(), imagen.height(), destino, calidad)
+    finally:
+        original.unlink(missing_ok=True)
+    # La IA solo da ciertas proporciones (OpenAI, 2:3, 3:2 o 1:1): recortada al centro a la de la foto, la capa no
+    # cambia de encuadre
+    hecha, proporcion = QImage(str(destino)), imagen.width() / imagen.height()
+    w, h = hecha.width(), hecha.height()
+    ancho, alto = min(w, round(h * proporcion)), min(h, round(w / proporcion))
+    if not hecha.isNull() and (ancho, alto) != (w, h):
+        if not hecha.copy((w - ancho) // 2, (h - alto) // 2, ancho, alto).save(str(destino), "PNG"):
+            raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
+    return destino
+
+
 def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True) -> Path:
     """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
     si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto)."""
-    c = claves.para("imagen")
-    vertical, horizontal = alto > ancho, ancho > alto
-    size = "1024x1536" if vertical else "1536x1024" if horizontal else "1024x1024"
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
               "label and logo)." + (" Photorealistic." if realista else ""))
-    if puede_referencia() and c["proveedor"] == "gemini":
-        destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto))
-        return destino
     if puede_referencia():
-        base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
-        modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
-        with open(foto, "rb") as f:
-            r = httpx.post(f"{base}/images/edits", timeout=300, headers={"Authorization": f"Bearer {c['clave']}"},
-                           files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
-                           data={"model": modelo, "prompt": pedido, "size": size, "n": "1",
-                                 **({"private": "true"} if c["proveedor"] == "pollinations" else {})})
-        r.raise_for_status()
-        d = r.json()["data"][0]
-        destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
-                                         else seguro.descargar(d["url"])))
-        return destino
+        return _con_referencia(pedido, foto, ancho, alto, destino)
     # ponytail: sin edición con referencia el producto se pega encima del fondo; queda menos natural.
     from .video import ffmpeg
     # Pedir «the product» y a la vez «no product» se contradecía: el hueco va en la propia escena

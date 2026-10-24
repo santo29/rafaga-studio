@@ -18,8 +18,9 @@ respuesta, pedidos, fotos, calidades = {}, [], [], []
 imagen_real = ia.imagen
 
 
-def texto_json(instrucciones, pedido, esquema):
+def texto_json(instrucciones, pedido, esquema, uso="texto"):
     assert esquema is diseno_ia.ESQUEMA and "PORCENTAJE" in instrucciones
+    assert uso == "diseno"  # la «IA que diseña» de Claves de IA, no la de los guiones
     pedidos.append(pedido)
     return copy.deepcopy(respuesta)
 
@@ -446,7 +447,7 @@ with tempfile.TemporaryDirectory() as d:
     antes = set(diseno.CARPETA.iterdir())
     falla(crear, [capa(texto=""), "x", capa(tipo="icono", icono="no-existe-zzz")], error=RuntimeError)
     falla(crear, [], error=RuntimeError)
-    ia.texto_json = lambda *a: ["no", "es", "un", "objeto"]
+    ia.texto_json = lambda *a, **k: ["no", "es", "un", "objeto"]
     falla(diseno_ia.crear, "x", error=RuntimeError)
     ia.texto_json = texto_json
     for tipo in ("video", "", None, ["post"], "POST"):
@@ -456,7 +457,8 @@ with tempfile.TemporaryDirectory() as d:
     assert set(diseno.CARPETA.iterdir()) == antes
 
     # Un diseño hecho por el agente (Claude por el MCP): se usa tal cual, sin la IA de texto, con las mismas reglas
-    guardado, ia.texto_json = ia.texto_json, lambda *a: (_ for _ in ()).throw(AssertionError("no debía usar la IA"))
+    guardado = ia.texto_json
+    ia.texto_json = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debía usar la IA"))
     try:
         hecho = diseno_ia.crear("", "presentacion", False, propuesta={
             "titulo": "Ráfaga", "descripcion": "d", "fondo_colores": ["#0F0F13"], "fondo_prompt_imagen": "",
@@ -561,8 +563,8 @@ with tempfile.TemporaryDirectory() as d:
     llamadas = []
 
     def entiende(contesta):
-        def falsa(instrucciones, pedido, esquema):
-            assert esquema is diseno_ia.ESQUEMA_ENTENDER and diseno_ia.FALTAS in instrucciones
+        def falsa(instrucciones, pedido, esquema, uso="texto"):
+            assert esquema is diseno_ia.ESQUEMA_ENTENDER and diseno_ia.FALTAS in instrucciones and uso == "diseno"
             llamadas.append(pedido)
             if isinstance(contesta, Exception):
                 raise contesta

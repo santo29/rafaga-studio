@@ -484,6 +484,17 @@ def _bloque_video(nodo):
     return None
 
 
+class Cobrado(RuntimeError):
+    """Un video que Google ya hizo (y cobró) pero que no se pudo traer: la nota de gasto también lo cuenta."""
+
+
+def _borrar(url: str, cabecera: dict) -> None:
+    try:
+        httpx.delete(url, headers=cabecera, timeout=30)
+    except httpx.HTTPError:  # no tumba un video ya hecho; si queda, Google lo borra solo (ver PRIVACIDAD.md)
+        pass
+
+
 def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None = None) -> Path:
     """Un video de IA con su propio sonido: los personajes hablan con los labios sincronizados (Gemini Omni, de pago).
     referencia: imagen del sujeto (tu foto o producto) que el video debe mantener."""
@@ -498,35 +509,47 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
                    {"type": "text", "text": prompt}]
     r = httpx.post(f"{API_GEMINI}/interactions", headers=cabecera, timeout=900, json={
         "model": modelo_video_voz(c["clave"]), "input": entrada, "background": False, "stream": False,
-        "store": True,  # Omni lo exige para video; el archivo se borra abajo en cuanto se baja
+        "store": True,  # sin esto Omni responde 400 («store=true is required»): lo guardado se borra en el finally
         "response_format": {"type": "video", "aspect_ratio": "16:9" if formato in ("16:9", "1:1") else "9:16",
                             "resolution": "720p", "delivery": "uri"}})
-    r.raise_for_status()
+    if r.is_error:  # el motivo exacto (filtro de seguridad, sin facturación, clave): el cuerpo no trae la clave
+        raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
+                             detalle=" ".join(r.text.split())[:300]))
     respuesta = r.json()
-    bloque = _bloque_video(respuesta)
-    if not bloque:  # p. ej. lo frenó su filtro de seguridad: se dice lo que contestó
-        raise RuntimeError(t("Gemini no devolvió ningún video: {detalle}",
-                             detalle=json.dumps(respuesta, ensure_ascii=False)[:300]))
-    if bloque.get("data"):
-        return _clip_real(base64.b64decode(bloque["data"]), destino)
-    # La clave solo viaja a la API de Gemini, nunca a una dirección que venga en la respuesta.
-    archivo = re.fullmatch(re.escape(API_GEMINI) + r"/files/([\w-]+)(?::download)?(?:\?.*)?", bloque["uri"])
-    if not archivo:
-        raise RuntimeError(t("Gemini devolvió una dirección inesperada"))
-    archivo = f"{API_GEMINI}/files/{archivo[1]}"
-    for _ in range(120):  # el video tarda un poco en quedar listo para bajar
-        estado = httpx.get(archivo, headers=cabecera, timeout=30).json().get("state")
-        if estado != "PROCESSING":
-            break
-        time.sleep(5)
-    if estado == "FAILED":
-        raise RuntimeError(t("Gemini no pudo terminar el video"))
-    datos = seguro.descargar(f"{archivo}:download?alt=media", cabecera, tope=VIDEO_MAXIMO, plazo=300)
+    interaccion, archivo = str(respuesta.get("id", "")).removeprefix("interactions/"), None
     try:
-        httpx.delete(archivo, headers=cabecera, timeout=30)  # caduca solo a las 48 h; mejor que no se quede allí
-    except httpx.HTTPError:
-        pass
-    return _clip_real(datos, destino)
+        bloque = _bloque_video(respuesta)
+        if not bloque:  # p. ej. lo frenó su filtro de seguridad: se dice lo que contestó
+            raise RuntimeError(t("Gemini no devolvió ningún video: {detalle}",
+                                 detalle=json.dumps(respuesta, ensure_ascii=False)[:300]))
+        try:
+            if bloque.get("data"):
+                return _clip_real(base64.b64decode(bloque["data"]), destino)
+            # La clave solo viaja a la API de Gemini, nunca a una dirección que venga en la respuesta.
+            m = re.fullmatch(re.escape(API_GEMINI) + r"/files/([\w-]+)(?::download)?(?:\?.*)?", bloque["uri"])
+            if not m:
+                raise RuntimeError(t("Gemini devolvió una dirección inesperada"))
+            archivo = f"{API_GEMINI}/files/{m[1]}"
+            estado = None
+            for _ in range(120):  # el video tarda un poco en quedar listo para bajar
+                try:
+                    estado = httpx.get(archivo, headers=cabecera, timeout=30).json().get("state")
+                except (httpx.HTTPError, ValueError):  # un corte de red de un momento: se vuelve a mirar
+                    estado = "PROCESSING"
+                if estado != "PROCESSING":
+                    break
+                time.sleep(5)
+            if estado in ("FAILED", "PROCESSING"):
+                raise RuntimeError(t("Gemini no pudo terminar el video"))
+            return _clip_real(seguro.descargar(f"{archivo}:download?alt=media", cabecera, tope=VIDEO_MAXIMO,
+                                               plazo=300), destino)
+        except Exception as error:  # Google ya lo hizo, y lo cobra
+            raise Cobrado(str(error) or type(error).__name__) from error
+    finally:  # lo guardado en Google (el pedido, la foto y el video) no se queda allí, salga bien o mal
+        if archivo:
+            _borrar(archivo, cabecera)
+        if re.fullmatch(r"[\w-]+", interaccion):
+            _borrar(f"{API_GEMINI}/interactions/{interaccion}", cabecera)
 
 
 def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:

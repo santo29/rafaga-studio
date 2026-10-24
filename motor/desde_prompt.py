@@ -100,7 +100,8 @@ def costo_hablado(segundos: int) -> tuple[int, float]:
 
 
 def con_voz_propia() -> bool:
-    """Si «Crear video» hace por defecto escenas animadas con voz: hay clave de Gemini y la IA de video no está apagada."""
+    """Si la casilla «Video animado con IA» de Crear sale marcada: hay clave de Gemini y la IA de video no está
+    apagada. Solo la pantalla, que avisa del costo: el motor nunca gasta sin que se lo pidan (animado=True)."""
     return "gemini" in claves.cargar() and claves.ajustes().get("video") != "ninguno"
 
 
@@ -115,17 +116,17 @@ def prompt_hablado(escena: dict, guion: dict) -> str:
 
 def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
             imagen: str = "", aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None,
-            animado: bool | None = None) -> dict:
+            animado: bool = False) -> dict:
     """Video completo desde un pedido. Con `imagen`, la primera escena es esa foto y las demás mantienen su sujeto.
     guion: el guion ya escrito (con la forma de ESQUEMA) por quien maneja el estudio; entonces no se usa la IA de texto.
     animado: cada escena es un video de IA con su propia voz (los personajes hablan con los labios sincronizados).
-    Es de pago (Gemini, ~US$0,10 por segundo). None = sí cuando con_voz_propia(); las escenas que fallen se hacen
-    con imagen y narración."""
+    Es de pago (Gemini, ~US$0,10 por segundo): solo con True; las escenas que fallen se hacen con imagen y narración."""
     if imagen:
         imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
-    if animado is None:
-        animado = con_voz_propia()
-    elif animado and "gemini" not in claves.cargar():  # se avisa antes de gastar nada
+    if formato not in video.FORMATOS:  # antes de gastar: un formato raro tumbaría el montaje ya pagado
+        raise ValueError(t("Formato no válido: usa 9:16, 16:9, 1:1 o 4:5."))
+    animado = animado is True  # «"false"» o «1» de una IA no son un sí: lo de pago, solo pedido de verdad
+    if animado and "gemini" not in claves.cargar():  # se avisa antes de gastar nada
         raise ia.SinClave(t("Para videos animados con voz conecta tu clave de Gemini en «Claves de IA», o desmarca "
                             "«Video animado con IA»."))
     escenas_aprox = max(1, round(segundos / SEGUNDOS_HABLADO)) if animado else max(3, round(segundos / 6))
@@ -143,9 +144,14 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
             f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}{hablado}"), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»). Animadas, cada una se paga: ni una de más.
-    guion["escenas"] = guion["escenas"][:escenas_aprox + (0 if animado else 2)]
-    if not guion["escenas"]:
+    # Se quitan las del medio: la última es el cierre o la llamada a la acción.
+    escenas, tope, notas = guion["escenas"], escenas_aprox + (0 if animado else 2), []
+    if not escenas:
         raise ValueError(t("El guion no tiene ninguna escena."))
+    if len(escenas) > tope:
+        guion["escenas"] = escenas[:tope - 1] + escenas[-1:]
+        notas.append(t("El guion traía {n} escenas y se usaron {tope} (las del medio que sobraban se quitaron).",
+                       n=len(escenas), tope=tope))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-video")
     carpeta.mkdir(parents=True)
     for e in guion["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
@@ -154,17 +160,20 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     crear_imagen = foto = None
     if imagen:
         foto = Path(shutil.copy(imagen, carpeta / f"referencia{Path(imagen).suffix.lower()}"))
-        hechas = []
 
         def crear_imagen(p, w, h, destino):  # 1ª escena: la foto tal cual; las demás, con el mismo sujeto
-            hechas.append(destino)
-            if len(hechas) == 1:
+            if destino.name == "video_final_imagen_00.png":  # por su número (con animado, la 1ª puede no pasar aquí)
                 return Path(shutil.copy(foto, destino))
             return ia.imagen_con_producto(p, foto, w, h, destino)
-    notas = []
     hablados = clips_hablados(guion, carpeta, formato, aviso, foto, notas) if animado else {}
-    final = montar(guion, carpeta, formato, voz, aviso, crear_imagen=crear_imagen, respaldo=foto, notas=notas,
-                   hablados=hablados, desde=0.7 if hablados else 0.1)
+    try:
+        final = montar(guion, carpeta, formato, voz, aviso, crear_imagen=crear_imagen, respaldo=foto, notas=notas,
+                       hablados=hablados, desde=0.7 if animado else 0.1)
+    except Exception as error:  # lo ya pagado a Gemini no se pierde de vista, y reintentar lo pagaría otra vez
+        gasto = " ".join(n for n in notas if "US$" in n)
+        if not gasto:
+            raise
+        raise RuntimeError(f"{error} · {gasto} · {carpeta}") from error
     proyecto = {"tipo": "video", "prompt": prompt, "formato": formato, "carpeta": str(carpeta),
                 "titulo": guion["titulo"], "avisos": notas,
                 "resultados": [{"archivo": str(final), "titulo": guion["titulo"],
@@ -201,15 +210,18 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     """Cada escena como video de IA con su propia voz, 3 a la vez (cada uno tarda ~30 s). Devuelve {escena: video de
     la escena ya terminado}; las que fallan no están y montar() las hace con imagen y narración."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    n, hechos, fallos, pagados, segundos = min(len(guion["escenas"]), MAX_HABLADAS), {}, {}, 0, 0.0
+    n, fallos, pagados, segundos = min(len(guion["escenas"]), MAX_HABLADAS), {}, 0, 0.0
     if len(guion["escenas"]) > n:
         notas.append(t("Solo las primeras {n} escenas van animadas con voz (tope de gasto por video); las demás van "
                        "con imagen y narración.", n=n))
-    aviso(t("Creando {n} escena(s) animadas con voz…", n=n), 0.08)
+    # Las escenas que ya están hechas en la carpeta (un reintento de ejemplos/crear.py) no se vuelven a pagar
+    # (nombre propio: «video_final_escena_XX» también lo usa la escena de respaldo con imagen y narración)
+    hechos = {i: p for i in range(n) if (p := carpeta / f"video_final_hablada_{i:02d}.mp4").is_file()}
+    aviso(t("Creando {n} escena(s) animadas con voz…", n=n - len(hechos)), 0.08)
     with ThreadPoolExecutor(3) as grupo:
         trabajos = {grupo.submit(ia.video_hablado, prompt_hablado(e, guion), formato,
                                  carpeta / f"video_final_hablado_{i:02d}.mp4", referencia): i
-                    for i, e in enumerate(guion["escenas"][:n])}
+                    for i, e in enumerate(guion["escenas"][:n]) if i not in hechos}
         for listo in as_completed(trabajos):  # los avisos, desde este hilo
             i = trabajos[listo]
             try:
@@ -218,8 +230,10 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
                 aviso(t("Escena {n} de {total}: subtítulos…", n=i + 1, total=n), 0.08 + 0.6 * len(hechos) / n)
                 # Mientras Google hace las demás, aquí se ponen los subtítulos de esta.
                 hechos[i] = escena_hablada(clip, guion["escenas"][i]["narracion"], formato,
-                                           carpeta / f"video_final_escena_{i:02d}.mp4")
+                                           carpeta / f"video_final_hablada_{i:02d}.mp4")
             except Exception as error:  # sin saldo, filtro de seguridad, servicio caído…
+                if isinstance(error, ia.Cobrado):  # Google lo hizo pero no se pudo bajar: se cobra igual
+                    pagados, segundos = pagados + 1, segundos + SEGUNDOS_HABLADO
                 fallos[i] = str(error).strip() or type(error).__name__
             aviso(t("Escenas animadas con voz: {hechas} de {total}", hechas=len(hechos) + len(fallos), total=n),
                   0.08 + 0.6 * (len(hechos) + len(fallos)) / n)
@@ -243,8 +257,13 @@ def escena_hablada(clip: Path, texto: str, formato: str, destino: Path) -> Path:
         palabras = ia.transcribir(voz, pista=texto)
     except Exception:  # sin subtítulos antes que sin escena
         palabras = []
+    # escena_de_clip alarga 0,25 s repitiendo el clip desde el principio: se corta antes, sin comerse la voz
     largo = video.duracion(clip)
-    fin = min(largo, palabras[-1]["fin"] + 0.6) if palabras else largo
+    if palabras:
+        ultima = min(palabras[-1]["fin"], largo)
+        fin = max(ultima, min(largo - 0.25, ultima + 0.6))
+    else:
+        fin = largo - 0.25
     audio = destino.with_name(destino.stem + "_audio.m4a")
     video.ffmpeg("-i", clip.resolve(), "-vn", "-t", fin, "-c:a", "aac", audio.name, cwd=destino.parent)
     return video.escena_de_clip(clip, audio, formato, palabras, destino)

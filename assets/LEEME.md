@@ -1,6 +1,8 @@
 # Recursos de diseño incluidos
 
-Todo lo de esta carpeta es de terceros con licencia libre; aquí está de dónde salió cada cosa y cómo comprobarlo.
+Los iconos (`iconos/`) y las fuentes (`fuentes/`) son de terceros con licencia libre; aquí está de dónde salió cada
+cosa y cómo comprobarlo. El logo (`icono.*`) y la portada (`portada-github.png`) son de Ráfaga Studio™, con todos los
+derechos reservados.
 Lo bajó y validó un script aparte (fuera del proyecto): integridad del paquete, nombres de archivo seguros y
 contenido revisado antes de copiarlo aquí.
 

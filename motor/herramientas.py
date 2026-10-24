@@ -28,16 +28,17 @@ def _json(datos) -> str:
 
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
-                animado: bool | None = None) -> str:
+                animado: bool = False) -> str:
     """Crea un video completo desde un pedido: guion con IA, imágenes, voz, subtítulos y montaje.
-    animado: cada escena es un video de IA con su propia voz: los personajes hablan con los labios sincronizados
-    (una fruta que habla, un anuncio con actor…). Usa Gemini y es de pago: ~US$0,80-1 por escena de 8 s, con
-    tope de 15 escenas animadas por video. Sin decirlo, se usa si el usuario conectó Gemini. False = imágenes
-    con narración (gratis). Con animado, una escena cada ~8 s y como mucho 18 palabras de narración por escena.
+    animado: true = cada escena es un video de IA con su propia voz: los personajes hablan con los labios
+    sincronizados (una fruta que habla, un anuncio con actor…). Usa Gemini y es DE PAGO: ~US$1 por escena de 8 s
+    (una escena cada ~8 s, tope de 15 por video). Úsalo solo si el usuario aceptó ese costo. Por defecto false:
+    imágenes animadas con narración (gratis).
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
     {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
     "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
-    Unas segundos/6 escenas (sobran las de más).
+    Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
+    las del medio y se conserva la última.
     formato: 9:16, 16:9, 1:1 o 4:5. voz: una de las voces de la lista (ver listar_opciones).
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube

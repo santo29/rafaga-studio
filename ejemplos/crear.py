@@ -24,6 +24,9 @@ pedidos, pendientes = sys.argv[1:], False
 for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
     if pedidos and e["id"] not in pedidos:
         continue
+    if e.get("animado") and e["id"] not in pedidos:  # de pago: solo si se pide por su nombre
+        print(f"{e['id']}: usa Gemini (de pago, ~US$1 por escena). Para rehacerlo: python ejemplos/crear.py {e['id']}")
+        continue
     trabajo = PROYECTOS / f"ejemplo-{e['id']}"
     trabajo.mkdir(parents=True, exist_ok=True)
     # Las imágenes de otro ejemplo, si ya se hicieron (si no, se generan con su descripción como las demás)

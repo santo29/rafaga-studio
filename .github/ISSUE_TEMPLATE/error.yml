@@ -1,0 +1,45 @@
+name: "🐞 Bug / Error"
+description: Something doesn't work as expected · Algo no funciona como debería
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! · ¡Gracias por avisar! **Never paste API keys or tokens here** · **Nunca pegues claves aquí.**
+        Security problems go through [SECURITY.md](../blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: que
+    attributes:
+      label: What happened? · ¿Qué pasó?
+      description: What you did, what you expected and what you got. Include the error message if there is one.
+    validations:
+      required: true
+  - type: dropdown
+    id: pantalla
+    attributes:
+      label: Screen · Pantalla
+      options:
+        - Director IA
+        - Crear con IA
+        - Shorts mágicos
+        - Anuncios
+        - Música / Cabina
+        - Diseño
+        - Editor de video
+        - Serie animada
+        - Nichos virales
+        - MCP
+        - Instalador / Installer
+        - Other · Otra
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and Windows · Versión y Windows
+      placeholder: "1.0.0 · Windows 11"
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Steps to reproduce · Pasos para repetirlo
+      placeholder: "1. …\n2. …\n3. …"

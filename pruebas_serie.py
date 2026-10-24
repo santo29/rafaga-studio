@@ -186,13 +186,16 @@ falla(serie.crear_episodio, "Escrita por Claude", guion={"planos": "no"})
 assert claves.elegir_modelo_video_voz(["models/gemini-2.5-pro", "models/veo-3.1"]) is None
 assert claves.elegir_modelo_video_voz(["models/gemini-omni-1.1-flash", "models/gemini-omni-2-flash",
                                        "models/gemini-omni-flash-preview"]) == "gemini-omni-2-flash"
-assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-flash", "gemini-omni-2.0-pro"]) == "gemini-omni-2.0-pro"
-assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-pro-preview", "gemini-omni-2.0-pro"]) == "gemini-omni-2.0-pro"
+# Solo Flash estable (el de precio conocido: el costo que se avisa es el real), y 1.10 es más nuevo que 1.9
+assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-flash", "gemini-omni-2.0-pro"]) == "gemini-omni-2.0-flash"
+assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-pro-preview", "gemini-omni-2.0-pro"]) is None
+assert claves.elegir_modelo_video_voz(["gemini-omni-1.9-flash", "gemini-omni-1.10-flash"]) == "gemini-omni-1.10-flash"
 
 
 class Respuesta:
-    def __init__(self, datos):
-        self.datos = datos
+    def __init__(self, datos, codigo=200):
+        self.datos, self.status_code, self.is_error = datos, codigo, codigo >= 400
+        self.text = json.dumps(datos)
 
     def json(self):
         return self.datos
@@ -202,7 +205,7 @@ class Respuesta:
 
 
 red, bajadas = [], []
-uri = f"{ia.API_GEMINI}/files/abc-123:download?alt=media"
+uri, estado_omni, rechazo = f"{ia.API_GEMINI}/files/abc-123:download?alt=media", "ACTIVE", None
 
 
 def get(url, **k):
@@ -210,12 +213,14 @@ def get(url, **k):
     if url.endswith("/models"):
         return Respuesta({"models": [{"name": f"models/{m}"} for m in (
             "gemini-flash-latest", "gemini-omni-1.1-flash", "gemini-omni-1.5-pro", "gemma-4")]})
-    return Respuesta({"state": "ACTIVE"})
+    return Respuesta({"state": estado_omni})
 
 
 def post(url, **k):
     red.append(("POST", url, k))
-    return Respuesta({"outputs": [{"type": "text", "text": "ok"}, {"type": "video", "uri": uri}]})
+    if rechazo:
+        return Respuesta(rechazo, 400)
+    return Respuesta({"id": "int-7", "outputs": [{"type": "text", "text": "ok"}, {"type": "video", "uri": uri}]})
 
 
 def bajar(url, cabeceras, **k):
@@ -233,15 +238,23 @@ try:
     clip = ia.video_hablado("una manzana dice hola", "1:1", tmp / "omni.mp4", foto)
     assert clip.is_file() and red[0][1].endswith("/models")  # se pregunta qué modelos tiene la clave
     cuerpo = red[1][2]["json"]
-    assert red[1][1] == f"{ia.API_GEMINI}/interactions" and cuerpo["model"] == "gemini-omni-1.5-pro"  # el más capaz
+    assert red[1][1] == f"{ia.API_GEMINI}/interactions" and cuerpo["model"] == "gemini-omni-1.1-flash"  # Pro no
     assert cuerpo["store"] and cuerpo["response_format"]["aspect_ratio"] == "16:9"  # 1:1 sale de 16:9 recortado
     assert cuerpo["input"][0]["type"] == "image" and cuerpo["input"][0]["mime_type"] == "image/png"
     assert bajadas == [(f"{ia.API_GEMINI}/files/abc-123:download?alt=media", {"x-goog-api-key": "AIzaPrueba"})]
-    assert red[-1][:2] == ("DELETE", f"{ia.API_GEMINI}/files/abc-123")  # no se queda en Google
+    borrados = [u for m, u, _ in red if m == "DELETE"]  # ni el video ni la petición (con la foto) se quedan en Google
+    assert borrados == [f"{ia.API_GEMINI}/files/abc-123", f"{ia.API_GEMINI}/interactions/int-7"]
     red.clear()
     ia.video_hablado("otra", "9:16", tmp / "omni2.mp4")
     assert not any(u.endswith("/models") for _, u, _ in red)  # el modelo se pregunta una vez por sesión
     assert red[0][2]["json"]["input"] == "otra" and red[0][2]["json"]["response_format"]["aspect_ratio"] == "9:16"
+    red.clear()
+    estado_omni = "FAILED"  # Google lo hizo y no se pudo bajar: se cobra igual, y lo guardado también se borra
+    assert falla(ia.video_hablado, "x", "9:16", tmp / "omni4.mp4", error=ia.Cobrado)
+    assert len([u for m, u, _ in red if m == "DELETE"]) == 2
+    estado_omni, rechazo = "ACTIVE", {"error": {"message": "billing not enabled"}}
+    assert "billing not enabled" in falla(ia.video_hablado, "x", "9:16", tmp / "omni5.mp4", error=RuntimeError)
+    rechazo = None
     uri = "https://ladron.example/files/abc:download"  # la clave nunca viaja a una dirección de la respuesta
     bajadas.clear()
     assert "inesperada" in falla(ia.video_hablado, "x", "9:16", tmp / "omni3.mp4", error=RuntimeError)
@@ -259,7 +272,7 @@ pedidos_omni = []
 def omni(prompt, formato, destino, referencia=None):
     pedidos_omni.append(prompt)
     if "sunset" in prompt:
-        raise RuntimeError("sin saldo")
+        raise ia.Cobrado("se cortó la descarga")  # Google lo hizo (y lo cobró) pero no llegó
     video.ffmpeg("-f", "lavfi", "-i", "testsrc=s=360x640:d=3:r=24", "-f", "lavfi", "-i", "sine=f=440:d=3",
                  "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", destino)
     return destino
@@ -272,19 +285,43 @@ claves.cargar = lambda: {"gemini": {"clave": "AIzaPrueba"}}
 try:
     assert not desde_prompt.con_voz_propia()  # la IA de video en «No usar»: tampoco con voz
     claves.elegir_por_defecto("video", "auto")
-    assert desde_prompt.con_voz_propia()  # con Gemini conectado, «Crear video» anima con voz por defecto
-    largo = {**mio, "escenas": mio["escenas"] + [{"narracion": "Sobra.", "imagen": "extra"}] * 3}
+    assert desde_prompt.con_voz_propia()  # con Gemini conectado, la casilla de Crear sale marcada (y avisa del costo)
+    # Lo de pago solo pedido de verdad: sin decirlo, o con «"false"» o «1» que escriba una IA, va lo gratis
+    for valor in (None, "false", 1):
+        r = desde_prompt.generar("", "9:16", 16, guion=mio, **({} if valor is None else {"animado": valor}))
+        assert not pedidos_omni and Path(r["resultados"][0]["archivo"]).is_file()
+    json.loads(herramientas.crear_video("", segundos=15, guion=json.dumps(mio)))
+    assert not pedidos_omni  # tampoco desde el Director o un agente MCP que no lo pida
+    hechos = len(list(desde_prompt.PROYECTOS.iterdir()))
+    falla(desde_prompt.generar, "", "3:4", 16, guion=mio, animado=True)  # formato raro: antes de pagar nada
+    assert not pedidos_omni and len(list(desde_prompt.PROYECTOS.iterdir())) == hechos
+    # Sobran escenas: se quitan las del medio y se conserva el cierre (la última)
+    largo = {**mio, "escenas": mio["escenas"][:1] + [{"narracion": "Sobra.", "imagen": "extra"}] * 3
+             + mio["escenas"][1:]}
     antes = len(voces)
-    r = desde_prompt.generar("", "9:16", 16, guion=largo)  # sin decir nada: animado
-    assert len(pedidos_omni) == 2  # 16 s = 2 escenas de 8 s: ni una de más (cada una se paga)
+    r = desde_prompt.generar("", "9:16", 16, guion=largo, animado=True)
+    assert len(pedidos_omni) == 2 and "a sunset" in pedidos_omni[1]  # 16 s = 2 escenas de 8 s: ni una de más
     assert '"Hola."' in pedidos_omni[0] and "lip sync" in pedidos_omni[0] and "a beach" in pedidos_omni[0]
     assert len(voces) == antes + 1  # solo la escena que falló lleva narración
     final = Path(r["resultados"][0]["archivo"])
     assert final.is_file() and 2.8 < video.duracion(final) < 3.5  # el clip de 3 s se corta al acabar de hablar
-    assert any("2" in a and "sin saldo" in a for a in r["avisos"]) and any("US$" in a for a in r["avisos"])
+    assert any("se usaron 2" in a for a in r["avisos"])
+    assert any("2" in a and "se cortó la descarga" in a for a in r["avisos"])
+    assert any("2 escena(s)" in a and "US$" in a for a in r["avisos"])  # la que se cobró sin llegar también cuenta
+    # Reintentar en la misma carpeta (ejemplos/crear.py): las escenas ya hechas no se vuelven a pagar
     pedidos_omni.clear()
-    json.loads(herramientas.crear_video("", segundos=15, guion=json.dumps(mio), animado=False))
-    assert not pedidos_omni  # animado=False: imágenes con narración aunque haya Gemini
+    desde_prompt.clips_hablados(json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8")),
+                                Path(r["carpeta"]), "9:16", lambda *a: None, None, [])
+    assert len(pedidos_omni) == 1 and "a sunset" in pedidos_omni[0]
+    # Si el montaje falla después de pagar, el gasto no se pierde de vista
+    pedidos_omni.clear()
+    montar_real = desde_prompt.montar
+    desde_prompt.montar = lambda *a, **k: (_ for _ in ()).throw(OSError("disco lleno"))
+    try:
+        error = falla(desde_prompt.generar, "", "9:16", 16, guion=mio, animado=True, error=RuntimeError)
+        assert "disco lleno" in error and "US$" in error
+    finally:
+        desde_prompt.montar = montar_real
     escenas, costo = desde_prompt.costo_hablado(600)
     assert escenas == desde_prompt.MAX_HABLADAS and abs(costo - escenas) < 1e-6  # tope: ~US$1 por escena
 finally:

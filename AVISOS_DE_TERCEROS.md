@@ -68,7 +68,7 @@ OpenRouter y Pollinations reenvían tu pedido al proveedor del modelo que usan (
 que también lo trata según su política.
 
 Sin que conectes nada, la app también contacta con: Cloudflare (una consulta para elegir el idioma por país, la
-primera vez), PyPI (al instalar y en cada arranque, para actualizar yt-dlp), PyTorch (al instalar), Hugging Face (para
+primera vez), PyPI (al instalar y en cada arranque, para actualizar yt-dlp), PyTorch y NuGet de Microsoft (al instalar, para bajar las librerías y Python), Hugging Face (para
 bajar el modelo Whisper la primera vez) y Meta (`dl.fbaipublicfiles.com`, para bajar el modelo Demucs la primera vez).
 Solo se descargan programas y modelos: no se envía tu contenido.
 

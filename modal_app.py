@@ -14,7 +14,7 @@ imagen = (
     # ponytail: versiones sin fijar; si un día una actualización rompe el pipeline, fijarlas aquí.
     .pip_install("torch", "diffusers>=0.35", "transformers", "accelerate", "ftfy", "sentencepiece",
                  "imageio", "imageio-ffmpeg", "pillow", "numpy")
-    .env({"HF_HUB_CACHE": "/models", "HF_XET_HIGH_PERFORMANCE": "1"})
+    .env({"HF_HUB_CACHE": "/models", "HF_XET_HIGH_PERFORMANCE": "1", "HF_HUB_DISABLE_TELEMETRY": "1"})
 )
 
 MODELO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"

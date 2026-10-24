@@ -218,7 +218,8 @@ if __name__ == "__main__":
     # yt-dlp se actualiza solo y en segundo plano (YouTube cambia a menudo). Solo versiones ya compiladas (nada de
     # ejecutar código de instalación) y publicadas hace 7 días o más (si una sale maliciosa, da tiempo a retirarla).
     QProcess.startDetached(str(Path(sys.executable).with_name("pythonw.exe")),
-                           ["-m", "pip", "install", "-q", "-U", "--disable-pip-version-check", "--only-binary", ":all:",
+                           ["-m", "pip", "install", "--isolated", "-q", "-U", "--disable-pip-version-check",
+                            "--only-binary", ":all:",
                             "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
     Ventana().show()
     sys.exit(app.exec())

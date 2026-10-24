@@ -12,7 +12,8 @@
 #define Titular "Santo Montilla"
 #define PythonVersion "3.14.9"
 #define PythonSha256 "7cd9d07aec975212344dc6f7e45019378cf6775dd564181e269010a1eddaaec7"
-#define PythonTamano "15568326"
+; Lo que ocupa Python ya descomprimido (con extractarchive, Inno pide el tamaño descomprimido)
+#define PythonTamano "41702504"
 
 [Setup]
 AppId={{F4E4489A-13B7-423F-8FA7-A074C052C272}
@@ -41,6 +42,8 @@ Compression=lzma2/max
 SolidCompression=yes
 ArchiveExtraction=full
 CloseApplications=yes
+; Las librerías que pip instala después (~2,2 GB) no están en [Files]: que el asistente pida ese espacio libre
+ExtraDiskSpaceRequired=2500000000
 
 [Languages]
 Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -89,13 +92,14 @@ Source: "https://api.nuget.org/v3-flatcontainer/python/{#PythonVersion}/python.{
   Flags: external download extractarchive recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; \
+; -E: un PYTHONPATH o PYTHONHOME que otro programa dejó en Windows no se mete en el Python de la app
+Name: "{autoprograms}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s -E ""{app}\app.py"""; \
   WorkingDir: "{app}"; IconFilename: "{app}\assets\icono.ico"
-Name: "{autodesktop}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; \
+Name: "{autodesktop}\{#Nombre}"; Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s -E ""{app}\app.py"""; \
   WorkingDir: "{app}"; IconFilename: "{app}\assets\icono.ico"; Tasks: escritorio
 
 [Run]
-Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s ""{app}\app.py"""; WorkingDir: "{app}"; \
+Filename: "{app}\python\tools\pythonw.exe"; Parameters: "-s -E ""{app}\app.py"""; WorkingDir: "{app}"; \
   Description: "{cm:Abrir}"; Flags: nowait postinstall skipifsilent; Check: LibreriasListas
 
 [UninstallDelete]
@@ -134,9 +138,27 @@ var
   Codigo: Integer;
 begin
   Salida := '';
+  { --isolated: el pip.ini y las PIP_* del usuario (require-virtualenv, user, target, otros índices) no cuentan }
   Result := ExecAndLogOutput(ExpandConstant('{app}\python\tools\python.exe'),
-    '-s -m pip install --no-cache-dir --disable-pip-version-check --no-warn-script-location --progress-bar off ' + Parametros,
+    '-s -E -m pip install --isolated --no-cache-dir --disable-pip-version-check --no-warn-script-location ' +
+    '--progress-bar off ' + Parametros,
     ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Codigo, @VerLinea) and (Codigo = 0);
+end;
+
+{ Al actualizar, la app abierta (o el MCP que mantiene Claude) bloquea el Python de la app: Setup ofrece cerrarlos }
+procedure RegisterExtraCloseApplicationsResources;
+begin
+  RegisterExtraCloseApplicationsResource(ExpandConstant('{app}\python\tools\pythonw.exe'));
+  RegisterExtraCloseApplicationsResource(ExpandConstant('{app}\python\tools\python.exe'));
+end;
+
+{ Instalación desatendida: código 1 si faltan librerías, para que quien la lanzó se entere }
+function GetCustomSetupExitCode: Integer;
+begin
+  if Listas then
+    Result := 0
+  else
+    Result := 1;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -153,5 +175,5 @@ begin
     (MsgBox(FmtMessage(CustomMessage('FalloLibrerias'), [Salida]), mbError, MB_RETRYCANCEL) <> IDRETRY);
   WizardForm.ProgressGauge.Style := npbstNormal;
   if not Listas then
-    MsgBox(CustomMessage('Incompleta'), mbInformation, MB_OK);
+    SuppressibleMsgBox(CustomMessage('Incompleta'), mbInformation, MB_OK, IDOK);
 end;

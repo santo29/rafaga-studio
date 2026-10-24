@@ -1,6 +1,6 @@
 # Términos de uso de Ráfaga Studio
 
-**Versión 2 · 23 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 3 · 24 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 Al instalar o usar Ráfaga Studio aceptas estos términos y el [Aviso de privacidad](PRIVACIDAD.md). Si no estás de
 acuerdo, no uses la app.
@@ -24,8 +24,10 @@ Ráfaga Studio es un estudio creativo con IA que funciona en tu PC.
 Ráfaga Studio trabaja con tus propias claves de servicios de IA (BYOK). Sin clave, la app usa servicios gratis de
 terceros (Spaces públicos de Hugging Face y Pollinations), que reciben lo que les envías y tienen sus propias
 condiciones. Algunas funciones son de pago en tu cuenta: por ejemplo, el video animado con voz de Gemini cuesta unos
-US$0,10 por segundo de video, y la app te dice cuánto antes de empezar. Esas cuentas, sus condiciones y lo que cobren
-son entre tú y cada proveedor. La app usa primero las opciones gratis y tiene topes para no gastar de más, pero eres
+US$0,10 por segundo de video. Nunca se usa sin que lo pidas: la pantalla Crear te dice el costo antes, y el Director te
+pregunta antes de usarlo; un agente conectado por MCP lo usa cuando él lo pide (tope de 15 escenas por video). Esas
+cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
+opciones gratis; para el texto y la transcripción usa el proveedor que conectes. Tiene topes para no gastar de más, pero eres
 responsable de vigilar el uso y los límites de tus cuentas. Puedes quitar una clave cuando quieras.
 
 ## 3. Uso aceptable

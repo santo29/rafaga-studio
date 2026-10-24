@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 2 · 23 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 3 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -54,7 +54,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Al escribir guiones, diseñar, investigar o usar el Director | La IA de texto que conectaste (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, xAI, DeepSeek o Pollinations). Sin ninguna clave, la IA gratis de Pollinations | Tu pedido y el texto necesario para hacer el trabajo; en el Director, también la conversación, lo que devolvieron sus herramientas y las rutas de los archivos que adjuntas (en ellas se ve tu nombre de usuario de Windows) |
 | Al crear imágenes (videos, anuncios, series, diseños) | La primera que funcione, empezando por la que elijas: Cloudflare, Pollinations, Hugging Face, Replicate, OpenAI. Si no conectaste un token de Hugging Face, «Hugging Face» es un Space público. Al final, siempre, Pollinations sin clave. Aunque tengas claves, si la tuya falla se prueban las demás | La descripción de la imagen |
 | En videos, anuncios y series con foto de referencia | OpenAI o Pollinations, si los conectaste | Tu foto de referencia, para mantener igual el producto, la persona o el personaje |
-| Al crear videos animados con voz (si conectaste Gemini; es de pago) | Google (Gemini Omni) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Google exige guardar el video para entregarlo: la app lo borra de allí en cuanto lo baja |
+| Al crear videos animados con voz (si conectaste Gemini; es de pago) | Google (Gemini Omni) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Para entregar el video, Google exige guardar la petición entera (texto, foto y video): la app borra la petición y el video de Google en cuanto termina, salga bien o mal. Si ese borrado falla (por ejemplo, sin internet), Google los guarda según su política (hasta 55 días). Solo se usa si tú lo pides: en Crear, marcando «Video animado con IA» (te dice el costo antes); con el Director o un agente MCP, cuando aceptas su costo |
 | Al crear videos, anuncios, capítulos de serie o videos musicales, y al animar una imagen (de fábrica la IA de video está en «Automático») | Primero un Space público de Hugging Face (`zerogpu-aoti/wan2-2-fp8da-aoti-faster`), sin token. Si falla, tu nube Modal o Pollinations si los conectaste. Si eliges Modal o Pollinations en «Claves de IA», el Space público no se usa. Con «No usar», no se envía nada | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento. A Pollinations solo va la descripción |
 | Al narrar (voz de los videos y respuestas del Director) | Servicio de voces de Microsoft Edge; o ElevenLabs si eliges una de sus voces | El texto que se va a leer |
 | Al transcribir (subtítulos, shorts, video musical, escenas animadas con voz) | Groq u OpenAI si los conectaste; si no, se hace en tu PC | El audio (en el video musical, también la letra, para acertar las palabras) |
@@ -66,7 +66,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Al sacar shorts, investigar nichos o crear anuncios | YouTube u otro sitio del enlace que pegaste; si tu IA de texto es Claude, su búsqueda web | El enlace, el tema buscado o el producto y su público |
 | Si conectas Ráfaga Studio por MCP a Claude Code, Claude Desktop u otro agente | Ese agente y su proveedor (por ejemplo Anthropic) | Lo que devuelven las herramientas: rutas de tus archivos, títulos, descripciones, guiones y resultados de búsquedas |
 | Al abrir la app la primera vez (antes de mostrar este aviso), si el idioma está en «Automático» y tu Windows está en inglés o en un idioma que la app no tiene | Cloudflare (`www.cloudflare.com/cdn-cgi/trace`) | Una consulta, que lleva tu IP, para saber el país de tu conexión, solo para elegir el idioma. Se guarda y no se repite, salvo que no haya internet o tu país no esté en la lista de la app: entonces se pregunta en cada arranque. Para evitarlo, elige un idioma fijo |
-| Al instalar y cada vez que abres la app | PyPI (y PyTorch al instalar) | La descarga de las librerías y la actualización de yt-dlp; pip envía datos técnicos (versión de Windows y de Python) |
+| Al instalar y cada vez que abres la app | PyPI (y, al instalar, PyTorch y NuGet de Microsoft, de donde se baja Python) | La descarga de las librerías y la actualización de yt-dlp; pip envía datos técnicos (versión de Windows y de Python) |
 
 Protecciones que se aplican siempre:
 
@@ -120,7 +120,8 @@ terceros tienen sus propias edades mínimas.
 
 Ciframos tus claves con la cuenta de Windows. Comprobamos que cada archivo que abres sea de verdad lo que dice ser y
 que los enlaces vayan a sitios públicos. Fijamos las versiones de las librerías con su huella digital, salvo yt-dlp, que
-se actualiza sola al abrir la app (solo versiones ya compiladas y publicadas hace 7 días o más). Revisamos el código con
+se actualiza sola al abrir la app (solo versiones ya compiladas y publicadas hace 7 días o más), y el motor de video
+que se instala en tu propia nube Modal si la conectas. Revisamos el código con
 pruebas automáticas de seguridad. Ningún programa es infalible: mantén tu Windows y tu antivirus al día.
 
 ## Leyes aplicables
@@ -135,5 +136,4 @@ envías.
 Si cambia lo que la app hace con tus datos, actualizaremos este aviso y su versión. La app te lo mostrará otra vez
 antes de seguir.
 
-Para cualquier duda sobre privacidad, escribe al titular de la marca por el canal de contacto del repositorio oficial
-de Ráfaga Studio.
+Para cualquier duda o petición sobre privacidad, usa los canales de contacto de [SECURITY.md](SECURITY.md#contacto).

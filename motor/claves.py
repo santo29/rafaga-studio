@@ -186,13 +186,14 @@ def elegir_modelo_texto(proveedor: str, modelos: list[dict]) -> str | None:
 
 
 def elegir_modelo_video_voz(ids: list[str]) -> str | None:
-    """El modelo de video con voz más capaz que ofrece la clave de Gemini: versión más alta, Pro antes que Flash y
-    estable antes que preview. Así, cuando Google saque uno nuevo, el estudio lo usa sin cambiar el código."""
-    def nota(i):
-        m = re.fullmatch(r"gemini-omni-(\d+(?:\.\d+)?)-(pro|flash)(-preview)?", i)
-        return m and (float(m[1]), m[2] == "pro", not m[3])
-    validos = [i for i in (i.removeprefix("models/") for i in ids) if nota(i)]
-    return max(validos, key=nota) if validos else None
+    """El modelo de video con voz más nuevo que ofrece la clave de Gemini, entre los de precio conocido (Flash
+    estable: ia.PRECIO_OMNI). Así, cuando Google saque una versión nueva, el estudio la usa sin cambiar el código, y el
+    costo que se avisa sigue siendo el real. ponytail: Pro y preview no entran hasta conocer su precio."""
+    def version(i):
+        m = re.fullmatch(r"gemini-omni-(\d+(?:\.\d+)*)-flash", i)
+        return m and tuple(int(n) for n in m[1].split("."))  # 1.10 es más nuevo que 1.9
+    validos = [i for i in (i.removeprefix("models/") for i in ids) if version(i)]
+    return max(validos, key=version) if validos else None
 
 
 def elegir_modelo_imagen(proveedor: str, modelos: list[dict]) -> str | None:

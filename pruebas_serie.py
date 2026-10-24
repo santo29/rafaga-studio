@@ -362,4 +362,145 @@ assert pagina.tarea_cuadros is enmarcha
 pagina.reproductor.player.stop()
 soltar.set()
 enmarcha.wait(5000)
+app.processEvents()
+
+# ---------- Dibujos animados sin cuota de imágenes: nada de capítulos de manchas de color ----------
+from PySide6.QtCore import QEvent, QPoint  # noqa: E402
+from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea  # noqa: E402
+
+
+def sin_cuota(prompt, ancho, alto, destino):
+    imagenes.append(prompt)
+    raise RuntimeError("429 Too Many Requests: daily free allocation of 10,000 neurons")
+
+
+ia.imagen = sin_cuota
+imagenes.clear()
+g = serie.crear_serie("Gato pirata", "Un gato pirata miedoso y su loro", "Cartoon 2D", personajes=2)
+assert g["faltan_laminas"] == ["Kaito", "Yara"] and len(imagenes) == 2  # la serie queda; las láminas, para después
+assert "Estilo de dibujo: 2D cartoon style" in pedidos[-1][1] and serie.FALTAS in pedidos[-1][0]
+assert all("single character only, centered, no text, no letters" in i for i in imagenes)
+imagenes.clear()
+assert "cuota" in falla(serie.crear_episodio, "Gato pirata", "Encuentran un mapa", planos=4, error=RuntimeError)
+instrucciones = pedidos[-1][0]
+assert "NO describas la ropa" in instrucciones and serie.ESTILOS["Cartoon 2D"] in instrucciones
+assert serie.FALTAS in instrucciones and "{estilo}" not in instrucciones
+assert len(imagenes) == 4 and all("characters fully inside the central band, no text" in i for i in imagenes)
+ep = Path(g["carpeta"]) / "episodios" / "01"
+assert not (ep / "video_final.mp4").exists() and (ep / "guion.json").is_file()
+assert json.loads((ep / "episodio.json").read_text(encoding="utf-8"))["estado"] == "sin_dibujos"
+
+
+def la_serie(titulo):
+    return next(x for x in serie.listar() if x["titulo"] == titulo)
+
+
+cap = la_serie("Gato pirata")["episodios"][0]
+assert (cap["estado"], cap["planos"], cap["miniatura"]) == ("sin_dibujos", 4, "")
+assert [p["imagen"] for p in serie.guion_grafico(str(ep))] == [""] * 4
+
+# La página lo enseña como «Sin dibujos», con su guion gráfico y sin video; y deja dibujar las láminas que faltan
+pagina.recargar()
+pagina.series.setCurrentIndex(next(i for i in range(1, pagina.series.count())
+                                   if pagina.series.itemData(i)["titulo"] == "Gato pirata"))
+QApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # lo que se quitó al cambiar de serie
+
+
+def botones(lay, texto):
+    cajas = [lay.itemAt(k).widget() for k in range(lay.count()) if lay.itemAt(k).widget()]
+    return [b for c in cajas for b in c.findChildren(QPushButton) if b.text() == texto], cajas
+
+
+assert "Sin dibujos" in pagina.capitulos.item(0).text()
+assert len(botones(pagina.fila_personajes, "Dibujar con IA")[0]) == 2
+pagina.capitulos.setCurrentRow(0)
+dibujar_btns, vinetas = botones(pagina.tablero, "Rehacer plano")
+assert pagina.estudio.isVisible() and len(vinetas) == len(dibujar_btns) == 4 and not pagina.reproductor.isVisible()
+assert pagina.rehacer_btn.isEnabled() and pagina.rehacer_btn.text() == "Dibujar lo que falta"
+assert ["Dibujos animados"] == [w.text() for w in pagina.findChildren(QLabel) if w.objectName() == "titulo"]
+
+# ---------- Vuelve la cuota: la lámina que falta, lo que falta del capítulo y un solo plano ----------
+ia.imagen = dibujar
+imagenes.clear()
+botones(pagina.fila_personajes, "Dibujar con IA")[0][0].click()  # Kaito, con la IA y en segundo plano
+pagina.tarea.wait(5000)
+app.processEvents()
+QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+assert len(imagenes) == 1 and "Kaito" in imagenes[0] and serie.lamina(Path(g["carpeta"]), {"id": "p1"}).is_file()
+assert len(botones(pagina.fila_personajes, "Dibujar con IA")[0]) == 1  # solo le falta a Yara
+assert pagina.capitulos.currentRow() == 0  # el capítulo sigue elegido
+r = serie.dibujar_lamina("Gato pirata", "Yara")
+assert len(imagenes) == 2 and all(p["lamina"] for p in r["personajes"])
+falla(serie.dibujar_lamina, "Gato pirata", "Nadie")
+
+
+def a_medias(prompt, ancho, alto, destino):
+    return sin_cuota(prompt, ancho, alto, destino) if destino.name.endswith("_02.png") else dibujar(prompt, ancho,
+                                                                                                    alto, destino)
+
+
+ia.imagen = a_medias
+antes = len(pedidos)
+r = serie.crear_episodio("Gato pirata", numero=1)  # «Dibujar lo que falta»: el mismo guion, sin la IA de texto
+assert len(pedidos) == antes and r["estado"] == "incompleto" and Path(r["resultados"][0]["archivo"]).is_file()
+assert any("Dibujar lo que falta" in a for a in r["avisos"]) and la_serie("Gato pirata")["episodios"][0]["estado"] \
+    == "incompleto"
+ia.imagen = dibujar
+imagenes.clear()
+voces.clear()
+r = serie.crear_episodio("Gato pirata", numero=1)
+assert r["estado"] == "listo" and len(imagenes) == 1 and len(voces) == 1  # los planos que ya estaban, tal cual
+assert [Path(p["imagen"]).name for p in serie.guion_grafico(str(ep))] == [f"video_final_imagen_{i:02d}.png"
+                                                                          for i in range(4)]
+assert la_serie("Gato pirata")["episodios"][0]["miniatura"].endswith("video_final_imagen_00.png")
+# Rehacer un plano: 1 imagen nueva y las demás se conservan
+otras = {i: (ep / f"video_final_imagen_{i:02d}.png").stat().st_mtime_ns for i in (0, 2, 3)}
+imagenes.clear()
+voces.clear()
+r = serie.rehacer_plano(str(ep), 1, texto="¡Un mapa en el calcetín!")
+assert len(imagenes) == 1 and len(voces) == 1 and r["estado"] == "listo"
+assert Path(r["resultados"][0]["archivo"]).is_file()
+assert {i: (ep / f"video_final_imagen_{i:02d}.png").stat().st_mtime_ns for i in (0, 2, 3)} == otras
+assert serie.guion_grafico(str(ep))[1]["texto"] == "¡Un mapa en el calcetín!"
+falla(serie.rehacer_plano, str(ep), 4)
+falla(serie.rehacer_plano, str(tmp), 0)  # solo carpetas de capítulos
+falla(serie.rehacer_plano, r"\\atacante.example\s\ep", 0)
+
+# ---------- La página: guion gráfico de 4 planos y «Rehacer plano» con su número ----------
+serie.crear_episodio("Gato pirata", planos=4)
+pagina.recargar()
+assert pagina.capitulos.count() == 2 and "·" not in pagina.capitulos.item(0).text()  # ya no le falta nada
+pagina.capitulos.setCurrentRow(1)
+QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+rehacer_btns, vinetas = botones(pagina.tablero, "Rehacer plano")
+assert len(vinetas) == 4 and pagina.reproductor.isVisible() and not pagina.rehacer_btn.isEnabled()
+llamadas, rehacer_real = [], serie.rehacer_plano
+serie.rehacer_plano = lambda episodio, i, aviso: llamadas.append((episodio, i)) or {
+    "tipo": "episodio", "carpeta": episodio, "formato": "16:9", "resultados": []}
+try:
+    rehacer_btns[1].click()
+    pagina.tarea.wait(5000)
+    app.processEvents()
+finally:
+    serie.rehacer_plano = rehacer_real
+capitulo2 = la_serie("Gato pirata")["episodios"][1]["carpeta"]
+assert llamadas == [(capitulo2, 1)] and pagina.capitulos.currentRow() == 1
+# A 1366x728 (la página en el visor de 1106x728 de app.py), el guion gráfico y el video se ven sin bajar
+visor = QScrollArea()
+visor.setWidgetResizable(True)
+visor.setWidget(pagina)
+visor.resize(1106, 728)
+visor.show()
+pagina.capitulos.setCurrentRow(-1)  # se entra a la serie sin capítulo elegido: arriba del todo
+for _ in range(3):  # la página ya está en su sitio (como en la app) cuando se elige el capítulo
+    app.processEvents()
+visor.verticalScrollBar().setValue(0)
+assert not pagina.estudio.isVisible()
+pagina.capitulos.setCurrentRow(0)
+for _ in range(3):
+    app.processEvents()
+arriba = pagina.estudio.mapTo(visor.viewport(), QPoint(0, 0)).y()
+assert arriba >= 0 and arriba + pagina.estudio.height() <= visor.viewport().height(), (arriba, pagina.estudio.height())
+assert pagina.reproductor.isVisible() and visor.verticalScrollBar().value() > 0
+pagina.reproductor.player.stop()
 print("Pruebas de la serie animada pasadas.")

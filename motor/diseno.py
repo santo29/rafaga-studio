@@ -577,34 +577,47 @@ def escena(diseno: dict, carpeta: Path) -> QGraphicsScene:
     return s
 
 
-def _pintar(s: QGraphicsScene, dispositivo) -> None:
+def _pintar(s: QGraphicsScene, dispositivo, origen: QRectF) -> None:
     p = QPainter(dispositivo)
     if not p.isActive():
         raise RuntimeError(t("No se pudo escribir el archivo exportado (¿carpeta sin permiso o archivo abierto?)."))
     p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform | QPainter.TextAntialiasing)
-    s.render(p, QRectF(0, 0, dispositivo.width(), dispositivo.height()), s.sceneRect(), Qt.IgnoreAspectRatio)
+    s.render(p, QRectF(0, 0, dispositivo.width(), dispositivo.height()), origen, Qt.IgnoreAspectRatio)
     p.end()
 
 
-def exportar(diseno: dict, carpeta: Path, destino: Path, formato: str = "png", escala: float = 1.0) -> Path:
+# Tamaños fijos para exportar en vez de una escala: (lado largo en px, solo el cuadrado del centro)
+TAMANOS_EXPORTAR = {"4k": (3840, False), "portada": (3000, True)}  # portada: la que piden Apple Music y DistroKid
+
+
+def exportar(diseno: dict, carpeta: Path, destino: Path, formato: str = "png", escala: float | str = 1.0) -> Path:
     """Dibuja el diseño con la misma escena que el editor (lo que ves es lo que sale). PNG y JPG salen de
-    ancho×escala por alto×escala píxeles; PDF y SVG, en vectores (la escala no cuenta)."""
+    ancho×escala por alto×escala píxeles; PDF y SVG, en vectores (la escala no cuenta). escala también puede ser una
+    clave de TAMANOS_EXPORTAR: «4k» (lado largo de 3840 px) o «portada» (3000×3000 con el centro del diseño)."""
     if formato not in FORMATOS:
         raise ValueError(t("Formato no admitido ({formato!r:.20}); valen {formatos}.", formato=formato,
                            formatos=", ".join(FORMATOS)))
-    escala = _campo(lambda v: _num(v, 0.05, 4), escala, t("La escala"))
+    lado, cuadrado = TAMANOS_EXPORTAR.get(escala, (0, False)) if isinstance(escala, str) else (0, False)
+    if not lado:
+        escala = _campo(lambda v: _num(v, 0.05, 4), escala, t("La escala"))
     destino = _local(destino)
     if destino.suffix.lower() not in {f".{formato}", ".jpeg" if formato == "jpg" else f".{formato}"}:
         destino = destino.with_name(f"{destino.name}.{formato}")  # se añade: «Oferta 3.99» no pierde el «.99»
     s = escena(diseno, carpeta)
-    ancho, alto = max(1, round(s.width() * escala)), max(1, round(s.height() * escala))
+    origen = s.sceneRect()
+    if cuadrado:  # un diseño que no es cuadrado pierde los lados (o arriba y abajo), como una foto en «cubrir»
+        corto = min(origen.width(), origen.height())
+        origen = QRectF(origen.center().x() - corto / 2, origen.center().y() - corto / 2, corto, corto)
+    if lado:  # un tamaño de salida fijo (como mucho 3840×3840): la escala sale de él y no tiene tope
+        escala = lado / max(origen.width(), origen.height())
+    ancho, alto = max(1, round(origen.width() * escala)), max(1, round(origen.height() * escala))
     if ancho * alto > 40_000_000:
         raise ValueError(t("La imagen saldría demasiado grande: baja la escala."))
     destino.parent.mkdir(parents=True, exist_ok=True)
     if formato in ("png", "jpg"):
         imagen = QImage(ancho, alto, QImage.Format_ARGB32_Premultiplied)
         imagen.fill(Qt.white if formato == "jpg" else Qt.transparent)
-        _pintar(s, imagen)
+        _pintar(s, imagen, origen)
         if not imagen.save(str(destino), formato.upper(), 92 if formato == "jpg" else -1):
             raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
     elif formato == "pdf":
@@ -612,15 +625,15 @@ def exportar(diseno: dict, carpeta: Path, destino: Path, formato: str = "png", e
         # La página va a 150 ppp (el flyer, 1240×1754, sale en A4 exacto) pero se dibuja a 300: lo que Qt pasa a
         # imagen (los textos con sombra) no sale pixelado al imprimir
         pdf.setResolution(300)
-        pdf.setPageSize(QPageSize(QSizeF(s.width() / 150, s.height() / 150), QPageSize.Inch, "",
+        pdf.setPageSize(QPageSize(QSizeF(origen.width() / 150, origen.height() / 150), QPageSize.Inch, "",
                                   QPageSize.ExactMatch))
         pdf.setPageMargins(QMarginsF(0, 0, 0, 0))
-        _pintar(s, pdf)
+        _pintar(s, pdf, origen)
     else:
         svg = QSvgGenerator(QSvgGenerator.SvgVersion.Svg11)  # el Tiny 1.2 de por defecto no lleva clip-path (esquinas)
         svg.setResolution(96)  # la de los navegadores: un diseño de 1080 px mide 1080 px, no 1440
         svg.setFileName(str(destino))
-        svg.setSize(QSize(int(s.width()), int(s.height())))
-        svg.setViewBox(QRect(0, 0, int(s.width()), int(s.height())))
-        _pintar(s, svg)
+        svg.setSize(QSize(int(origen.width()), int(origen.height())))
+        svg.setViewBox(QRect(0, 0, int(origen.width()), int(origen.height())))
+        _pintar(s, svg, origen)
     return destino

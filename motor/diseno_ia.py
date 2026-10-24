@@ -21,6 +21,16 @@ ESTILOS = {"auto": "", "vector": "flat vector illustration, bold clean outlines,
            "tatuaje": "tattoo flash art, bold black linework, traditional tattoo style, limited colors",
            "poster": "screen print poster illustration, bold shapes, dramatic composition, limited palette",
            "grabado": "vintage engraving illustration, fine cross-hatching, woodcut style, ink lines",
+           # Arte digital con aspecto de render 3D (portadas de música): sin marcas, y los oscuros sin sangre, que los
+           # filtros de las IA de imágenes bloquean
+           "render3d": "high-end 3D render, cinematic rim lighting, volumetric light, subsurface scattering, glossy "
+                       "materials, ultra detailed",
+           "neon_oscuro": "dark digital art, deep black background, glowing neon backlight, volumetric smoke, glossy "
+                          "highlights, high contrast, dramatic centered composition, no gore",
+           "animado3d": "stylized 3D animated movie character, soft global illumination, expressive face, vibrant "
+                        "colors, smooth materials",
+           "urbano": "urban streetwear digital art, graffiti, caps and hoodies, cinematic smoke, moody volumetric "
+                     "light, gritty texture, no gore",
            "foto": "professional photography, realistic, natural light"}
 _ILUSTRADOS = ("ilustracion", "estampado", "logo")  # el motivo ES la pieza: entero, sin recortar y sin el logo encima
 # Gemini las escribe por costumbre. Solo las de estilo: «photographer» es el motivo, no el estilo
@@ -150,8 +160,9 @@ nada. """ + FALTAS + """
   a 3 pedidos completos (uno por lectura). Si seguro es true, pregunta "" y opciones [].
 - tipo: la pieza que mejor encaja: """ + "; ".join(f"{k} ({v[1].split(': ')[0]})" for k, v in TIPOS.items()) + """.
   Camiseta, taza o sticker: estampado. Un dibujo o motivo suelto: ilustracion.
-- estilo de las imágenes: vector, sticker, tatuaje, poster, grabado o foto (foto solo para un producto, un lugar o una
-  persona reales, o si pide una foto)."""
+- estilo de las imágenes: vector, sticker, tatuaje, poster, grabado, render3d (render 3D), neon_oscuro (arte digital
+  oscuro con neón y humo, p. ej. una portada de álbum), animado3d (personaje 3D de película animada), urbano (calle,
+  gorras, grafiti, humo) o foto (foto solo para un producto, un lugar o una persona reales, o si pide una foto)."""
 
 
 def _num(v, minimo: float, maximo: float, defecto: float) -> float:
@@ -442,27 +453,28 @@ def entender(pedido: str, tipo: str = "auto") -> dict:
             "estilo": estilo if estilo in ESTILOS else "auto"}
 
 
-def ilustracion(prompt: str, estilo: str, destino: Path) -> Path:
-    """Una ilustración suelta de 1024x1024 en `destino` (para «Generar con IA» del editor, como capa nueva)."""
+def ilustracion(prompt: str, estilo: str, destino: Path, calidad: str = "1K") -> Path:
+    """Una ilustración suelta y cuadrada en `destino` (para «Generar con IA» del editor, como capa nueva). calidad: la
+    de ia.imagen (1K, 2K o 4K con Gemini)."""
     prompt = _txt(prompt, 600)
     if not prompt:
         raise ValueError(t("Describe la imagen que quieres."))
     _comprobar(estilo=estilo)
     try:
-        return ia.imagen(_prompt(prompt, estilo), 1024, 1024, Path(destino))
+        return ia.imagen(_prompt(prompt, estilo), 1024, 1024, Path(destino), calidad=calidad)
     except Exception as error:
         raise RuntimeError(t("La imagen no salió ({causa}).", causa=_causa(error))) from None
 
 
 def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
           aviso: Callable[[str, float], None] = lambda t, f: None, propuesta: dict | None = None,
-          estilo: str = "auto") -> dict:
+          estilo: str = "auto", calidad: str = "1K") -> dict:
     """Diseño completo y editable desde un pedido: lo guarda en su carpeta y exporta una vista previa PNG.
     propuesta: el diseño ya hecho (forma de ESQUEMA, en %) por quien maneja el estudio; entonces no se usa la IA de
     texto (las fotos sí se generan, y el diseño pasa por las mismas comprobaciones). Los datos reales (precios, webs,
     teléfonos…) tienen que venir en el pedido o en la marca: los demás se cambian por su hueco, como los de la IA.
     estilo: de ESTILOS; fuera de «auto» y «foto» (y siempre en ilustracion, estampado y logo) las imágenes son
-    ilustraciones enteras y cuadradas."""
+    ilustraciones enteras y cuadradas. calidad: la de cada foto en ia.imagen (1K, 2K o 4K con Gemini)."""
     pedido = str(pedido or "").strip()[:2000]  # da para cualquier pieza; más solo gasta tokens de la IA de texto
     if propuesta is not None:  # se comprueba antes de crear nada
         propuesta = ia.de_fuera(propuesta, ESQUEMA, t("El diseño"))
@@ -536,7 +548,8 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
             # Al tamaño de su caja; los servicios no hacen imágenes de menos de 64 px
             hecha = ia.imagen(_prompt(foto["prompt_imagen"], estilo, es_dibujo, detras),
                               max(64, ancho if es_fondo else foto["ancho"]), max(64, alto if es_fondo else foto["alto"]),
-                              carpeta / "imagenes" / (foto["imagen"] if es_fondo else foto["archivo"]))
+                              carpeta / "imagenes" / (foto["imagen"] if es_fondo else foto["archivo"]),
+                              calidad=calidad)
             # La IA no clava el color pedido: si la ilustración va sobre el fondo liso, el fondo toma el de su borde y
             # no se ve el recuadro
             if es_dibujo and d["fondo"]["tipo"] == "color" and not any(

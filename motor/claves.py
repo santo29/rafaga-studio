@@ -201,13 +201,15 @@ def elegir_modelo_video_voz(ids: list[str]) -> str | None:
 
 
 def elegir_modelo_imagen_gemini(ids: list[str]) -> str | None:
-    """El modelo de imágenes más nuevo de la clave de Gemini entre los de precio conocido (Flash Image estable, «Nano
-    Banana»: ia.PRECIO_IMAGEN_GEMINI). ponytail: Pro, Lite y preview no entran hasta conocer y anunciar su precio."""
-    def version(i):
-        m = re.fullmatch(r"gemini-(\d+(?:\.\d+)*)-flash-image", i)
-        return m and tuple(int(n) for n in m[1].split("."))
-    validos = [i for i in (i.removeprefix("models/") for i in ids) if version(i)]
-    return max(validos, key=version) if validos else None
+    """El modelo de imágenes de la clave de Gemini entre los de precio conocido (ia.PRECIO_IMAGEN_GEMINI): el Nano
+    Banana estable más nuevo («gemini-nano-banana-X», mejor y más barato) y, si no lo hay, el Flash Image más nuevo.
+    ponytail: Pro, Lite y preview no entran hasta conocer y anunciar su precio."""
+    ids = [i.removeprefix("models/") for i in ids]
+    for patron in (r"gemini-nano-banana-(\d+(?:\.\d+)*)", r"gemini-(\d+(?:\.\d+)*)-flash-image"):
+        versiones = {i: tuple(int(n) for n in m[1].split(".")) for i in ids if (m := re.fullmatch(patron, i))}
+        if versiones:
+            return max(versiones, key=versiones.get)  # 2.10 es más nuevo que 2.9
+    return None
 
 
 def elegir_modelo_imagen(proveedor: str, modelos: list[dict]) -> str | None:

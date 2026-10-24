@@ -127,8 +127,9 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     tipo: auto (la IA lo elige según el pedido), anuncio, post, historia, miniatura, flyer, logo, tarjeta,
     marca_personal, presentacion (diapositiva 16:9), ilustracion (un dibujo grande, sin textos salvo que los pida) o
     estampado (camiseta, taza o sticker: el dibujo es la pieza, sin textos de venta).
-    estilo del dibujo: auto, vector, sticker, tatuaje, poster, grabado o foto (foto solo para un producto, lugar o
-    persona real).
+    estilo del dibujo: auto, vector, sticker, tatuaje, poster, grabado, render3d (render 3D), neon_oscuro (arte
+    digital oscuro con neón y humo, p. ej. portadas de álbum), animado3d (personaje 3D de película animada), urbano
+    (calle, gorras, grafiti, humo) o foto (foto solo para un producto, lugar o persona real).
     usar_marca: usa el nombre, los colores, las fuentes y el logo guardados en «Mi marca» de la app.
     Primero la IA entiende el pedido (también con faltas). Si tiene dos lecturas igual de probables, no gasta nada y
     devuelve {"pregunta", "opciones"}: házsela al usuario y vuelve a llamar con lo que elija. Si no, "entendido" dice

@@ -141,9 +141,15 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     "capas": [{"tipo": texto|imagen|forma|icono|emoji, "x", "y", "ancho", "alto", y según el tipo: "texto", "fuente",
     "tamano" (alto de letra en % del alto), "color", "negrita", "alineacion" (izquierda|centro|derecha), "sombra",
     "forma" (rectangulo|elipse|linea), "redondeo", "opacidad" (0-100), "icono" (nombre Lucide), "prompt_imagen"}]}."""
-    if tipo != "auto" and tipo not in diseno_ia.TIPOS:  # antes de gastar nada en entender el pedido
+    if tipo in ("ilustracion", "estampado") and tipo not in diseno_ia.TIPOS:  # ponytail: respaldo hasta P1
+        tipo = "post"
+    # antes de gastar nada en entender el pedido (el Director no pasa por la validación de tipos del MCP)
+    if tipo != "auto" and (not isinstance(tipo, str) or tipo not in diseno_ia.TIPOS):
         raise ValueError(t("Tipo de diseño desconocido ({tipo!r:.30}); valen {tipos}.", tipo=tipo,
                            tipos=", ".join(diseno_ia.TIPOS)))
+    if hasattr(diseno_ia, "ESTILOS") and (not isinstance(estilo, str) or estilo not in diseno_ia.ESTILOS):
+        raise ValueError(t("Estilo desconocido ({estilo!r:.30}); valen {estilos}.", estilo=estilo,
+                           estilos=", ".join(diseno_ia.ESTILOS)))
     delante = {}
     entender = getattr(diseno_ia, "entender", None)  # ponytail: respaldo mientras diseno_ia no tenga entender (P1)
     if propuesta is None and entender and str(pedido or "").strip():

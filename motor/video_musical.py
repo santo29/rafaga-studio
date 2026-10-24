@@ -69,6 +69,7 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     ancho, alto = video.FORMATOS[formato]
 
     partes, animar_ia, ultima, notas, de_donde = [], True, None, [], ""
+    pago, pagados = ia.video_de_pago(), 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)
     for i, descripcion in enumerate(escenas):
         paso = 0.25 + 0.6 * i / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso)
@@ -85,20 +86,24 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
                            origen=de_donde))
             aviso(notas[-1], paso)
             img = ultima  # se repite la última imagen que sí existe para no parar el video
-        clip = None
+        clip, cobrado = None, False
         if animar_ia and nueva:
             try:
                 aviso(t("Escena {n} de {total}: animando…", n=i + 1, total=n), paso + 0.3 / n)
                 clip = ia.video_desde_imagen(img, descripcion, formato, tramo, carpeta / f"clip_ia_{i:02d}.mp4")
             except Exception as error:  # cupo de la nube agotado o servicio caído: el resto con zoom suave
+                cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
                 causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
                 notas.append(t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom suave.",
                                n=i + 1, causa=causa))
                 aviso(notas[-1], paso + 0.3 / n)
                 animar_ia = False
+            pagados += bool(pago and (clip or cobrado))
         segundos = tramo + (1 if i == n - 1 else 0)  # el último sobra un poco: el video nunca acaba antes que la canción
         partes.append(video.segmento_mudo(img, segundos, formato, carpeta / f"tramo_{i:02d}.mp4", i, clip))
 
+    if pagados:
+        notas.append(ia.nota_pago(pago, pagados))
     aviso(t("Uniendo escenas…"), 0.88)
     visual = video.unir(partes, carpeta / "visual.mp4")
     aviso(t("Poniendo la canción, las ondas y la letra…"), 0.93)

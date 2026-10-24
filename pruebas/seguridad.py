@@ -104,7 +104,11 @@ for ajena in ("sk_live_" + "a" * 24, "sk_test_" + "a" * 24, "rk_live_" + "a" * 2
               "sk_3433941e467c4875b178ce26348b0fac",  # Openpay (pagos): sk_ + 32 hexadecimales
               "sk_3433941e-467c-4875-b178-ce26348b0fac",  # Checkout.com clásica: sk_ + uuid
               "sk_" + "A" * 32 + ",sk_live_" + "x" * 24, "gsk_abc|sk-ant-xyz",  # dos claves pegadas sin espacio
-              "sk-lf-3433941e-467c-4875-b178-ce26348b0fac"):  # Langfuse
+              "sk-lf-3433941e-467c-4875-b178-ce26348b0fac",  # Langfuse
+              # UUID de cualquier servicio, o casi el formato de Seedance: nunca se adivina que es de Kling o Seedance
+              "3433941e-467c-4875-b178-ce26348b0fac", "3433941E-467C-4875-B178-CE26348B0FAC",
+              "ark-3433941e-467c-4875-b178-ce26348b0fac", "ark-3433941e-467c-4875-b178-ce26348b0fac-AbC9zz",
+              "ark-3433941E-467C-4875-B178-CE26348B0FAC-AbC9z", "kling-3433941e467c4875b178ce26348b0fac"):
     assert claves.candidatos(ajena) == [], ajena
 
 # 10. Un audio de verdad (empieza por ID3) que por dentro lleva un manifiesto DASH no hace que ffmpeg pida URLs

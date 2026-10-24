@@ -128,7 +128,9 @@ def indicadores() -> list[dict]:
     video = claves.ajustes().get("video", "auto")
     video = video if video == "ninguno" else (nubes.orden("video") or ["ninguno"])[0]
     imagen = nubes.orden("imagen")[0]
-    hoy = {k: v for k, v in nubes.resumen_hoy().items() if isinstance(v, int) and v > 0}  # el archivo se puede tocar
+    de_pago = {p for lista in claves.SOLO_ELIGIENDO.values() for p in lista}  # lo pagado no es «uso gratis»
+    hoy = {k: v for k, v in nubes.resumen_hoy().items()
+           if isinstance(v, int) and v > 0 and k not in de_pago}  # el archivo se puede tocar
     return [
         {"icono": "message-square-text", "titulo": t("IA de texto"), "conectar": falta["texto"],
          "valor": NOMBRES_PROVEEDOR.get(texto["proveedor"], str(texto["proveedor"]).capitalize()) if texto
@@ -138,9 +140,10 @@ def indicadores() -> list[dict]:
         {"icono": "image", "titulo": t("Imágenes"), "conectar": falta["imagen"],
          "valor": nubes.NOMBRES.get(imagen, imagen),
          "detalle": t("Conecta Cloudflare (gratis): unas 100 imágenes buenas al día") if falta["imagen"] else ""},
-        {"icono": "clapperboard", "titulo": t("Video con IA"), "conectar": falta["video"],
+        {"icono": "clapperboard", "titulo": t("Video con IA"), "conectar": falta["video"] and video not in de_pago,
          "valor": NOMBRES_PROVEEDOR["ninguno"] if video == "ninguno" else nubes.NOMBRES.get(video, video),
-         "detalle": t("Conecta Hugging Face o Modal para animar más escenas cada día") if falta["video"] else ""},
+         "detalle": t("Cada escena animada se paga: la app te dice el costo antes de cada trabajo") if video in de_pago
+         else t("Conecta Hugging Face o Modal para animar más escenas cada día") if falta["video"] else ""},
         {"icono": "gauge", "titulo": t("Uso gratis de hoy"), "conectar": False,
          "valor": t("{n} creaciones", n=sum(hoy.values())) if hoy else t("Aún nada hoy"),
          "detalle": "  ·  ".join(f"{nubes.NOMBRES.get(k, k)}: {v}" for k, v in hoy.items())[:200]},

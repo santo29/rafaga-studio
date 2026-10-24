@@ -368,10 +368,28 @@ class PaginaTrabajo(QWidget):
         if area:
             area.ensureWidgetVisible(self.estado)
 
+    def _pagar_video(self, funcion, datos) -> bool:
+        """Si el trabajo anima escenas con una IA de video de pago (Kling o Seedance, elegida en Claves de IA), lo
+        pregunta antes con lo más que puede costar. True si se puede seguir."""
+        from motor import anuncios, director, ia, serie, video_musical
+        pago = ia.video_de_pago()
+        unico = funcion in (desde_prompt.animar_imagen, serie.rehacer_plano)  # un solo clip
+        nombre = {desde_prompt.generar: "crear_video", anuncios.crear: "crear_anuncios",
+                  serie.crear_episodio: "crear_episodio", video_musical.crear: "crear_video_musical"}.get(funcion)
+        if not pago or not (unico or nombre):
+            return True
+        clips = 1 if unico else director.clips(nombre, datos)
+        return QMessageBox.question(self, t("IA de video de pago"), t(
+            "Se animarán hasta {n} escena(s) con {proveedor}: hasta unos US${costo} según su precio. ¿Seguir?",
+            n=clips, proveedor=ia.nombre_video(pago), costo=f"{clips * ia.precio_video(pago):.2f}")) == QMessageBox.Yes
+
     def lanzar(self, boton_iniciar, funcion, **datos) -> bool:
-        """False si ya hay un trabajo en marcha: soltar un hilo que corre tumba la app cuando termina."""
+        """False si ya hay un trabajo en marcha (soltar un hilo que corre tumba la app cuando termina) o si el usuario
+        no aceptó lo que cuesta."""
         if self.tarea and self.tarea.isRunning():
             mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
+            return False
+        if not self._pagar_video(funcion, datos):
             return False
         boton_iniciar.setEnabled(False)
         self.progreso.show()

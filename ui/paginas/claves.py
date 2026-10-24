@@ -1,8 +1,8 @@
 """Página «Claves de IA»: conectar claves, elegir proveedor por defecto y la nube Modal."""
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem,
-                               QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QInputDialog, QLineEdit, QListWidget,
+                               QListWidgetItem, QSpinBox, QVBoxLayout, QWidget)
 
 from motor import claves, nube
 from motor.idioma import t
@@ -10,7 +10,8 @@ from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 
 
 USOS_UI = {"texto": t("Guiones y elegir clips"), "diseno": t("IA que diseña"), "imagen": t("Imágenes"),
-           "video": t("Animar escenas con IA de video"), "transcripcion": t("Transcripción"), "musica": t("Música")}
+           "video": t("Animar escenas con IA de video"), "video_voz": t("Escenas que hablan"),
+           "transcripcion": t("Transcripción"), "musica": t("Música")}
 
 
 NOMBRES_PROVEEDOR = {"auto": t("Automático (la mejor conectada)"), "pollinations": t("Pollinations (gratis)"),
@@ -18,7 +19,8 @@ NOMBRES_PROVEEDOR = {"auto": t("Automático (la mejor conectada)"), "pollination
                      "huggingface": t("Hugging Face (gratis; Space público de la comunidad)"), "openai": "OpenAI",
                      "anthropic": "Claude (Anthropic)", "modal": t("Mi nube Modal ($30 gratis al mes)"),
                      "elevenlabs": "ElevenLabs", "gemini": "Gemini (Google)",
-                     "cloudflare": t("Cloudflare (gratis diario)"), "groq": t("Groq (gratis)")}
+                     "cloudflare": t("Cloudflare (gratis diario)"), "groq": t("Groq (gratis)"),
+                     "kling": t("Kling (de pago)"), "seedance": t("Seedance (de pago)")}
 
 
 # Cada servicio que se puede conectar: para qué sirve, cuánto cuesta y dónde se saca la clave (de lo gratis a lo de pago)
@@ -45,6 +47,11 @@ SERVICIOS = [
     ("deepseek", "DeepSeek", t("Guiones con IA"), t("De pago, barato"), "https://platform.deepseek.com/api_keys"),
     ("xai", "xAI (Grok)", t("Guiones con IA"), t("De pago"), "https://console.x.ai"),
     ("replicate", "Replicate", t("Imágenes"), t("De pago"), "https://replicate.com/account/api-tokens"),
+    # Sin formato de clave reconocible: se conectan con su botón. El enlace (CONSOLA) lo da su módulo
+    ("kling", "Kling", t("Animar escenas y escenas que hablan con su propio audio"),
+     t("De pago (~US$0,04-0,16 por segundo)"), None),
+    ("seedance", "Seedance (BytePlus)", t("Animar escenas y escenas que hablan con su propio audio"),
+     t("De pago (~US$0,02-0,24 por segundo)"), None),
 ]
 
 
@@ -78,17 +85,23 @@ class PaginaClaves(QWidget):
         # Todos los servicios a la vista, con su estado y dónde se saca cada clave
         servicios, servicios_lay = tarjeta()
         servicios_lay.addWidget(etiqueta(t("Servicios que puedes conectar"), "sub"))
+        servicios_lay.addWidget(etiqueta(t("Kling y Seedance son de pago: se conectan con su botón «Conectar», y antes "
+                                           "de cada trabajo que los usa la app te dice lo que puede costar."), "sub"))
         rejilla = QGridLayout()
         rejilla.setHorizontalSpacing(16)
-        self.estados = {}
+        self.estados, self.botones_pago = {}, {}
         for n, (clave, nombre, para, precio, web) in enumerate(SERVICIOS):
             titulo = etiqueta(nombre)
             titulo.setStyleSheet("font-weight: 700;")
             estado = etiqueta("")
             conseguir = boton(t("Conseguir clave ↗"))
-            conseguir.clicked.connect(lambda _, w=web: QDesktopServices.openUrl(QUrl(w)))
+            conseguir.clicked.connect(lambda _, w=web, c=clave: self._abrir_consola(w, c))
             for columna, w in enumerate((titulo, etiqueta(para, "sub"), etiqueta(precio, "sub"), estado, conseguir)):
                 rejilla.addWidget(w, n, columna)
+            if clave in claves.VIDEO_DE_PAGO:  # su clave no se reconoce sola: se dice de quién es
+                self.botones_pago[clave] = boton(t("Conectar"))
+                self.botones_pago[clave].clicked.connect(lambda _, c=clave, s=nombre: self._conectar(c, s))
+                rejilla.addWidget(self.botones_pago[clave], n, 5)
             self.estados[clave] = estado
         rejilla.setColumnStretch(1, 1)
         servicios_lay.addLayout(rejilla)
@@ -191,17 +204,39 @@ class PaginaClaves(QWidget):
                     nombre = t("Automático (gratis primero: Space público de Hugging Face)")
                 elif uso == "diseno" and p == "auto":
                     nombre = t("La misma que escribe los guiones")
+                elif uso == "video_voz" and p == "auto":  # Kling y Seedance cobran: solo eligiéndolos
+                    nombre = t("Automático (Gemini, si está conectada)")
                 combo.addItem(nombre, p)
             combo.setCurrentIndex(max(combo.findData(actual.get(uso, "auto")), 0))
             combo.blockSignals(False)
 
-    def _conectar(self):
-        clave = self.entrada.text().strip()
+    def _abrir_consola(self, web, proveedor):
+        """La página donde se saca la clave; la de Kling y Seedance la da su módulo (CONSOLA)."""
+        try:
+            web = web or claves.modulo_video(proveedor).CONSOLA
+        except ImportError:
+            return mensaje_error(self, t("Todavía no disponible"), t("Esta versión de Ráfaga Studio todavía no trae "
+                                                                     "{proveedor}: actualízala.",
+                                                                     proveedor=proveedor.capitalize()))
+        QDesktopServices.openUrl(QUrl(web))
+
+    def _conectar(self, proveedor=None, servicio=""):
+        """Comprueba la clave en otro hilo (la ventana no se congela). Con proveedor (Kling o Seedance), la clave se
+        pide en una ventana aparte, oculta, y se prueba solo con ese servicio."""
+        if self.tarea and self.tarea.isRunning():  # soltar un hilo que corre tumba la app
+            return
+        if proveedor:
+            clave, ok = QInputDialog.getText(self, t("Conectar {servicio}", servicio=servicio),
+                                             t("Pega tu clave de API de {servicio}:", servicio=servicio),
+                                             QLineEdit.Password)
+            clave = clave.strip() if ok else ""
+        else:
+            clave = self.entrada.text().strip()
         if not clave:
             return
         self.conectar.setEnabled(False)
         self.conectar.setText(t("Comprobando…"))
-        self.tarea = Tarea(lambda clave, aviso: claves.detectar(clave), clave=clave)
+        self.tarea = Tarea(lambda clave, aviso: claves.detectar(clave, proveedor or None), clave=clave)
         self.tarea.listo.connect(self._conectada)
         self.tarea.fallo.connect(lambda e: mensaje_error(self, t("Clave no válida"), e))
         self.tarea.finished.connect(lambda: (self.conectar.setEnabled(True), self.conectar.setText(t("Conectar"))))

@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QSpinBox, QTextEdit
 
-from motor import desde_prompt, seguro, serie
+from motor import desde_prompt, ia, seguro, serie
 from motor.idioma import t
 from ui.comun import (archivo_valido, boton, campo_archivo, etiqueta, mensaje, PaginaTrabajo, SelectorFormato,
                       SelectorVoz)
@@ -46,13 +46,27 @@ class PaginaCrear(PaginaTrabajo):
                                            "público de Hugging Face. Si no quieres, pon «Animar escenas con IA de "
                                            "video» en «No usar» en Claves de IA."), "sub"))
         self.form_lay.addLayout(fila)
-        self.animado = QCheckBox(t("🎬 Video animado con IA: los personajes hablan con su propia voz (Gemini, de pago: "
-                                   "~US$1 por escena de 8 s)"))
+        self.animado = QCheckBox()
+        self._texto_animado()
         self.animado.setChecked(desde_prompt.con_voz_propia())
         self.animado.setToolTip(t("Cada escena es un video de IA con voz y labios sincronizados. Sin marcar: imágenes "
                                   "animadas con narración (gratis)."))
         self.form_lay.addWidget(self.animado)
         self.form_lay.addWidget(self.iniciar, 0, Qt.AlignRight)
+
+    def _texto_animado(self):
+        """La casilla dice quién hace las escenas que hablan y lo más que cuesta cada una (se elige en Claves de IA)."""
+        quien = desde_prompt.proveedor_voz() or "gemini"
+        try:
+            nombre, costo = ia.nombre_video(quien), ia.precio_video(quien, voz=True)
+        except ImportError:  # eligió Kling o Seedance y esta versión todavía no los trae
+            nombre, costo = quien.capitalize(), 0.0
+        self.animado.setText(t("🎬 Video animado con IA: los personajes hablan con su propia voz ({proveedor}, de pago: "
+                               "hasta ~US${costo} por escena de 8 s)", proveedor=nombre, costo=f"{costo:.2f}"))
+
+    def showEvent(self, evento):  # lo eligió en Claves de IA después de abrir la app
+        self._texto_animado()
+        super().showEvent(evento)
 
     def _iniciar(self):
         texto = self.prompt.toPlainText().strip()
@@ -68,8 +82,9 @@ class PaginaCrear(PaginaTrabajo):
         if animado:  # es de pago: se dice cuánto antes de gastar
             escenas, costo = desde_prompt.costo_hablado(self.segundos.value())
             if QMessageBox.question(self, t("Video animado con voz"), t(
-                    "Se harán {n} escena(s) animadas con voz en Gemini: hasta unos US${costo} según el precio de "
-                    "Google. ¿Seguir?", n=escenas, costo=f"{costo:.2f}")) != QMessageBox.Yes:
+                    "Se harán {n} escena(s) animadas con voz en {proveedor}: hasta unos US${costo} según su precio. "
+                    "¿Seguir?", n=escenas, proveedor=ia.nombre_video(desde_prompt.proveedor_voz() or "gemini"),
+                    costo=f"{costo:.2f}")) != QMessageBox.Yes:
                 return
         self.lanzar(self.iniciar, desde_prompt.generar, prompt=texto, formato=self.formato.valor(),
                     segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen, animado=animado,

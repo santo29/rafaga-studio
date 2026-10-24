@@ -45,6 +45,8 @@ licencia.
 | Wan 2.2 (Alibaba) | Animar imágenes: TI2V-5B en tu nube Modal; en Hugging Face, un Space público de terceros (zerogpu-aoti) con Wan 2.2; y Pollinations (wan-2.2-fast) | Apache 2.0 |
 | Gemini Flash Image «Nano Banana» (Google) | Imágenes, solo si eliges Gemini para las imágenes (de pago); la app usa el más nuevo de precio conocido de tu clave | Modelo cerrado: condiciones de la API de Gemini |
 | Gemini Omni (Google) | Video animado con voz, con tu clave de Gemini (de pago); la app usa el más capaz que ofrezca tu clave | Modelo cerrado: condiciones de la API de Gemini |
+| Kling (Kuaishou) | Animar escenas y escenas que hablan, solo si eliges Kling en «Claves de IA» (de pago); la app usa el mejor modelo que permita tu cuenta | Modelo cerrado: condiciones de la API de Kling AI (Kling AI Pte. Ltd.) |
+| Seedance (ByteDance), en BytePlus ModelArk | Animar escenas y escenas que hablan, solo si eliges Seedance en «Claves de IA» (de pago); la app usa el mejor modelo que permita tu cuenta | Modelo cerrado: condiciones de BytePlus ModelArk |
 | GPT-OSS 20B (OpenAI), vía Pollinations | Texto gratis sin clave (el modelo exacto lo decide Pollinations) | Apache 2.0 |
 | Whisper (OpenAI), con faster-whisper | Entender lo que le dices al Director: siempre en tu PC. Subtítulos, shorts y video musical: en tu PC, salvo que conectes Groq u OpenAI para transcribir (entonces se hace en su nube con Whisper) | MIT |
 | Demucs (Meta) | Separar voz y pista, en tu PC | MIT |
@@ -64,7 +66,7 @@ proveedor.
 
 Al usarlos se aplican sus condiciones y sus políticas de privacidad: Anthropic, OpenAI, Google (Gemini y Lyria),
 Groq, OpenRouter, xAI, DeepSeek, Cloudflare Workers AI, Hugging Face, Pollinations, Replicate, Modal, ElevenLabs,
-Microsoft (voces de Edge, con edge-tts) y YouTube y los demás sitios de los que descargues videos (con yt-dlp).
+Kling AI (Kuaishou), BytePlus ModelArk (ByteDance, para Seedance), Microsoft (voces de Edge, con edge-tts) y YouTube y los demás sitios de los que descargues videos (con yt-dlp).
 OpenRouter y Pollinations reenvían tu pedido al proveedor del modelo que usan (por ejemplo OpenAI o Black Forest Labs),
 que también lo trata según su política.
 

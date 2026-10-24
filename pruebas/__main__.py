@@ -17,6 +17,8 @@ assert claves.candidatos("sk-abc") == ["openai"]  # una clave nunca se prueba en
 assert claves.candidatos("AIzaSyXXX") == ["gemini"]
 assert claves.candidatos("gsk_xxx") == ["groq"]
 assert claves.candidatos("r8_xxx") == ["replicate"]
+assert claves.candidatos("ark-0a1b2c3d-4e5f-6789-abcd-ef0123456789-AbC9z") == ["seedance"]  # solo Ark usa ese formato
+assert claves.candidatos("0a1b2c3d-4e5f-6789-abcd-ef0123456789") == []  # un UUID solo puede ser de cualquiera
 assert claves.candidatos("hola") == []
 
 # Elección automática de modelo
@@ -467,7 +469,8 @@ print("Pruebas de guiones fieles pasadas.")
 
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "diseno_pro", "edicion", "render_edicion",
-               "edicion_ui", "director", "estudio", "serie", "inicio", "musica", "publicar", "idioma", "coherencia"):
+               "edicion_ui", "director", "estudio", "serie", "inicio", "musica", "publicar", "idioma", "coherencia",
+               "proveedores_video"):
     subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

@@ -3,6 +3,7 @@ import base64
 import json
 import math
 import re
+import threading
 import time
 import urllib.parse
 from fractions import Fraction
@@ -515,10 +516,17 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         return _clip_real(seguro.descargar(url, {"Authorization": f"Bearer {c['clave']}"}, tope=VIDEO_MAXIMO, plazo=900),
                           destino)
 
+    def de_pago(proveedor):  # Kling o Seedance (solo si el usuario lo eligió): clip mudo que el montaje repite
+        modulo = claves.modulo_video(proveedor)
+        _recordar_modelo(proveedor, "modelo_video",
+                         modulo.animar(todas[proveedor], imagen_png, movimiento, destino, modulo.SEGUNDOS_CLIP))
+        return destino
+
     resultado, _ = nubes.rotar("video", {
         "huggingface": huggingface,
         "modal": lambda: nube.animar(imagen_png, movimiento, formato, segundos, destino),
         "pollinations": pollinations,
+        **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO},
     })
     return resultado
 
@@ -536,6 +544,45 @@ PRECIO_IMAGEN_GEMINI = {IMAGEN_GEMINI: {"1K": 0.0336, "2K": 0.0504, "4K": 0.113}
                         "gemini-3.1-flash-image": {"1K": 0.067, "2K": 0.101, "4K": 0.151}}
 PROPORCIONES_GEMINI = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")  # las que acepta
 _elegidos = {}  # modelo elegido por clave y por uso, una vez por sesión
+_cerrojo_modelos = threading.Lock()  # clips_hablados hace 3 videos a la vez y cada uno puede guardar su modelo
+
+
+def video_de_pago() -> str | None:
+    """Kling o Seedance si el usuario lo eligió para animar escenas y su clave está conectada (nubes.orden lo usa
+    entonces solo a él): cada escena animada se paga. None si la animación es gratis o está apagada."""
+    elegido = claves.ajustes().get("video")
+    return elegido if elegido in claves.SOLO_ELIGIENDO["video"] and elegido in claves.cargar() else None
+
+
+def nombre_video(proveedor: str) -> str:
+    """El nombre del servicio de video de pago en las preguntas de costo y las notas de gasto."""
+    return claves.modulo_video(proveedor).NOMBRE if proveedor in claves.VIDEO_DE_PAGO else "Gemini"
+
+
+def precio_video(proveedor: str, segundos: float | None = None, voz: bool = False) -> float:
+    """Lo más que cuesta un clip de video de pago (US$), el mismo número en todas las preguntas y notas de gasto.
+    Kling y Seedance: lo calcula su módulo con la clave (sus respaldos pueden ser más caros); sin segundos, un clip
+    como los pide el estudio. Gemini Omni (solo con voz): PRECIO_OMNI por segundo, y sus clips duran hasta 10 s."""
+    if proveedor in claves.VIDEO_DE_PAGO:
+        modulo = claves.modulo_video(proveedor)
+        segundos = segundos or (modulo.SEGUNDOS_VOZ if voz else modulo.SEGUNDOS_CLIP)
+        return modulo.estimar(claves.cargar().get(proveedor) or {}, segundos, voz)
+    return (segundos or 10) * PRECIO_OMNI if proveedor == "gemini" and voz else 0.0
+
+
+def nota_pago(proveedor: str, clips: int) -> str:
+    """La nota de gasto de un trabajo: cuántos clips mudos hizo el servicio de pago y lo más que costaron."""
+    return t("{proveedor} hizo {n} clip(s) de video: hasta unos US${costo} según su precio.",
+             proveedor=nombre_video(proveedor), n=clips, costo=f"{clips * precio_video(proveedor):.2f}")
+
+
+def _recordar_modelo(proveedor: str, campo: str, modelo: str) -> None:
+    """Guarda con la clave el modelo que acaba de funcionar: la próxima vez se empieza por él, sin perder tiempo con
+    los que la cuenta no puede usar."""
+    with _cerrojo_modelos:
+        info = claves.cargar().get(proveedor)
+        if info and modelo and info.get(campo) != modelo:
+            claves.guardar({**info, campo: modelo})
 
 
 def _modelo_de_la_clave(clave: str, elegir: Callable[[list[str]], str | None], defecto: str) -> str:
@@ -603,7 +650,8 @@ def _bloque_video(nodo):
 
 
 class Cobrado(RuntimeError):
-    """Un video que Google ya hizo (y cobró) pero que no se pudo traer: la nota de gasto también lo cuenta."""
+    """Un video que el servicio de pago ya hizo (y puede haber cobrado) pero que no se pudo traer: la nota de gasto
+    también lo cuenta, y nunca se prueba otra opción que lo pagaría dos veces (ver nubes.rotar)."""
 
 
 def _borrar(url: str, cabecera: dict) -> None:
@@ -614,8 +662,15 @@ def _borrar(url: str, cabecera: dict) -> None:
 
 
 def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None = None) -> Path:
-    """Un video de IA con su propio sonido: los personajes hablan con los labios sincronizados (Gemini Omni, de pago).
+    """Un video de IA con su propio sonido: los personajes hablan con los labios sincronizados (de pago). Lo hace la
+    IA elegida en «Escenas que hablan»: Gemini Omni (en Automático), Kling o Seedance.
     referencia: imagen del sujeto (tu foto o producto) que el video debe mantener."""
+    elegido = claves.para("video_voz") or {}
+    if elegido.get("proveedor") in claves.VIDEO_DE_PAGO:
+        modulo = claves.modulo_video(elegido["proveedor"])
+        _recordar_modelo(elegido["proveedor"], "modelo_voz",
+                         modulo.hablar(elegido, referencia, prompt, destino, modulo.SEGUNDOS_VOZ))
+        return destino
     c = claves.cargar().get("gemini")
     if not c:
         raise SinClave(t("Conecta tu clave de Gemini en «Claves de IA» para hacer videos animados con voz."))

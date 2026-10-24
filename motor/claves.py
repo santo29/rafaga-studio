@@ -37,22 +37,28 @@ USOS = {
     "elevenlabs": ["voz", "musica"],
     "modal": ["video"],
     "cloudflare": ["imagen"],
+    "kling": ["video", "video_voz"],
+    "seedance": ["video", "video_voz"],
 }
+# Videos de pago con su propio módulo (motor/kling.py, motor/seedance.py), los dos con el mismo contrato
+VIDEO_DE_PAGO = ("kling", "seedance")
 
 # Orden de preferencia cuando hay varias claves para lo mismo (modo "automático").
 PREFERENCIA = {
     "texto": ["anthropic", "openai", "gemini", "openrouter", "xai", "deepseek", "groq", "pollinations"],
     "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai"],  # gratis primero
     "transcripcion": ["groq", "openai"],
-    "video": ["huggingface", "modal", "pollinations"],  # gratis primero; igual que nubes.ORDEN
+    "video": ["huggingface", "modal", "pollinations", "kling", "seedance"],  # gratis primero; igual que nubes.ORDEN
+    "video_voz": ["gemini", "kling", "seedance"],  # escenas que hablan con su propio audio (todas de pago)
     "musica": ["gemini", "elevenlabs"],  # Lyria: ~$0.08 por canción y suena mejor; ElevenLabs: ~$0.30-0.45
 }
 # La IA que diseña (diseno_ia) es una de las de texto; en «auto», la misma que escribe los guiones (ver para)
 PREFERENCIA["diseno"] = PREFERENCIA["texto"]
 
 # De pago y con una clave que muchos conectan por otra cosa (Gemini, por su texto gratis): se ofrecen para elegir,
-# pero el modo automático nunca los usa (ver también nubes.orden).
-SOLO_ELIGIENDO = {"imagen": ["gemini", "openai", "replicate"]}  # imágenes de pago: nunca por detrás si se acaba lo gratis
+# pero el modo automático nunca los usa (ver también nubes.orden). Kling y Seedance cobran cada clip: solo eligiéndolos.
+SOLO_ELIGIENDO = {"imagen": ["gemini", "openai", "replicate"],  # imágenes de pago: nunca por detrás si se acaba lo gratis
+                  "video": list(VIDEO_DE_PAGO), "video_voz": list(VIDEO_DE_PAGO)}
 
 # Opciones gratis que funcionan sin clave. "pc" = se hace en este ordenador.
 GRATIS = {"imagen": "pollinations", "transcripcion": "pc", "video": "ninguno"}
@@ -61,6 +67,13 @@ AJUSTES = ARCHIVO.with_name("ajustes.json")
 
 
 TOKEN_CF = r"(?:[A-Za-z0-9_-]{40}|cf[ua]t_[A-Za-z0-9_-]{40,60})"  # clásico, o cfut_/cfat_ (formato de 2026)
+STRIPE = ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "pk_test_")  # claves de pagos: a nadie
+
+
+def modulo_video(proveedor: str):
+    """El módulo de Kling o Seedance. Se importa al usarlo: la app funciona aunque todavía no esté."""
+    from . import kling, seedance
+    return {"kling": kling, "seedance": seedance}[proveedor]
 
 
 def candidatos(clave: str) -> list[str]:
@@ -92,7 +105,7 @@ def candidatos(clave: str) -> list[str]:
         return ["replicate"]
     if c.startswith("hf_"):
         return ["huggingface"]
-    if c.startswith(("sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "pk_test_")):
+    if c.startswith(STRIPE):
         return []  # claves de Stripe (pagos): nunca se envían a ningún proveedor de IA
     # ElevenLabs y Pollinations usan sk_ (OpenAI usa sk-), igual que muchos servicios de pago (Openpay, Cartesia…).
     # Solo se aceptan sus formatos exactos: ElevenLabs, 48 hexadecimales; Pollinations, letras y números sin «_»
@@ -111,6 +124,10 @@ def candidatos(clave: str) -> list[str]:
         return ["deepseek"]                   # pueden distinguir; quien la pegue aquí la manda a DeepSeek)
     if c.startswith("sk-"):  # las sk- antiguas de OpenAI (Stability o Moonshot usan el mismo formato: van a OpenAI)
         return ["openai"]
+    # Seedance (BytePlus ModelArk): «ark-», un UUID en minúsculas y 5 letras o números; solo Ark lo usa. Su formato
+    # antiguo (el UUID solo) y las claves de Kling (sin formato conocido) no se adivinan: se conectan con su botón.
+    if re.fullmatch(r"ark-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[A-Za-z0-9]{5}", c):
+        return ["seedance"]
     return []
 
 
@@ -155,6 +172,10 @@ def _ids_modelos(proveedor: str, clave: str) -> list[dict]:
                                  "(ak-… y as-…) del token que acabas de crear.",
                                  motivo=motivo[-200:] or t("sin detalle")))
         return []
+    elif proveedor in VIDEO_DE_PAGO:
+        # No listan modelos: su módulo comprueba la clave sin gastar (401 = no es suya) y da lo que se guarda con ella
+        # (p. ej. la región de Kling), que va como único elemento de la lista
+        return [modulo_video(proveedor).validar(clave)]
     else:
         r = httpx.get(f"{OPENAI_COMPAT[proveedor]}/models",
                       headers={"Authorization": f"Bearer {clave}"}, timeout=20)
@@ -233,7 +254,7 @@ MODELO_VIDEO = {
     "huggingface": "zerogpu-aoti/wan2-2-fp8da-aoti-faster",  # Wan 2.2 con la cuota diaria gratis de GPU
     "pollinations": "alibaba/wan-2.2-fast",                   # gasta saldo (pollen) de la cuenta
     "modal": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",               # en tu nube de Modal ($30 gratis al mes)
-}
+}  # Kling y Seedance: el mejor de su catálogo (MODELOS de su módulo, que lleva sus precios), ver detectar
 
 
 def modal_env(clave: str) -> dict:
@@ -303,17 +324,32 @@ def _cuenta_cloudflare(token: str) -> str:
     return cuentas.pop()
 
 
-def detectar(clave: str) -> dict:
-    """Identifica el proveedor de la clave, la valida contra su API y elige los modelos."""
-    clave = limpiar(clave)
-    opciones = candidatos(clave)
+def detectar(clave: str, proveedor: str | None = None) -> dict:
+    """Identifica el proveedor de la clave, la valida contra su API y elige los modelos.
+    proveedor: Kling o Seedance, elegido por el usuario con su botón. Sus claves no tienen un formato que se pueda
+    reconocer sin adivinar: se comprueban solo con el elegido, y nunca se le manda una que parece de otro servicio."""
+    if proveedor:
+        clave = clave.strip()
+        # su formato no se conoce: cualquier token sin espacios (también base64 o JWT) de un largo razonable
+        if proveedor not in VIDEO_DE_PAGO or not re.fullmatch(r"[A-Za-z0-9._~+/=-]{8,512}", clave):
+            raise ValueError(t("Pega solo la clave, sin espacios ni texto alrededor."))
+        # ponytail: si las claves de Kling resultan medir 40 caracteres (como el token clásico de Cloudflare), esta
+        # regla las rechaza: entonces hay que dejar pasar ese caso aquí.
+        if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE):
+            raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
+                               "la reconoce sola.", proveedor=proveedor.capitalize()))
+        opciones = [proveedor]
+    else:
+        clave = limpiar(clave)
+        opciones = candidatos(clave)
     if not opciones and re.fullmatch(r"a[ks]-[A-Za-z0-9]+", clave):
         raise ValueError(t("Es un token de Modal, pero falta la otra parte: pega juntas las dos, la que empieza por "
                            "«ak-» y la que empieza por «as-», separadas por un espacio (o la orden «modal token set "
                            "…» entera que te da Modal)."))
     if not opciones:  # qué llegó (largo y principio), para saber qué se pegó sin enseñar la clave entera
         raise ValueError(t("No reconozco el formato de esta clave (llegaron {n} caracteres que empiezan por "
-                           "«{inicio}…»). Pega solo la clave, sin espacios ni texto alrededor.", n=len(clave),
+                           "«{inicio}…»). Pega solo la clave, sin espacios ni texto alrededor. Si es de Kling o "
+                           "Seedance, usa su botón «Conectar» en la lista de servicios.", n=len(clave),
                            inicio=clave[:6]))
     if opciones == ["cloudflare"] and not re.search(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])", clave):
         clave = f"{_cuenta_cloudflare(clave)} {clave}"  # solo pegó el token: su cuenta se le pregunta a Cloudflare
@@ -321,6 +357,9 @@ def detectar(clave: str) -> dict:
     for proveedor in opciones:
         try:
             modelos = _ids_modelos(proveedor, clave)
+        except ImportError:  # esta copia de la app aún no trae su conexión
+            raise ValueError(t("Esta versión de Ráfaga Studio todavía no trae {proveedor}: actualízala.",
+                               proveedor=proveedor.capitalize())) from None
         except httpx.HTTPStatusError as e:
             # Solo si ESTE proveedor rechaza la clave se prueba con el siguiente: así la clave no se manda a otro
             # proveedor por un fallo de red o del servidor.
@@ -336,7 +375,8 @@ def detectar(clave: str) -> dict:
             ultimo_error = e
             continue
         usos = USOS[proveedor]
-        info = {"proveedor": proveedor, "clave": clave, "usos": usos}
+        info = {**(modelos[0] if proveedor in VIDEO_DE_PAGO else {}), "proveedor": proveedor, "clave": clave,
+                "usos": usos}
         if "texto" in usos:
             info["modelo_texto"] = elegir_modelo_texto(proveedor, modelos)
         if "imagen" in usos:
@@ -344,7 +384,9 @@ def detectar(clave: str) -> dict:
         if "transcripcion" in usos:
             info["modelo_transcripcion"] = "whisper-large-v3-turbo" if proveedor == "groq" else "whisper-1"
         if "video" in usos:
-            info["modelo_video"] = MODELO_VIDEO[proveedor]
+            info["modelo_video"] = MODELO_VIDEO.get(proveedor) or modulo_video(proveedor).MODELOS[0]["id"]
+        if "video_voz" in usos:  # el mejor de los que hablan; las animaciones lo cambian por el último que funcionó
+            info["modelo_voz"] = next((m["id"] for m in modulo_video(proveedor).MODELOS if m["voz"] is not None), None)
         if "musica" in usos:
             info["modelo_musica"] = "music_v2_5" if proveedor == "elevenlabs" else "lyria-3.5"
         if proveedor == "elevenlabs":
@@ -471,7 +513,7 @@ def opciones(uso: str) -> list[str]:
 
 
 def para(uso: str) -> dict | None:
-    """La clave que toca para un uso ('texto', 'diseno', 'imagen', 'transcripcion', 'video').
+    """La clave que toca para un uso ('texto', 'diseno', 'imagen', 'transcripcion', 'video', 'video_voz').
     Devuelve {'proveedor': 'pc'|'ninguno'|'pollinations'} sin clave si se eligió una opción gratis."""
     todas, elegido = cargar(), ajustes().get(uso, "auto")
     if elegido in todas:

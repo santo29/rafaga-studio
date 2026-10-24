@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 5 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 6 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -10,7 +10,7 @@
 - **Tus proyectos, diseños, series, grabaciones y ajustes se guardan en tu PC** (casi todo en la carpeta `datos` de la
   app; abajo está el resto).
 - **Tus claves de IA se guardan cifradas** con tu cuenta de Windows y cada una se envía solo al proveedor que le
-  corresponde por su formato.
+  corresponde por su formato (las de Kling y Seedance, solo al que eliges con su botón «Conectar»).
 - **Las funciones de IA usan servicios de internet.** Para crear, la app envía tus pedidos, textos, imágenes o audios
   directo al servicio que hace el trabajo, también cuando no conectaste ninguna clave (entonces usa servicios gratis de
   terceros). Además hay dos conexiones automáticas: al abrir la app se busca en PyPI una actualización de yt-dlp, y la
@@ -52,12 +52,13 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 
 | Cuándo | A quién | Qué se envía |
 |---|---|---|
-| Al conectar una clave en «Claves de IA» | El proveedor que le corresponde por su formato | La clave, para comprobar que funciona |
+| Al conectar una clave en «Claves de IA» | El proveedor que le corresponde por su formato; Kling y Seedance, el que eliges con su botón «Conectar» (Kling: primero `api-singapore.klingai.com` y, solo si allí no la conocen, `api-beijing.klingai.com`, su región de China) | La clave, para comprobar que funciona (sin gastar nada) |
 | Al escribir guiones, diseñar, investigar o usar el Director | La IA de texto que conectaste (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, xAI, DeepSeek o Pollinations). Sin ninguna clave, la IA gratis de Pollinations | Tu pedido y el texto necesario para hacer el trabajo; en el Director, también la conversación, lo que devolvieron sus herramientas y las rutas de los archivos que adjuntas (en ellas se ve tu nombre de usuario de Windows). Las preferencias de la memoria del estudio viajan dentro de estos pedidos: todas al Director y, a cada especialista, las de todo el estudio y las de su departamento |
 | Al crear imágenes (videos, anuncios, series, diseños) | La primera que funcione, empezando por la que elijas: Cloudflare, Pollinations, Hugging Face, Replicate, OpenAI, y Google Gemini solo si lo eliges en «Claves de IA» (de pago). Si no conectaste un token de Hugging Face, «Hugging Face» es un Space público. Al final, siempre, Pollinations sin clave. Aunque tengas claves, si la tuya falla se prueban las demás | La descripción de la imagen; con Gemini elegido, también tu foto de referencia (para mantener igual a la persona, el personaje o el producto) |
 | En videos, anuncios y series con foto de referencia | OpenAI o Pollinations, si los conectaste | Tu foto de referencia, para mantener igual el producto, la persona o el personaje |
-| Al crear videos animados con voz (si conectaste Gemini; es de pago) | Google (Gemini Omni) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Para entregar el video, Google exige guardar la petición entera (texto, foto y video): la app borra la petición y el video de Google en cuanto termina, salga bien o mal. Si ese borrado falla (por ejemplo, sin internet), Google los guarda según su política (hasta 55 días). Solo se usa si tú lo pides: en Crear, marcando «Video animado con IA» (te dice el costo antes); con el Director o un agente MCP, cuando aceptas su costo |
-| Al crear videos, anuncios, capítulos de serie o videos musicales, y al animar una imagen (de fábrica la IA de video está en «Automático») | Primero un Space público de Hugging Face (`zerogpu-aoti/wan2-2-fp8da-aoti-faster`), sin token. Si falla, tu nube Modal o Pollinations si los conectaste. Si eliges Modal o Pollinations en «Claves de IA», el Space público no se usa. Con «No usar», no se envía nada | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento. A Pollinations solo va la descripción |
+| Al crear videos animados con voz (es de pago) | La IA de «Escenas que hablan» en «Claves de IA»: en «Automático», Google (Gemini Omni) si conectaste Gemini; Kling o Seedance solo si los eliges ahí (ver la fila siguiente) | La descripción de cada escena y la frase que dice; tu foto de referencia si diste una. Para entregar el video, Google exige guardar la petición entera (texto, foto y video): la app borra la petición y el video de Google en cuanto termina, salga bien o mal. Si ese borrado falla (por ejemplo, sin internet), Google los guarda según su política (hasta 55 días). Solo se usa si tú lo pides: en Crear, marcando «Video animado con IA» (te dice el costo antes); con el Director o un agente MCP, cuando aceptas su costo |
+| Al animar escenas o hacer escenas que hablan con Kling o Seedance (de pago; nunca en «Automático»: solo si los eliges en «Animar escenas con IA de video» o en «Escenas que hablan») | Kling AI (de Kuaishou; contrato con Kling AI Pte. Ltd., Singapur), en la región de tu clave (`api-singapore.klingai.com` o `api-beijing.klingai.com`). Seedance en BytePlus ModelArk (de ByteDance), región Asia-Pacífico (`ark.ap-southeast.bytepluses.com`) | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento; en las escenas que hablan, también la frase que se dice. Kling guarda los pedidos y respuestas 30 días y borra los videos a los 30 días; sus datos están en Singapur y, en la API de pago, no los usa para mejorar sus productos. BytePlus procesa en Malasia, Indonesia o la UE, no entrena con tus datos sin tu permiso, deja el video 24 h para bajarlo y el registro de la tarea 7 días; lo que su filtro de contenido rechaza lo guarda 180 días en Malasia. Antes de cada trabajo la app te dice lo más que puede costar y no gasta sin tu sí; con un agente MCP, cuando aceptas su costo |
+| Al crear videos, anuncios, capítulos de serie o videos musicales, y al animar una imagen (de fábrica la IA de video está en «Automático») | Primero un Space público de Hugging Face (`zerogpu-aoti/wan2-2-fp8da-aoti-faster`), sin token. Si falla, tu nube Modal o Pollinations si los conectaste. Si eliges Modal, Pollinations, Kling o Seedance en «Claves de IA», el Space público no se usa. Con «No usar», no se envía nada | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento. A Pollinations solo va la descripción |
 | Al narrar (voz de los videos y respuestas del Director) | Servicio de voces de Microsoft Edge; o ElevenLabs si eliges una de sus voces | El texto que se va a leer |
 | Al transcribir (subtítulos, shorts, video musical, escenas animadas con voz) | Groq u OpenAI si los conectaste; si no, se hace en tu PC | El audio (en el video musical, también la letra, para acertar las palabras) |
 | La primera vez que transcribes en tu PC o le hablas al Director | Hugging Face (`Systran/faster-whisper-small`) | Solo la descarga del modelo Whisper; tu audio no se envía |
@@ -75,7 +76,12 @@ Protecciones que se aplican siempre:
 
 - Cada clave se envía solo al proveedor que le corresponde por su formato, nunca a otro. Si pegas una clave de otro
   servicio con el mismo formato (por ejemplo de Stability o Moonshot, que empiezan por «sk-» como las antiguas de
-  OpenAI), se mandaría a ese proveedor para comprobarla.
+  OpenAI), se mandaría a ese proveedor para comprobarla. Las claves de Seedance con su formato propio («ark-…») se
+  reconocen solas. Las de Kling, y las de Seedance con el formato antiguo (un UUID, que usan muchos servicios), nunca se
+  adivinan: van solo al servicio que eliges con su botón «Conectar», y ese botón rechaza una clave que parece de otro
+  servicio.
+- Las claves de Kling y Seedance solo viajan a la dirección fija de su API, nunca a una dirección que llegue en una
+  respuesta; los videos se bajan de su servidor de descargas sin la clave.
 - Tu token de Hugging Face nunca se envía a Spaces de terceros: se usan sin token.
 - La app solo abre imágenes, audios y videos de este PC (nunca rutas de red ni otros archivos), así que no sirve para
   sacar documentos ni claves. Ojo: un agente conectado por MCP sí puede pedirle que use cualquier foto, audio o video de
@@ -83,7 +89,8 @@ Protecciones que se aplican siempre:
 - El Director de la app solo usa los enlaces que escribiste tú y los archivos que le diste o que hizo el propio estudio.
 
 Los Spaces públicos de Hugging Face y la opción sin clave de Pollinations son servicios abiertos: lo que se les envía
-lo puede ver su dueño. En la IA de video los evitas eligiendo Modal, Pollinations o «No usar» en «Claves de IA». En las
+lo puede ver su dueño. En la IA de video los evitas eligiendo Modal, Pollinations, Kling, Seedance o «No usar» en
+«Claves de IA». En las
 imágenes, un token de Hugging Face evita el Space público, pero Pollinations sin clave queda siempre como último recurso
 si fallan las demás.
 
@@ -94,13 +101,15 @@ si fallan las demás.
 - No pedimos registro, correo ni datos personales para usar la app.
 - No subimos tus archivos a ningún sitio que no salga en la tabla de arriba. Ojo: con la IA de video en «Automático»
   (como viene de fábrica), las imágenes de tus videos y anuncios, incluida tu foto de referencia, van a un Space público
-  de Hugging Face. Si no lo quieres, elige Modal, Pollinations o «No usar» en «Claves de IA».
+  de Hugging Face. Si no lo quieres, elige Modal, Pollinations, Kling o Seedance (de pago) o «No usar» en «Claves de
+  IA».
 
 ## Servicios de terceros
 
 Cuando usas un servicio de IA, lo que le envías queda sujeto a su política de privacidad y a sus condiciones. Te
 recomendamos leer las de los que conectes: Anthropic, OpenAI, Google (Gemini), Groq, OpenRouter, xAI, DeepSeek,
-Cloudflare, Hugging Face, Pollinations, Replicate, Modal, ElevenLabs y Microsoft (voces de Edge). Algunos servicios
+Cloudflare, Hugging Face, Pollinations, Replicate, Modal, ElevenLabs, Kling AI (Kuaishou), BytePlus (ByteDance, para
+Seedance) y Microsoft (voces de Edge). Algunos servicios
 gratis pueden usar lo que les envías para mejorar sus modelos: si trabajas con material confidencial de un cliente,
 usa proveedores de pago que no lo hagan.
 

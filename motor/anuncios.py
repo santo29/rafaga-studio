@@ -85,7 +85,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         v["escenas"] = v["escenas"][:max(3, round(segundos / 5)) + 2]
         for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
             e["narracion"] = e["narracion"][:400]
-    resultados, total, notas = [], len(plan["variantes"]), []
+    resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
     if not web:
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
     for k, v in enumerate(plan["variantes"], 1):
@@ -96,7 +96,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         # escena sin el producto, pegarla taparía la escena.
         notas_k = []
         montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
-                         hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k,
+                         hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados,
                          crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d)
                          if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]

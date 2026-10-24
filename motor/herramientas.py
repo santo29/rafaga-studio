@@ -27,8 +27,13 @@ def _json(datos) -> str:
 
 
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
-                imagen: str = "", solo_animar: bool = False, guion: dict | None = None) -> str:
+                imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
+                animado: bool | None = None) -> str:
     """Crea un video completo desde un pedido: guion con IA, imágenes, voz, subtítulos y montaje.
+    animado: cada escena es un video de IA con su propia voz: los personajes hablan con los labios sincronizados
+    (una fruta que habla, un anuncio con actor…). Usa Gemini y es de pago: ~US$0,80-1 por escena de 8 s, con
+    tope de 15 escenas animadas por video. Sin decirlo, se usa si el usuario conectó Gemini. False = imágenes
+    con narración (gratis). Con animado, una escena cada ~8 s y como mucho 18 palabras de narración por escena.
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
     {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
     "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
@@ -42,7 +47,8 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
     if imagen and solo_animar:
         return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
-    return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion))
+    return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
+                                      animado=animado))
 
 
 def sacar_shorts(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: int = 5,

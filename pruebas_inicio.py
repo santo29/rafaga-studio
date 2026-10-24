@@ -7,8 +7,9 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
+from PySide6.QtCore import QUrl  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolButton  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton  # noqa: E402
 
 from motor import claves, diseno, edicion, marca, nubes, serie, shorts  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
@@ -175,7 +176,41 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     con_video = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
     tarjeta(con_video, presentacion).click()
     assert con_video.reproductor.resultados[0]["archivo"].endswith("presentacion-app.mp4")
-    con_video.reproductor.player.stop()
+    for pagina_video in (con_ejemplos, con_video):  # soltar los videos falsos: cargando al salir, Qt podía caerse
+        pagina_video.reproductor.player.stop()
+        pagina_video.reproductor.player.setSource(QUrl())
+    del con_video, pagina_video
+
+    # ---------- Lo legal: el aviso al primer uso (y si cambia), los documentos y la marca ----------
+    from PySide6.QtWidgets import QDialog, QTextBrowser  # noqa: E402
+
+    from ui import legal  # noqa: E402
+    legal.ARCHIVO = d / "legal.json"
+    assert legal.pendiente()
+    respuesta = [QDialog.Rejected]
+    _exec, QDialog.exec = QDialog.exec, lambda self: respuesta[0]
+    try:
+        assert legal.aviso_inicial() is False and legal.pendiente()  # «Salir»: no queda aceptado
+        respuesta[0] = QDialog.Accepted
+        assert legal.aviso_inicial() is True and not legal.pendiente()
+    finally:
+        QDialog.exec = _exec
+    legal.VERSION = str(int(legal.VERSION) + 1)  # si cambian el aviso o los términos, se vuelve a mostrar
+    assert legal.pendiente()
+    legal.ARCHIVO.write_text("[1, 2", encoding="utf-8")
+    assert legal.pendiente()  # roto: se vuelve a pedir, nunca se da por aceptado
+    # Con una ventana de padre, como en la app: sin padre, Python las destruía al salir después que Qt y se caía
+    padre = QDialog()
+    for archivo in legal.DOCUMENTOS:
+        doc = legal.ver_documento(padre, archivo)
+        assert len(doc.findChild(QTextBrowser).toPlainText()) > 200, archivo
+        doc.close()
+    acerca = legal.acerca_de(padre)
+    assert any("Santo Montilla" in w.text() for w in acerca.findChildren(QLabel))
+    acerca.close()
+    del doc, acerca, padre  # se destruyen ya, con Qt vivo
+    assert "Santo Montilla" in legal.marca() and "Santo Montilla" in open(
+        Path(inicio.__file__).resolve().parent.parent.parent / "LICENSE", encoding="utf-8").read()
 
     # ---------- La ventana: abre en Inicio y sus accesos llevan a la página de verdad ----------
     import app as aplicacion

@@ -25,6 +25,10 @@ lo escribió Claude como Director.
 | <img src="ejemplos/lugares-rd.gif" width="200" alt="3 lugares de RD que parecen de otro planeta"> | <img src="ejemplos/anuncio-cafe.gif" width="200" alt="Anuncio de Café Brisa Alta"> | <img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> |
 | **3 lugares de RD que parecen de otro planeta** · [ver video](ejemplos/lugares-rd.mp4) | **Café Brisa Alta** · [ver video](ejemplos/anuncio-cafe.mp4) | **La leyenda de Ráfaga** · [ver video](ejemplos/leyenda-rafaga.mp4) |
 
+**Video animado con voz** (Gemini Omni: la manzana habla con su propia voz y los labios sincronizados; se pidió en una frase y el estudio hizo el guion, las escenas y los subtítulos):
+
+<img src="ejemplos/manzana-habla.gif" width="200" alt="Una manzana animada que habla"> · [ver video](ejemplos/manzana-habla.mp4)
+
 **Con movimiento real de IA** (Wan 2.2 en tu propia nube Modal: el viento, el pelo, la cámara y las chispas se mueven):
 
 <img src="ejemplos/leyenda-ia.gif" width="420" alt="La leyenda de Ráfaga animada con IA de video"> · [ver video](ejemplos/leyenda-ia.mp4)
@@ -75,6 +79,7 @@ entre nubes (cuota diaria gratis → este PC → créditos → pago), para que p
 | Texto / guiones | Groq, Gemini | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
 | Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate |
 | Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal ($30 gratis/mes), Pollinations |
+| Video animado con voz (los personajes hablan, labios sincronizados) | — | Gemini Omni (~US$0,10 por segundo; la app usa el modelo más capaz de tu clave) |
 | Voz | Voces de Edge | ElevenLabs |
 | Transcripción | Este PC (Whisper), Groq | OpenAI |
 | Separar voz y pista | Este PC (Demucs): tu música no sale de tu PC | — |
@@ -93,6 +98,12 @@ archivo) y abre la app. Requiere
 Python 3.13+ y Node.js (para descargar de YouTube).
 
 ## Seguridad y privacidad
+
+**Se instala y trabaja en tu PC**: sin servidores nuestros, sin cuentas, sin analíticas ni telemetría. Tus proyectos y
+claves se guardan en tu PC (carpeta `datos`). Las funciones de IA usan servicios de internet: tus pedidos, textos e
+imágenes van directo al servicio que hace el trabajo, también los gratis sin clave (Pollinations, un Space público de
+Hugging Face, las voces de Microsoft). El detalle completo, función por función, está en el
+[Aviso de privacidad](PRIVACIDAD.md).
 
 - **Tus claves** se guardan cifradas con tu cuenta de Windows (DPAPI) en `datos/claves.json`: solo tu usuario en tu
   PC puede leerlas. Nunca van en direcciones web ni se suben a GitHub (`datos/` está en `.gitignore`).
@@ -118,12 +129,13 @@ cabina.sesion("beat.mp3", "mi_voz.wav", estilo="Dembow / urbano (seco y al frent
 | Parte | Licencia |
 |---|---|
 | `motor/` — el motor sin interfaz, se usa como librería | **MIT** (abierto) |
+| `idiomas/` — las traducciones que usa el motor | **MIT** (abierto) |
 | `mcp_server.py` — para que Claude u otro agente use el estudio | **MIT** (abierto) |
 | `modal_app.py` — video IA en tu propia nube de Modal | **MIT** (abierto) |
-| `pruebas.py` — pruebas sin internet ni claves (`python pruebas.py`) | **MIT** (abierto) |
+| `pruebas.py` y `pruebas_seguridad.py` — pruebas sin internet ni claves (`python pruebas.py`) | **MIT** (abierto) |
 | `ejemplos/` — los videos de ejemplo y cómo se hicieron (`python ejemplos/crear.py`) | **MIT** (abierto) |
 | `assets/` — iconos Lucide y fuentes de Google Fonts (ver `assets/LEEME.md`) | ISC (iconos) y OFL (fuentes) |
-| `app.py` y `ui/` — la app de escritorio | Privado (Ráfaga Studio Pro) |
+| `app.py` y `ui/` — la app de escritorio | Código visible, todos los derechos reservados (Ráfaga Studio Pro): no es open source |
 
 ¿Quieres ayudar? Abre un *issue* con ideas o errores, o manda un *pull request*. Lo más útil ahora mismo: más
 proveedores gratis en `motor/nubes.py`, nuevos estilos de voz en `motor/cabina.py` y géneros en `motor/musica.py`.
@@ -131,4 +143,13 @@ proveedores gratis en `motor/nubes.py`, nuevos estilos de voz en `motor/cabina.p
 Hecho con: FFmpeg, faster-whisper, yt-dlp, Pedalboard (Spotify), Demucs (Meta), Matchering, librosa, PSOLA/Praat,
 Wan 2.2, FLUX, edge-tts, Lucide, Google Fonts.
 
-**Usa contenido propio o con permiso.** Las redes no pagan por contenido ajeno reutilizado.
+**Usa contenido propio o con permiso.** Las redes no pagan por contenido ajeno reutilizado. Marca como «hecho con IA»
+el contenido realista generado o alterado con IA: YouTube, TikTok y Meta lo exigen.
+
+## Legal y marca
+
+- [Aviso de privacidad](PRIVACIDAD.md) · [Términos de uso](TERMINOS.md) · [Avisos de terceros](AVISOS_DE_TERCEROS.md)
+  · [Licencia](LICENSE)
+- **Ráfaga Studio™**: el nombre, el logo y la identidad visual son marcas de **Santo Montilla**. La licencia MIT del
+  motor no da permiso para usar la marca.
+- © 2026 Santo Montilla. La app de escritorio (`app.py` y `ui/`) tiene todos los derechos reservados.

@@ -22,3 +22,6 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# El instalador compilado (va en las versiones publicadas de GitHub, no en el repositorio)
+dist/

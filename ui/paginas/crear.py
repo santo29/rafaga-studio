@@ -1,6 +1,6 @@
 """Página «Crear con IA»: video completo desde un pedido (con foto de partida opcional)."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QSpinBox, QTextEdit
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QSpinBox, QTextEdit
 
 from motor import desde_prompt, seguro
 from motor.idioma import t
@@ -40,6 +40,12 @@ class PaginaCrear(PaginaTrabajo):
                                            "público de Hugging Face. Si no quieres, pon «Animar escenas con IA de "
                                            "video» en «No usar» en Claves de IA."), "sub"))
         self.form_lay.addLayout(fila)
+        self.animado = QCheckBox(t("🎬 Video animado con IA: los personajes hablan con su propia voz (Gemini, de pago: "
+                                   "~US$1 por escena de 8 s)"))
+        self.animado.setChecked(desde_prompt.con_voz_propia())
+        self.animado.setToolTip(t("Cada escena es un video de IA con voz y labios sincronizados. Sin marcar: imágenes "
+                                  "animadas con narración (gratis)."))
+        self.form_lay.addWidget(self.animado)
         self.form_lay.addWidget(self.iniciar, 0, Qt.AlignRight)
 
     def _iniciar(self):
@@ -52,5 +58,12 @@ class PaginaCrear(PaginaTrabajo):
         if imagen and self.modo.currentIndex() == 1:
             return self.lanzar(self.iniciar, desde_prompt.animar_imagen, imagen=imagen, prompt=texto,
                                formato=self.formato.valor())
+        animado = self.animado.isChecked()
+        if animado:  # es de pago: se dice cuánto antes de gastar
+            escenas, costo = desde_prompt.costo_hablado(self.segundos.value())
+            if QMessageBox.question(self, t("Video animado con voz"), t(
+                    "Se harán {n} escena(s) animadas con voz en Gemini: hasta unos US${costo} según el precio de "
+                    "Google. ¿Seguir?", n=escenas, costo=f"{costo:.2f}")) != QMessageBox.Yes:
+                return
         self.lanzar(self.iniciar, desde_prompt.generar, prompt=texto, formato=self.formato.valor(),
-                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen)
+                    segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen, animado=animado)

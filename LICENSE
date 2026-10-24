@@ -1,8 +1,8 @@
 MIT License
 
-Copyright (c) 2026 Ráfaga Studio
+Copyright (c) 2026 Santo Montilla
 
-This license applies to the open-source engine of Ráfaga Studio: the `motor/` folder, `mcp_server.py`,
+This license applies to the open-source engine of Ráfaga Studio: the `motor/` and `idiomas/` folders, `mcp_server.py`,
 `modal_app.py`, `pruebas.py`, `pruebas_seguridad.py` and the `ejemplos/` folder. The desktop application (`app.py` and the `ui/`
 folder) is not covered by this license and is not part of the open-source release.
 
@@ -23,3 +23,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Trademark notice: "Ráfaga Studio", its name, logo and visual identity are trademarks of Santo Montilla.
+This license does not grant permission to use them, except to state that content was "made with Ráfaga Studio".
+The desktop application (`app.py` and `ui/`) is (c) 2026 Santo Montilla, all rights reserved; see TERMINOS.md.

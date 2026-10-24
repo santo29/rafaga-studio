@@ -1,5 +1,36 @@
 [
   {
+    "id": "manzana-habla",
+    "titulo": "La manzana que habla (video animado con voz)",
+    "pedido": "Una manzana que habla y le cuenta a la gente por qué comer fruta da energía. Tono alegre, estilo Pixar.",
+    "formato": "9:16",
+    "voz": "es-DO-EmilioNeural",
+    "animado": true,
+    "guion": {
+      "titulo": "¡El superpoder secreto de la manzana para tu energía!",
+      "descripcion": "Descubre por qué comer fruta te da energía limpia e instantánea contado por la manzana más simpática. ¡Dile adiós al cansancio!",
+      "hashtags": [
+        "#animacion3d",
+        "#estilopixar",
+        "#vidasana",
+        "#energianatural",
+        "#manzana",
+        "#tipsdesalud"
+      ],
+      "estilo_visual": "3D Pixar animation style, vertical 9:16 format, vibrant cinematic lighting, rich textures, cute character design, warm and cheerful atmosphere",
+      "escenas": [
+        {
+          "narracion": "¿Cansado y sin batería? ¡Oye, deja ese café y mírame, tengo el combustible perfecto para ti!",
+          "imagen": "Vertical 9:16 shot. A cute, glossy red cartoon apple with big expressive blue eyes, rosy cheeks, tiny leafy stem, and small stick arms, talking directly to the camera with an excited expression on a sunlit wooden kitchen table."
+        },
+        {
+          "narracion": "¡Mi azúcar natural y vitaminas te dan energía al instante sin bajones! Cómeme hoy y sígueme.",
+          "imagen": "Vertical 9:16 shot. The same cute, glossy red cartoon apple with big expressive blue eyes, rosy cheeks, tiny leafy stem, and small stick arms, bouncing with joy and talking directly to the camera with glowing magical energy sparkles around it."
+        }
+      ]
+    }
+  },
+  {
     "id": "lugares-rd",
     "titulo": "3 lugares de RD que parecen de otro planeta",
     "pedido": "Un short viral sobre 3 lugares de República Dominicana que parecen de otro planeta",

@@ -1,6 +1,7 @@
 """Llamadas a IA usando la clave que el usuario haya conectado (ver claves.py)."""
 import base64
 import json
+import re
 import time
 import urllib.parse
 from pathlib import Path
@@ -453,6 +454,81 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     return resultado
 
 
+API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
+OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
+PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
+_omni = {}  # modelo elegido por clave, una vez por sesión
+
+
+def modelo_video_voz(clave: str) -> str:
+    """Pregunta a la API qué modelos de video con voz tiene la clave y elige el más capaz."""
+    if clave not in _omni:
+        try:
+            r = httpx.get(f"{API_GEMINI}/models", params={"pageSize": 1000}, headers={"x-goog-api-key": clave},
+                          timeout=30)
+            r.raise_for_status()
+            _omni[clave] = claves.elegir_modelo_video_voz([m["name"] for m in r.json().get("models", [])]) or OMNI
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return OMNI  # sin red ahora: no se guarda, se pregunta otra vez la próxima
+    return _omni[clave]
+
+
+def _bloque_video(nodo):
+    """El primer bloque {"type": "video", ...} de la respuesta, esté donde esté."""
+    if isinstance(nodo, dict):
+        if nodo.get("type") == "video" and (nodo.get("uri") or nodo.get("data")):
+            return nodo
+        nodo = list(nodo.values())
+    if isinstance(nodo, list):
+        return next((b for b in map(_bloque_video, nodo) if b), None)
+    return None
+
+
+def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None = None) -> Path:
+    """Un video de IA con su propio sonido: los personajes hablan con los labios sincronizados (Gemini Omni, de pago).
+    referencia: imagen del sujeto (tu foto o producto) que el video debe mantener."""
+    c = claves.cargar().get("gemini")
+    if not c:
+        raise SinClave(t("Conecta tu clave de Gemini en «Claves de IA» para hacer videos animados con voz."))
+    cabecera = {"x-goog-api-key": c["clave"]}
+    entrada = prompt
+    if referencia:
+        tipo = {".png": "image/png", ".webp": "image/webp"}.get(referencia.suffix.lower(), "image/jpeg")
+        entrada = [{"type": "image", "data": base64.b64encode(referencia.read_bytes()).decode(), "mime_type": tipo},
+                   {"type": "text", "text": prompt}]
+    r = httpx.post(f"{API_GEMINI}/interactions", headers=cabecera, timeout=900, json={
+        "model": modelo_video_voz(c["clave"]), "input": entrada, "background": False, "stream": False,
+        "store": True,  # Omni lo exige para video; el archivo se borra abajo en cuanto se baja
+        "response_format": {"type": "video", "aspect_ratio": "16:9" if formato in ("16:9", "1:1") else "9:16",
+                            "resolution": "720p", "delivery": "uri"}})
+    r.raise_for_status()
+    respuesta = r.json()
+    bloque = _bloque_video(respuesta)
+    if not bloque:  # p. ej. lo frenó su filtro de seguridad: se dice lo que contestó
+        raise RuntimeError(t("Gemini no devolvió ningún video: {detalle}",
+                             detalle=json.dumps(respuesta, ensure_ascii=False)[:300]))
+    if bloque.get("data"):
+        return _clip_real(base64.b64decode(bloque["data"]), destino)
+    # La clave solo viaja a la API de Gemini, nunca a una dirección que venga en la respuesta.
+    archivo = re.fullmatch(re.escape(API_GEMINI) + r"/files/([\w-]+)(?::download)?(?:\?.*)?", bloque["uri"])
+    if not archivo:
+        raise RuntimeError(t("Gemini devolvió una dirección inesperada"))
+    archivo = f"{API_GEMINI}/files/{archivo[1]}"
+    for _ in range(120):  # el video tarda un poco en quedar listo para bajar
+        estado = httpx.get(archivo, headers=cabecera, timeout=30).json().get("state")
+        if estado != "PROCESSING":
+            break
+        time.sleep(5)
+    if estado == "FAILED":
+        raise RuntimeError(t("Gemini no pudo terminar el video"))
+    datos = seguro.descargar(f"{archivo}:download?alt=media", cabecera, tope=VIDEO_MAXIMO, plazo=300)
+    try:
+        httpx.delete(archivo, headers=cabecera, timeout=30)  # caduca solo a las 48 h; mejor que no se quede allí
+    except httpx.HTTPError:
+        pass
+    return _clip_real(datos, destino)
+
+
 def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     """Narra con ElevenLabs y devuelve los tiempos por palabra (vienen por letra y se agrupan)."""
     c = claves.cargar().get("elevenlabs")
@@ -477,6 +553,9 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
         actual["palabra"] += letra
         actual["fin"] = fin
     return palabras
+
+
+_WHISPER = {}
 
 
 def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None, cancion: bool = False,
@@ -514,7 +593,9 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     # Se decodifica con ffmpeg: la librería 'av' que trae faster-whisper choca con versiones nuevas.
     crudo = subprocess.run([FFMPEG, "-format_whitelist", MEDIOS, "-i", str(audio),
                             "-f", "f32le", "-ac", "1", "-ar", "16000", "-"], capture_output=True, check=True).stdout
-    modelo = WhisperModel("small", device="cpu", compute_type="int8")
+    if "small" not in _WHISPER:  # cargarlo tarda: se reutiliza en cada escena y en cada orden de voz
+        _WHISPER["small"] = WhisperModel("small", device="cpu", compute_type="int8")
+    modelo = _WHISPER["small"]
     # `pista` (p. ej. la letra) ayuda a Whisper a acertar palabras cantadas o con jerga.
     muestras = np.frombuffer(crudo, np.float32)
     segmentos, _ = modelo.transcribe(muestras, language=idioma, initial_prompt=pista,

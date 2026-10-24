@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCo
 
 from motor import claves, idioma
 from motor.idioma import t
-from ui import iconos
+from ui import iconos, legal
 from ui.brillo import Brillo
 from ui.comun import boton, ESTILO, EstiloApp, etiqueta, Reproductor
 from ui.linea_tiempo import render
@@ -103,6 +103,9 @@ class Ventana(QMainWindow):
             self.paginas.addWidget(desplazable)
         botones.addStretch()
         nav.addWidget(self._selector_idioma())
+        privacidad = boton(f"🛡️  {t('Privacidad y legal')}", "nav")
+        privacidad.clicked.connect(lambda: legal.acerca_de(self))
+        nav.addWidget(privacidad)
         lay.addWidget(barra)
         lay.addWidget(self.paginas, 1)
         self.setCentralWidget(raiz)
@@ -210,5 +213,12 @@ if __name__ == "__main__":
     if traductor.load(f"qtbase_{'pt_BR' if idioma.actual() == 'pt' else idioma.actual()}",
                       QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
         app.installTranslator(traductor)
+    if legal.pendiente() and not legal.aviso_inicial():  # el aviso de privacidad y los términos, al primer uso
+        sys.exit(0)
+    # yt-dlp se actualiza solo y en segundo plano (YouTube cambia a menudo). Solo versiones ya compiladas (nada de
+    # ejecutar código de instalación) y publicadas hace 7 días o más (si una sale maliciosa, da tiempo a retirarla).
+    QProcess.startDetached(str(Path(sys.executable).with_name("pythonw.exe")),
+                           ["-m", "pip", "install", "-q", "-U", "--disable-pip-version-check", "--only-binary", ":all:",
+                            "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
     Ventana().show()
     sys.exit(app.exec())

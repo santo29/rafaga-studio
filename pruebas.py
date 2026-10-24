@@ -26,6 +26,11 @@ openai = [{"id": "gpt-5", "created": 10}, {"id": "gpt-5-mini", "created": 20}, {
           {"id": "gpt-image-1", "created": 40}, {"id": "whisper-1", "created": 50}]
 assert claves.elegir_modelo_texto("openai", openai) == "gpt-5"
 assert claves.elegir_modelo_imagen("openai", openai) == "gpt-image-1"
+# Gemini: el Flash de verdad, nunca Gemma (por orden alfabético «gemma» iba antes) ni los de voz o imagen
+gemini = [{"id": f"models/{i}"} for i in ("gemma-4-31b-it", "gemini-2.5-flash", "gemini-3.8-flash",
+                                          "gemini-3.8-flash-tts", "gemini-3.1-flash-image", "gemini-flash-latest")]
+assert claves.elegir_modelo_texto("gemini", gemini) == "gemini-flash-latest"
+assert claves.elegir_modelo_texto("gemini", gemini[:-1]) == "gemini-3.8-flash"
 
 # Subtítulos: la palabra que suena va en amarillo
 pal = [{"palabra": "hola", "inicio": 0.0, "fin": 0.4}, {"palabra": "a", "inicio": 0.5, "fin": 0.6},

@@ -371,6 +371,7 @@ def ver_imagen(padre, ruta, titulo: str):
     cerrar = boton(t("Cerrar"))
     cerrar.clicked.connect(ventana.accept)
     lay.addWidget(cerrar, 0, Qt.AlignRight)
+    ventana.setAttribute(Qt.WA_DeleteOnClose)  # al cerrarla se libera
     ventana.open()  # sin bloquear: la app sigue viva detrás
     return ventana
 

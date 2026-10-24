@@ -34,11 +34,18 @@ for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
             shutil.copy(de, a)
     # «animar»: cada escena se anima con la IA de video de tu nube Modal (solo en este ejemplo; tus ajustes no cambian)
     claves.ajustes = (lambda: {**ajustes_reales(), "video": "modal"}) if e.get("animar") else ajustes_reales
-    notas = []
+    notas, hablados = [], {}
+    if e.get("animado"):  # cada escena, un video de IA con su propia voz (Gemini, de pago: ~US$1 por escena)
+        gasto = []
+        hablados = desde_prompt.clips_hablados(e["guion"], trabajo, e["formato"],
+                                               lambda texto, f: print(f"{f:4.0%} {texto}"), None, gasto)
+        print(" | ".join(gasto))
+        if len(hablados) < len(e["guion"]["escenas"]):
+            notas.append("faltan escenas animadas con voz")
     # Las imágenes que ya salieron se guardan: si la cuota gratis se acaba a mitad, la próxima vez sigue donde iba
     final = desde_prompt.montar(e["guion"], trabajo, e["formato"], e["voz"], lambda texto, f: print(f"{f:4.0%} {texto}"),
                                 crear_imagen=lambda p, w, h, destino: destino if destino.is_file() else
-                                ia.imagen(p, w, h, destino), notas=notas)
+                                ia.imagen(p, w, h, destino), notas=notas, hablados=hablados)
     if e.get("cierre"):
         final = video.cierre(final, e["cierre"], e["formato"], trabajo / "con_cierre.mp4")
     if notas:  # un ejemplo con imágenes repetidas no sirve de muestra: se vuelve a intentar otro día

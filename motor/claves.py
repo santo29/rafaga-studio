@@ -168,6 +168,14 @@ def elegir_modelo_texto(proveedor: str, modelos: list[dict]) -> str | None:
         if "claude-opus-5-5" in ids:
             return "claude-opus-5-5"
         return next((i for i in ids if "opus" in i), ids[0] if ids else None)
+    if proveedor == "gemini":
+        # «gemini-flash-latest» es siempre el Flash estable más nuevo (el de más cuota gratis); si no, el Flash con el
+        # número más alto. Por orden alfabético salía Gemma (un modelo abierto más flojo, «gemma» > «gemini»)
+        if "gemini-flash-latest" in ids:
+            return "gemini-flash-latest"
+        flash = [i for i in ids if re.fullmatch(r"gemini-\d+(\.\d+)?-flash", i)]
+        if flash:
+            return max(flash, key=lambda i: float(re.search(r"\d+(\.\d+)?", i).group()))
     chat = [m for m in modelos if not NO_CHAT.search(m["id"].lower())]
     # ponytail: "el más nuevo" = mayor fecha de creación, o el id más alto si el proveedor no la da.
     # Si un proveedor publica modelos experimentales más nuevos que sus estables, fijar aquí una lista preferida.
@@ -175,6 +183,16 @@ def elegir_modelo_texto(proveedor: str, modelos: list[dict]) -> str | None:
     sin_variantes = [m for m in chat if not re.search(r"mini|nano|lite|preview|exp", m["id"])]
     elegido = (sin_variantes or chat or [None])[0]
     return elegido["id"].removeprefix("models/") if elegido else None
+
+
+def elegir_modelo_video_voz(ids: list[str]) -> str | None:
+    """El modelo de video con voz más capaz que ofrece la clave de Gemini: versión más alta, Pro antes que Flash y
+    estable antes que preview. Así, cuando Google saque uno nuevo, el estudio lo usa sin cambiar el código."""
+    def nota(i):
+        m = re.fullmatch(r"gemini-omni-(\d+(?:\.\d+)?)-(pro|flash)(-preview)?", i)
+        return m and (float(m[1]), m[2] == "pro", not m[3])
+    validos = [i for i in (i.removeprefix("models/") for i in ids) if nota(i)]
+    return max(validos, key=nota) if validos else None
 
 
 def elegir_modelo_imagen(proveedor: str, modelos: list[dict]) -> str | None:

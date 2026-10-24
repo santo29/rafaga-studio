@@ -1,6 +1,9 @@
 @echo off
 cd /d "%~dp0"
 if not exist .venv (
+  echo Rafaga Studio - (c) 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones
+  echo de IA usan servicios de internet (lee PRIVACIDAD.md).
+  echo Lee PRIVACIDAD.md y TERMINOS.md: al abrir la app veras el aviso de privacidad.
   echo Instalando por primera vez, espera unos minutos...
   py -3 -m venv .venv
   rem Versiones exactas ya probadas y el hash de cada archivo: nada distinto de lo probado entra solo.
@@ -10,10 +13,7 @@ if not exist .venv (
   .venv\Scripts\python -m pip install --require-hashes -r requirements.lock
   if errorlevel 1 goto fallo
 )
-rem yt-dlp se actualiza solo y en segundo plano (sin frenar el arranque): YouTube cambia a menudo.
-rem Solo versiones publicadas hace 7 dias o mas (si una sale maliciosa, da tiempo a que la retiren) y ya
-rem compiladas (nada de ejecutar codigo de instalacion).
-start "" .venv\Scripts\pythonw.exe -m pip install -q -U --only-binary :all: --uploaded-prior-to P7D yt-dlp yt-dlp-ejs
+rem yt-dlp se actualiza solo al abrir la app (ver app.py).
 start "" .venv\Scripts\pythonw.exe app.py
 exit /b 0
 

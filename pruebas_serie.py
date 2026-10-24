@@ -182,6 +182,116 @@ serie.crear_episodio("Escrita por Claude", numero=1, guion={**cap, "titulo": "Un
 assert len(imagenes) == 1  # guion nuevo: imagen nueva (no la del guion anterior)
 falla(serie.crear_episodio, "Escrita por Claude", guion={"planos": "no"})
 
+# ---------- Video animado con voz (Gemini Omni), sin red ----------
+assert claves.elegir_modelo_video_voz(["models/gemini-2.5-pro", "models/veo-3.1"]) is None
+assert claves.elegir_modelo_video_voz(["models/gemini-omni-1.1-flash", "models/gemini-omni-2-flash",
+                                       "models/gemini-omni-flash-preview"]) == "gemini-omni-2-flash"
+assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-flash", "gemini-omni-2.0-pro"]) == "gemini-omni-2.0-pro"
+assert claves.elegir_modelo_video_voz(["gemini-omni-2.0-pro-preview", "gemini-omni-2.0-pro"]) == "gemini-omni-2.0-pro"
+
+
+class Respuesta:
+    def __init__(self, datos):
+        self.datos = datos
+
+    def json(self):
+        return self.datos
+
+    def raise_for_status(self):
+        pass
+
+
+red, bajadas = [], []
+uri = f"{ia.API_GEMINI}/files/abc-123:download?alt=media"
+
+
+def get(url, **k):
+    red.append(("GET", url, k))
+    if url.endswith("/models"):
+        return Respuesta({"models": [{"name": f"models/{m}"} for m in (
+            "gemini-flash-latest", "gemini-omni-1.1-flash", "gemini-omni-1.5-pro", "gemma-4")]})
+    return Respuesta({"state": "ACTIVE"})
+
+
+def post(url, **k):
+    red.append(("POST", url, k))
+    return Respuesta({"outputs": [{"type": "text", "text": "ok"}, {"type": "video", "uri": uri}]})
+
+
+def bajar(url, cabeceras, **k):
+    bajadas.append((url, cabeceras))
+    return b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
+
+
+http_real = ia.httpx.get, ia.httpx.post, ia.httpx.delete, claves.cargar, ia.seguro.descargar
+ia.httpx.get, ia.httpx.post, ia.seguro.descargar = get, post, bajar
+ia.httpx.delete = lambda url, **k: red.append(("DELETE", url, k))
+claves.cargar = lambda: {"gemini": {"clave": "AIzaPrueba"}}
+try:
+    foto = tmp / "foto.png"
+    dibujar("", 64, 64, foto)
+    clip = ia.video_hablado("una manzana dice hola", "1:1", tmp / "omni.mp4", foto)
+    assert clip.is_file() and red[0][1].endswith("/models")  # se pregunta qué modelos tiene la clave
+    cuerpo = red[1][2]["json"]
+    assert red[1][1] == f"{ia.API_GEMINI}/interactions" and cuerpo["model"] == "gemini-omni-1.5-pro"  # el más capaz
+    assert cuerpo["store"] and cuerpo["response_format"]["aspect_ratio"] == "16:9"  # 1:1 sale de 16:9 recortado
+    assert cuerpo["input"][0]["type"] == "image" and cuerpo["input"][0]["mime_type"] == "image/png"
+    assert bajadas == [(f"{ia.API_GEMINI}/files/abc-123:download?alt=media", {"x-goog-api-key": "AIzaPrueba"})]
+    assert red[-1][:2] == ("DELETE", f"{ia.API_GEMINI}/files/abc-123")  # no se queda en Google
+    red.clear()
+    ia.video_hablado("otra", "9:16", tmp / "omni2.mp4")
+    assert not any(u.endswith("/models") for _, u, _ in red)  # el modelo se pregunta una vez por sesión
+    assert red[0][2]["json"]["input"] == "otra" and red[0][2]["json"]["response_format"]["aspect_ratio"] == "9:16"
+    uri = "https://ladron.example/files/abc:download"  # la clave nunca viaja a una dirección de la respuesta
+    bajadas.clear()
+    assert "inesperada" in falla(ia.video_hablado, "x", "9:16", tmp / "omni3.mp4", error=RuntimeError)
+    assert not bajadas
+finally:
+    ia.httpx.get, ia.httpx.post, ia.httpx.delete, claves.cargar, ia.seguro.descargar = http_real
+assert not desde_prompt.con_voz_propia()  # sin clave de Gemini: imágenes con narración, como siempre
+hechos = len(list(desde_prompt.PROYECTOS.iterdir()))
+falla(desde_prompt.generar, "", guion=mio, animado=True, error=ia.SinClave)
+assert len(list(desde_prompt.PROYECTOS.iterdir())) == hechos  # se avisa antes de crear (y gastar) nada
+
+pedidos_omni = []
+
+
+def omni(prompt, formato, destino, referencia=None):
+    pedidos_omni.append(prompt)
+    if "sunset" in prompt:
+        raise RuntimeError("sin saldo")
+    video.ffmpeg("-f", "lavfi", "-i", "testsrc=s=360x640:d=3:r=24", "-f", "lavfi", "-i", "sine=f=440:d=3",
+                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", destino)
+    return destino
+
+
+omni_real, transcribir_real, animar_real = ia.video_hablado, ia.transcribir, ia.video_desde_imagen
+ia.video_hablado, ia.video_desde_imagen = omni, lambda *a, **k: None  # la escena que falla: sin animar (sería red)
+ia.transcribir = lambda audio, idioma=None, pista=None, **k: [{"palabra": "Hola.", "inicio": 0.2, "fin": 1.0}]
+claves.cargar = lambda: {"gemini": {"clave": "AIzaPrueba"}}
+try:
+    assert not desde_prompt.con_voz_propia()  # la IA de video en «No usar»: tampoco con voz
+    claves.elegir_por_defecto("video", "auto")
+    assert desde_prompt.con_voz_propia()  # con Gemini conectado, «Crear video» anima con voz por defecto
+    largo = {**mio, "escenas": mio["escenas"] + [{"narracion": "Sobra.", "imagen": "extra"}] * 3}
+    antes = len(voces)
+    r = desde_prompt.generar("", "9:16", 16, guion=largo)  # sin decir nada: animado
+    assert len(pedidos_omni) == 2  # 16 s = 2 escenas de 8 s: ni una de más (cada una se paga)
+    assert '"Hola."' in pedidos_omni[0] and "lip sync" in pedidos_omni[0] and "a beach" in pedidos_omni[0]
+    assert len(voces) == antes + 1  # solo la escena que falló lleva narración
+    final = Path(r["resultados"][0]["archivo"])
+    assert final.is_file() and 2.8 < video.duracion(final) < 3.5  # el clip de 3 s se corta al acabar de hablar
+    assert any("2" in a and "sin saldo" in a for a in r["avisos"]) and any("US$" in a for a in r["avisos"])
+    pedidos_omni.clear()
+    json.loads(herramientas.crear_video("", segundos=15, guion=json.dumps(mio), animado=False))
+    assert not pedidos_omni  # animado=False: imágenes con narración aunque haya Gemini
+    escenas, costo = desde_prompt.costo_hablado(600)
+    assert escenas == desde_prompt.MAX_HABLADAS and abs(costo - escenas) < 1e-6  # tope: ~US$1 por escena
+finally:
+    ia.video_hablado, ia.transcribir, ia.video_desde_imagen = omni_real, transcribir_real, animar_real
+    claves.cargar = http_real[3]
+    claves.elegir_por_defecto("video", "ninguno")
+
 # ---------- La página ----------
 from ui.paginas.serie import PaginaSerie  # noqa: E402
 

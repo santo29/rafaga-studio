@@ -24,7 +24,8 @@ NOMBRES_PROVEEDOR = {"auto": t("Automático (la mejor conectada)"), "pollination
 # Cada servicio que se puede conectar: para qué sirve, cuánto cuesta y dónde se saca la clave (de lo gratis a lo de pago)
 SERVICIOS = [
     ("groq", "Groq", t("Guiones con IA y transcripción rápida"), t("Gratis"), "https://console.groq.com/keys"),
-    ("gemini", "Gemini (Google)", t("Guiones con IA; música con Lyria"), t("Gratis (música de pago)"),
+    ("gemini", "Gemini (Google)", t("Guiones con IA; videos animados con voz y música con Lyria"),
+     t("Gratis (video y música de pago)"),
      "https://aistudio.google.com/app/apikey"),
     ("cloudflare", "Cloudflare Workers AI", t("Imágenes, ~100 al día. Pega el ID de cuenta y el token juntos"),
      t("Gratis"), "https://dash.cloudflare.com/profile/api-tokens"),

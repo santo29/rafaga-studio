@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton, QS
 from motor import claves, edicion, idioma, nubes, seguro, serie, shorts
 from motor.idioma import t
 from ui.comun import boton, etiqueta, Reproductor, tarjeta, ver_imagen
+from ui import legal
 from ui.iconos import icono
 from ui.paginas import director as pagina_director
 from ui.paginas.claves import NOMBRES_PROVEEDOR
@@ -210,6 +211,7 @@ class PaginaInicio(QWidget):
         self.reproductor.hide()
         lay.addWidget(self.reproductor)
         lay.addStretch()
+        lay.addWidget(etiqueta(f"{legal.marca()}  ·  {t('Tus proyectos se guardan en tu PC.')}", "sub"))
 
     @staticmethod
     def _rejilla(columnas: int) -> QGridLayout:

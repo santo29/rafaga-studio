@@ -51,6 +51,7 @@ INSTRUCCIONES = """Eres compositor y productor musical de éxitos. Escribe canci
 - letra: con etiquetas de sección en inglés entre corchetes ([Intro], [Verse 1], [Chorus], [Bridge], [Outro]).
   Coro pegajoso y repetible, frases cortas con rima y flow. Si el género es dembow o dancehall, usa jerga
   dominicana real y coros de calle de llamada y respuesta. Nada de contenido de odio ni nombres de artistas reales.
+- Letra en el idioma de la idea o en el que pida el usuario.
 - estilo: descripción de producción en inglés (instrumentos, BPM, ambiente, voz) basada en el estilo dado.
 - titulo, descripcion y hashtags para publicar la canción."""
 
@@ -103,14 +104,15 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
     esquema = ESQUEMA if con_voz else {**ESQUEMA, "required": [k for k in ESQUEMA["required"] if k != "letra"],
                                        "properties": {k: v for k, v in ESQUEMA["properties"].items() if k != "letra"}}
     cancion = ia.texto_json(INSTRUCCIONES, (
-        f"Idea: {idea}\nGénero y producción: {estilo_base}\nDuración: unos {segundos} segundos.\n"
+        f"Idea: {idea}\nGénero y producción: {estilo_base or 'elígelo tú según la idea'}\nDuración: unos {segundos} segundos.\n"
         + ("Con voz y letra." if con_voz else "Solo pista instrumental, sin letra.")), esquema)
     letra = (cancion.get("letra") or "") if con_voz else ""
 
     aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor=c["proveedor"].capitalize()), 0.3)
     producir = _elevenlabs if c["proveedor"] == "elevenlabs" else _gemini
     audio = carpeta / "cancion.mp3"
-    audio.write_bytes(producir(c, f"{estilo_base}. {cancion['estilo']}", letra if con_voz else None, segundos))
+    estilo = ". ".join(e for e in (estilo_base, cancion["estilo"]) if e)
+    audio.write_bytes(producir(c, estilo, letra if con_voz else None, segundos))
     (carpeta / "letra.txt").write_text(f"{cancion['titulo']}\n\n{letra}", encoding="utf-8")
 
     proyecto = {"tipo": "musica", "formato": "audio", "carpeta": str(carpeta), "titulo": cancion["titulo"],

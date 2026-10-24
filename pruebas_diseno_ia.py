@@ -421,7 +421,8 @@ with tempfile.TemporaryDirectory() as d:
     falla(mcp_server.crear_video, "x", "9:16", "no es un número", error=ToolError)  # y en todas las herramientas
     herramientas = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert len(herramientas) == 15 and all(hasattr(getattr(mcp_server, h), "__wrapped__") for h in herramientas)
-    assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta"}
+    assert set(herramientas["crear_diseno"].input_schema["properties"]) == {"pedido", "tipo", "usar_marca", "propuesta",
+                                                                            "estilo"}
     assert "Diseña una pieza" in herramientas["crear_diseno"].description  # el envoltorio no se come la descripción
 assert "crear_diseno" in conexion_mcp.probar()  # el servidor arranca y la lista
 print("Pruebas de la IA diseñadora pasadas.")

@@ -338,6 +338,137 @@ import asyncio  # noqa: E402
 import mcp_server  # noqa: E402
 
 assert {h.name for h in asyncio.run(mcp_server.mcp.list_tools())} == set(herramientas.TODAS)
+
+# ---------- Director coherente: elige bien, pasa el pedido entero y deja escribir al especialista ----------
+from motor import desde_prompt, diseno_ia, musica, nichos  # noqa: E402
+
+REGLA_FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras "
+                "cambiadas). Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa "
+                "la parecida que sí encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual "
+                "de probables, dilo.")
+assert REGLA_FALTAS in director.INSTRUCCIONES
+assert "Dibujos animados" in director.INSTRUCCIONES and "estampado" in director.INSTRUCCIONES
+assert "escríbelos tú" not in director.INSTRUCCIONES and "DE PAGO" in director.INSTRUCCIONES  # sin pagar sin preguntar
+catalogo = director.catalogo()
+assert not [o for o in director.OCULTOS if o in catalogo], catalogo  # ni como argumento ni explicados
+assert "estampado" in catalogo and "Dibujos animados" in catalogo and "opacidad" not in catalogo
+assert "Bachata" in herramientas.crear_cancion.__doc__ and "genero: str = ''" in catalogo
+assert "es-DO-RamonaNeural" in herramientas.crear_video.__doc__ and "Lujo cinematográfico" in catalogo
+assert "sin red ni país" in catalogo and "estilo: str = 'Cartoon 2D'" in catalogo
+# El MCP (un agente de fuera) sigue pudiendo pasar los textos largos
+esquemas = {h.name: h for h in asyncio.run(mcp_server.mcp.list_tools())}
+assert "propuesta" in esquemas["crear_diseno"].input_schema["properties"] and "guion" in esquemas[
+    "crear_video"].input_schema["properties"] and "biblia" in esquemas["crear_serie"].input_schema["properties"]
+assert "guion" in esquemas["crear_episodio"].input_schema["properties"]
+assert "(0-100)" in esquemas["crear_diseno"].description and "Bachata" in esquemas["crear_cancion"].description
+
+# crear_diseno: entiende primero (contrato de diseno_ia.entender) y pregunta sin gastar si duda
+llamado, entendido = {"entender": [], "crear": [], "imagen": []}, {}
+
+
+def entender_falso(pedido, tipo="auto"):
+    llamado["entender"].append((pedido, tipo))
+    return dict(entendido)
+
+
+def crear_falso(pedido, tipo, usar_marca=True, aviso=None, propuesta=None, estilo="auto"):
+    llamado["crear"].append({"pedido": pedido, "tipo": tipo, "propuesta": propuesta, "estilo": estilo})
+    return {"tipo": "diseno", "carpeta": "C:/x/d", "archivo": "C:/x/d/vista_previa.png", "titulo": "t"}
+
+
+guardados = {n: getattr(diseno_ia, n, None) for n in ("entender", "crear", "ESTILOS")}
+_imagen = ia.imagen
+diseno_ia.entender, diseno_ia.crear = entender_falso, crear_falso
+diseno_ia.ESTILOS = {"auto": "", "vector": "flat vector", "tatuaje": "tattoo flash"}
+ia.imagen = lambda *a, **k: llamado["imagen"].append(a)
+try:
+    entendido.update(entendido="carabela gótica", seguro=False, pregunta="¿Calavera o carabela (barco)?",
+                     opciones=["calavera gótica", "carabela gótica (barco)"], tipo="ilustracion", estilo="tatuaje")
+    r = json.loads(herramientas.crear_diseno("una carabela gótica"))
+    assert r == {"pregunta": "¿Calavera o carabela (barco)?", "opciones": ["calavera gótica", "carabela gótica (barco)"]}
+    assert llamado["entender"] == [("una carabela gótica", "auto")] and not llamado["crear"] and not llamado["imagen"]
+    # Seguro: diseña lo entendido con el tipo y el estilo que eligió, y lo dice lo primero
+    entendido.update(entendido="calavera gótica para camiseta", seguro=True, tipo="estampado")
+    r = json.loads(herramientas.crear_diseno("carabela gotica pa una camiseta"))
+    assert llamado["crear"][-1] == {"pedido": "calavera gótica para camiseta", "tipo": "estampado", "propuesta": None,
+                                    "estilo": "tatuaje"}
+    assert list(r)[0] == "entendido" and r["entendido"] == "calavera gótica para camiseta" and r["tipo"] == "diseno"
+    herramientas.crear_diseno("calavera", tipo="logo", estilo="vector")  # lo que se pide expresamente manda
+    assert llamado["entender"][-1] == ("calavera", "logo") and llamado["crear"][-1]["tipo"] == "logo"
+    assert llamado["crear"][-1]["estilo"] == "vector"
+    # El Director no puede mandar la propuesta: se quita y el especialista entiende y diseña
+    llamado["entender"].clear()
+    args, res = director._usar("crear_diseno", json.dumps({"pedido": "logo de mi barbería El Tigre", "tipo": "logo",
+                                                           "propuesta": {"titulo": "mío", "capas": []}}),
+                               lambda *a: None, lambda n: None, "", "")
+    assert args == {"pedido": "logo de mi barbería El Tigre", "tipo": "logo"} and not res.startswith("ERROR"), res
+    assert llamado["crear"][-1]["propuesta"] is None and llamado["entender"] == [("logo de mi barbería El Tigre", "logo")]
+    # El MCP sí la manda: no se pregunta nada y el tipo automático cae en post
+    llamado["entender"].clear()
+    herramientas.crear_diseno("x", propuesta={"titulo": "mío"})
+    assert not llamado["entender"] and llamado["crear"][-1]["propuesta"] == {"titulo": "mío"}
+    assert llamado["crear"][-1]["tipo"] == "post"
+    # Sin gastar nada: un tipo que no existe y un pedido vacío (el error lo da el diseñador)
+    try:
+        herramientas.crear_diseno("calavera", tipo="camiseta")
+        raise AssertionError("debió rechazar el tipo")
+    except ValueError as e:
+        assert "Tipo de diseño desconocido" in str(e) and "logo" in str(e)
+    herramientas.crear_diseno("   ")
+    assert not llamado["entender"] and not llamado["imagen"]
+    # Con el diseno_ia de antes (sin entender ni estilos) sigue funcionando
+    del diseno_ia.entender, diseno_ia.ESTILOS
+    diseno_ia.crear = lambda pedido, tipo, usar_marca=True, aviso=None, propuesta=None: (
+        llamado["crear"].append(tipo) or {"tipo": "diseno"})
+    assert json.loads(herramientas.crear_diseno("calavera")) == {"tipo": "diseno"} and llamado["crear"][-1] == "post"
+finally:
+    ia.imagen = _imagen
+    for nombre, valor in guardados.items():
+        if valor is not None:
+            setattr(diseno_ia, nombre, valor)
+        elif hasattr(diseno_ia, nombre):
+            delattr(diseno_ia, nombre)
+
+# crear_video: una voz inventada falla antes de gastar nada
+_generar, generados = desde_prompt.generar, []
+desde_prompt.generar = lambda *a, **k: generados.append(a) or {"resultados": []}
+try:
+    try:
+        herramientas.crear_video("un perrito que habla", voz="es-DO-InventadaNeural")
+        raise AssertionError("debió rechazar la voz")
+    except ValueError as e:
+        assert "es-DO-EmilioNeural" in str(e) and not generados
+    herramientas.crear_video("un perrito que habla", voz="es-DO-RamonaNeural")
+    assert len(generados) == 1
+finally:
+    desde_prompt.generar = _generar
+
+# investigar_nichos: el tema solo, la red y el país por separado
+_investigar = nichos.investigar
+nichos.investigar = lambda tema, **k: {"tema": tema, "redes": k["redes"], "pais": k["pais"]}
+try:
+    assert json.loads(herramientas.investigar_nichos("recetas dominicanas", "Estados Unidos", "TikTok")) == {
+        "tema": "recetas dominicanas", "redes": "TikTok", "pais": "Estados Unidos"}
+finally:
+    nichos.investigar = _investigar
+
+# crear_cancion: sin género lo elige la IA según la idea, y la letra va en el idioma de la idea
+_para, _gemini, _proyectos, pedidos_musica, producidos = claves.para, musica._gemini, musica.PROYECTOS, [], []
+claves.para = lambda uso: {"proveedor": "gemini", "clave": "falsa", "modelo_musica": "m"}
+ia.texto_json = lambda instrucciones, pedido, esquema: pedidos_musica.append((instrucciones, pedido)) or {
+    "titulo": "T", "estilo": "sad bachata, female vocals", "letra": "[Chorus] ay", "descripcion": "d", "hashtags": []}
+musica._gemini = lambda c, estilo, letra, segundos: producidos.append(estilo) or b"ID3"
+try:
+    musica.PROYECTOS = tmp / "musica1"
+    herramientas.crear_cancion("una bachata triste con voz de mujer")
+    assert "elígelo tú según la idea" in pedidos_musica[0][1] and "idioma de la idea" in pedidos_musica[0][0]
+    assert producidos == ["sad bachata, female vocals"]  # sin un «. » suelto delante
+    musica.PROYECTOS = tmp / "musica2"
+    herramientas.crear_cancion("una bachata triste", genero="Bachata")
+    assert producidos[-1] == musica.GENEROS["Bachata"] + ". sad bachata, female vocals"
+finally:
+    claves.para, musica._gemini, musica.PROYECTOS, ia.texto_json = _para, _gemini, _proyectos, _pensar
+
 # ---------- Arreglos de la revisión adversarial ----------
 # La IA manda los argumentos como objeto (no como texto): vale igual
 assert ia._validar({"mensaje": "m", "herramienta": "x", "argumentos": {"a": 1}}, director.ESQUEMA)["argumentos"] == \

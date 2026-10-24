@@ -1,4 +1,4 @@
-"""Pruebas del Director IA, el asistente de voz y su luz, sin red ni claves: python pruebas_director.py"""
+"""Pruebas del Director IA, el asistente de voz y su luz, sin red ni claves: python -m pruebas.director"""
 import base64
 import json
 import os

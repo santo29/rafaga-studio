@@ -1,4 +1,4 @@
-"""Pruebas del estudio de diseño (motor/diseno.py y motor/marca.py), sin red ni claves: python pruebas_diseno.py"""
+"""Pruebas del estudio de diseño (motor/diseno.py y motor/marca.py), sin red ni claves: python -m pruebas.diseno"""
 import copy
 import json
 import os

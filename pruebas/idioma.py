@@ -1,5 +1,5 @@
 """Idiomas: la regla de detección, t() y que cada texto marcado con t() esté traducido en todos los idiomas.
-Sin red. Se ejecuta solo o desde pruebas.py."""
+Sin red. Se ejecuta sola o con todas: python -m pruebas."""
 import ast
 import json
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from motor import idioma
 
-RAIZ = Path(__file__).resolve().parent
+RAIZ = Path(__file__).resolve().parent.parent
 
 # ---------- Regla de detección (ver motor/idioma.py) ----------
 d = idioma.detectar

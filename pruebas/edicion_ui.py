@@ -1,5 +1,5 @@
 """Pruebas del editor de video (ui/paginas/edicion.py y ui/linea_tiempo.py) sin ventana, red ni claves:
-python pruebas_edicion_ui.py"""
+python -m pruebas.edicion_ui"""
 import os
 import shutil
 import sys

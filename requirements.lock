@@ -1,6 +1,6 @@
 # Versiones exactas ya probadas, con el hash de cada archivo (las instala «Ráfaga Studio.bat» con --require-hashes):
 # una versión o un archivo nuevo malicioso de una librería no entra solo. yt-dlp se actualiza luego en segundo plano
-# (YouTube cambia a menudo), solo con versiones de hace 7 días o más. Regenerar: ver actualizar_lock.py.
+# (YouTube cambia a menudo), solo con versiones de hace 7 días o más. Regenerar: ver instalador/actualizar_lock.py.
 # OJO: aceptadas con menos de 7 días (vuelve a generar el lock sin --aceptar-recientes desde el 2026-10-29):
 #   anthropic==2.1.0, av==19.0.2, certifi==2026.10.19, filelock==4.2.4, httpcore2==2.16.0, httpx2==2.16.0, json_repair==0.64.1, lameenc==1.9.0, modal==1.6.2, openai==3.36.0, pip==26.2.2, platformdirs==4.13.5, setuptools==84.2.1, starlette==1.9.0, yt-dlp==2026.10.21
 aiohappyeyeballs==2.7.1 \

@@ -22,22 +22,22 @@ The `.bat` creates `.venv` with the exact, hash-pinned versions of `requirements
 ## Run the tests · Pasar las pruebas
 
 ```bat
-.venv\Scripts\python pruebas.py
+.venv\Scripts\python -m pruebas
 ```
 
 The whole suite runs offline, with fake AI services and no keys. **Every pull request must pass it.** If you add a
-feature, add a small test next to the similar ones: engine tests go in `pruebas.py` or `pruebas_seguridad.py` (MIT);
-the other `pruebas_*.py` test the app.
+feature, add a small test next to the similar ones: engine tests go in `pruebas/__main__.py` or `pruebas/seguridad.py` (MIT);
+the other `pruebas/*.py` test the app.
 
 ## Code style · Estilo del código
 
 - Write like the surrounding code: Spanish names and comments, short functions, comments only for the *why*.
 - Every text the user sees goes through `t("…")` and needs its translation in `idiomas/en.json`, `pt.json` and
-  `fr.json` (`pruebas_idioma.py` checks it).
+  `fr.json` (`pruebas/idioma.py` checks it).
 - Never trust input from outside (files, links, AI answers, MCP calls): use the checks in `motor/seguro.py`.
 - Keys and tokens never go in code, logs, URLs or tests. Tests use fake keys.
 - No new dependency for a few lines of code. New dependencies go in `requirements.txt` and the lock is regenerated
-  with `actualizar_lock.py`.
+  with `instalador/actualizar_lock.py`.
 
 ## Good first contributions · Buenas primeras contribuciones
 
@@ -48,8 +48,8 @@ the other `pruebas_*.py` test the app.
 
 ## Licensing of contributions · Licencia de lo que aportas
 
-The engine (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas.py`, `pruebas_seguridad.py`, `ejemplos/`)
+The engine (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py`, `ejemplos/`)
 is MIT: contributions to it are accepted under the MIT license. The desktop app (`app.py`, `ui/`) is source-available
-with all rights reserved, and so are the other tests (`pruebas_*.py`), `prueba_real.py`, `actualizar_lock.py` and
+with all rights reserved, and so are the other tests (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py` and
 `instalador/`: by contributing to them you agree that the owner may use your contribution in Ráfaga Studio
 under its own license.

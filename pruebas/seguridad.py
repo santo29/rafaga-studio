@@ -1,5 +1,5 @@
 """Ataques reales que encontró la verificación de seguridad: ninguno debe volver a funcionar.
-Sin red. Se ejecuta solo o desde pruebas.py."""
+Sin red. Se ejecuta sola o con todas: python -m pruebas."""
 import contextlib
 import http.server
 import os
@@ -239,9 +239,9 @@ for hostil in ('{"' * 100_000, '{"a":' + "[" * 30_000, "{" * 200_000):
 with tempfile.TemporaryDirectory() as d:
     r = subprocess.run([sys.executable, "-c", "import os, mcp_server; print(os.getcwd()); print(mcp_server._ruta('f.png'))"],
                        cwd=d, capture_output=True, text=True, encoding="utf-8",
-                       env={**os.environ, "PYTHONPATH": str(Path(__file__).parent), "PYTHONIOENCODING": "utf-8"})
+                       env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parent.parent), "PYTHONIOENCODING": "utf-8"})
     trabajo, ruta = r.stdout.strip().splitlines()[-2:]
-    assert Path(trabajo) == Path(__file__).resolve().parent and Path(ruta) == Path(d) / "f.png", r.stdout + r.stderr
+    assert Path(trabajo) == Path(__file__).resolve().parent.parent and Path(ruta) == Path(d) / "f.png", r.stdout + r.stderr
 
 # 15. Tokens de Cloudflare con el formato nuevo (cfut_/cfat_) se reconocen
 assert claves.candidatos("0123456789abcdef0123456789abcdef cfut_" + "T" * 46) == ["cloudflare"]

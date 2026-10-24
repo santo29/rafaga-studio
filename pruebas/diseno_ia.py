@@ -1,5 +1,5 @@
 """Pruebas de la IA diseñadora (motor/diseno_ia.py y la herramienta MCP crear_diseno), sin red ni claves: la IA de
-texto y la de imágenes se sustituyen. python pruebas_diseno_ia.py"""
+texto y la de imágenes se sustituyen. python -m pruebas.diseno_ia"""
 import asyncio
 import copy
 import json

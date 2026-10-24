@@ -1,4 +1,4 @@
-"""Pruebas de la serie animada, sin red ni claves: python pruebas_serie.py"""
+"""Pruebas de la serie animada, sin red ni claves: python -m pruebas.serie"""
 import json
 import os
 import shutil

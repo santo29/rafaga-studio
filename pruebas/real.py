@@ -1,5 +1,5 @@
 """Prueba de verdad, con tus claves conectadas: ejecuta cada función con los servicios reales y dice qué funciona.
-Uso: .venv\\Scripts\\python prueba_real.py   (gasta poco: casi todo va por las opciones gratis)."""
+Uso: .venv\\Scripts\\python -m pruebas.real   (gasta poco: casi todo va por las opciones gratis)."""
 import shutil
 import sys
 import tempfile

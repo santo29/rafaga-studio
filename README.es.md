@@ -142,11 +142,11 @@ cabina.sesion("beat.mp3", "mi_voz.wav", estilo="Dembow / urbano (seco y al frent
 | `idiomas/` — las traducciones que usa el motor | **MIT** (abierto) |
 | `mcp_server.py` — para que Claude u otro agente use el estudio | **MIT** (abierto) |
 | `modal_app.py` — video IA en tu propia nube de Modal | **MIT** (abierto) |
-| `pruebas.py` y `pruebas_seguridad.py` — pruebas sin internet ni claves (`python pruebas.py`) | **MIT** (abierto) |
+| `pruebas/__main__.py` y `pruebas/seguridad.py` — pruebas sin internet ni claves (`python -m pruebas`) | **MIT** (abierto) |
 | `ejemplos/` — los videos de ejemplo y cómo se hicieron (`python ejemplos/crear.py`) | **MIT** (abierto) |
 | `assets/iconos` (Lucide) y `assets/fuentes` (Google Fonts), ver `assets/LEEME.md` | ISC (iconos) y OFL (fuentes) |
 | `assets/icono.*` y `assets/portada-github.png` — logo y portada | Marca Ráfaga Studio™, todos los derechos reservados |
-| Las demás pruebas (`pruebas_*.py`), `prueba_real.py`, `actualizar_lock.py` e `instalador/` | Parte de la app, todos los derechos reservados |
+| Las demás pruebas (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py` e `instalador/` | Parte de la app, todos los derechos reservados |
 | `app.py` y `ui/` — la app de escritorio | Código visible, todos los derechos reservados (Ráfaga Studio Pro): no es open source |
 
 ¿Quieres ayudar? Lee [CONTRIBUTING.md](CONTRIBUTING.md): abre un *issue* con ideas o errores, o manda un *pull

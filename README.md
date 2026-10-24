@@ -95,7 +95,7 @@ flowchart LR
   validated before anything is spent.
 - **Pinned and hashed dependencies** (`requirements.lock`): nothing different from what was tested gets installed,
   except yt-dlp, which updates itself on launch (prebuilt wheels only, releases at least 7 days old).
-- **Offline test suite:** `python pruebas.py` runs the whole studio with fake AI services, no internet and no keys.
+- **Offline test suite:** `python -m pruebas` runs the whole studio with fake AI services, no internet and no keys.
 
 ## 📦 Install
 
@@ -174,9 +174,9 @@ Open core:
 
 | Part | License |
 |---|---|
-| Engine: `motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas.py`, `pruebas_seguridad.py`, `ejemplos/` | **MIT** |
+| Engine: `motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py`, `ejemplos/` | **MIT** |
 | Desktop app: `app.py` and `ui/` (Ráfaga Studio Pro) | Source-available, all rights reserved |
-| Other tests (`pruebas_*.py`), `prueba_real.py`, `actualizar_lock.py`, `instalador/` | Part of the app, all rights reserved |
+| Other tests (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py`, `instalador/` | Part of the app, all rights reserved |
 | Icons (`assets/iconos`, Lucide) and fonts (`assets/fuentes`, Google Fonts) | ISC and OFL |
 | Logo and cover (`assets/icono.*`, `assets/portada-github.png`) | Ráfaga Studio™ trademark, all rights reserved |
 

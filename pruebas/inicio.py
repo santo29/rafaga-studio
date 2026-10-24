@@ -1,4 +1,4 @@
-"""Pruebas de la página «Inicio» (ui/paginas/inicio.py) sin red ni claves de verdad: python pruebas_inicio.py"""
+"""Pruebas de la página «Inicio» (ui/paginas/inicio.py) sin red ni claves de verdad: python -m pruebas.inicio"""
 import json
 import os
 import tempfile

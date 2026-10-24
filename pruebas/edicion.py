@@ -1,5 +1,5 @@
 """Pruebas del modelo del editor de video (motor/edicion.py) y de los videos en motor/seguro.py, sin red ni claves:
-python pruebas_edicion.py"""
+python -m pruebas.edicion"""
 import copy
 import hashlib
 import json

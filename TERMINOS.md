@@ -9,9 +9,9 @@ acuerdo, no uses la app.
 
 Ráfaga Studio es un estudio creativo con IA que funciona en tu PC.
 
-- **El motor** (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas.py`, `pruebas_seguridad.py` y
-  `ejemplos/`) es software libre con licencia MIT: ver [LICENSE](LICENSE). Las demás pruebas (`pruebas_*.py`),
-  `prueba_real.py` y `actualizar_lock.py` forman parte de la app y siguen su licencia.
+- **El motor** (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py` y
+  `ejemplos/`) es software libre con licencia MIT: ver [LICENSE](LICENSE). Las demás pruebas (`pruebas/*.py`),
+  `pruebas/real.py` y `instalador/actualizar_lock.py` forman parte de la app y siguen su licencia.
 - **La app de escritorio** (`app.py` y `ui/`, «Ráfaga Studio Pro») viene en el repositorio para que funcione, pero no
   es software libre: es propiedad del titular. Puedes usarla para crear
   tu contenido, también con fines comerciales. No puedes revender, redistribuir, alquilar ni publicar la app, ni una

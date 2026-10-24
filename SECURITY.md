@@ -31,4 +31,4 @@ Windows account.
 ## How the app protects users · Cómo protege la app
 
 See the "Security" section of the [privacy notice](PRIVACIDAD.md) and the offline security test suite
-(`pruebas_seguridad.py`).
+(`pruebas/seguridad.py`).

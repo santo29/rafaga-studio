@@ -1,4 +1,4 @@
-"""Pruebas de motor/recursos.py (iconos, fuentes, emojis), sin internet: python pruebas_diseno_recursos.py"""
+"""Pruebas de motor/recursos.py (iconos, fuentes, emojis), sin internet: python -m pruebas.diseno_recursos"""
 import hashlib
 import os
 

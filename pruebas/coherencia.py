@@ -1,4 +1,4 @@
-"""Que las partes del estudio digan y usen lo mismo (sin red ni claves): python pruebas_coherencia.py"""
+"""Que las partes del estudio digan y usen lo mismo (sin red ni claves): python -m pruebas.coherencia"""
 import os
 import re
 from pathlib import Path
@@ -9,7 +9,7 @@ from motor import anuncios, desde_prompt, director, diseno_ia, herramientas, ia,
 from ui.paginas import diseno as pagina_diseno  # noqa: E402
 from ui.paginas.director import PAGINA  # noqa: E402
 
-RAIZ = Path(__file__).resolve().parent
+RAIZ = Path(__file__).resolve().parent.parent
 
 # La regla de las faltas de ortografía, la misma en todas las IA que leen lo que escribe el usuario
 for instrucciones in (desde_prompt.INSTRUCCIONES, anuncios.INSTRUCCIONES, director.INSTRUCCIONES, musica.INSTRUCCIONES,

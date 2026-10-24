@@ -1,4 +1,4 @@
-"""Pruebas rápidas sin internet ni claves: python pruebas.py"""
+"""Pruebas rápidas sin internet ni claves: python -m pruebas"""
 import os
 import subprocess
 import sys
@@ -271,7 +271,7 @@ with tempfile.TemporaryDirectory() as d:
         raise AssertionError("debió rechazar un enlace a la red local")
     except (RuntimeError, ValueError) as e:  # lo para el chequeo de host público (antes) o yt-dlp (después)
         assert "red local" in str(e) or "sitios conocidos" in str(e)
-import pruebas_seguridad  # noqa: E402,F401  los ataques de la segunda auditoría (archivo aparte)
+from pruebas import seguridad  # noqa: E402,F401  los ataques de la segunda auditoría (archivo aparte)
 print("Pruebas de seguridad pasadas.")
 
 # El lanzador: dentro de un bloque «( … )» del .bat, un paréntesis sin ^ en un echo cierra el bloque antes de tiempo y
@@ -279,7 +279,8 @@ print("Pruebas de seguridad pasadas.")
 import re  # noqa: E402
 
 bloque = False
-for linea in Path(__file__).with_name("Ráfaga Studio.bat").read_text(encoding="utf-8").splitlines():
+RAIZ = Path(__file__).resolve().parent.parent
+for linea in (RAIZ / "Ráfaga Studio.bat").read_text(encoding="utf-8").splitlines():
     linea = linea.strip()
     if linea.endswith("("):
         bloque = True
@@ -442,9 +443,8 @@ finally:
 print("Pruebas de guiones fieles pasadas.")
 
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
-for archivo in ("pruebas_diseno_recursos.py", "pruebas_diseno.py", "pruebas_diseno_ia.py", "pruebas_diseno_ui.py",
-                "pruebas_edicion.py", "pruebas_render_edicion.py", "pruebas_edicion_ui.py", "pruebas_director.py",
-                "pruebas_serie.py", "pruebas_inicio.py", "pruebas_idioma.py", "pruebas_coherencia.py"):
-    subprocess.run([sys.executable, str(Path(__file__).with_name(archivo))], check=True,
+for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "edicion", "render_edicion", "edicion_ui",
+               "director", "serie", "inicio", "idioma", "coherencia"):
+    subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

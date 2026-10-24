@@ -1,4 +1,4 @@
-# torch y torchaudio sin GPU, del índice oficial de PyTorch (ver actualizar_lock.py).
+# torch y torchaudio sin GPU, del índice oficial de PyTorch (ver instalador/actualizar_lock.py).
 torch==2.14.1+cpu \
     --hash=sha256:100df7e44af5c973606cfef571a14b36b0acfd165d6bbc7aabe3edac95c9ccbd \
     --hash=sha256:192745b92c9ac392298e73de950cd02d8a7886117923073d890625622d343ede \

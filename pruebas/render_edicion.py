@@ -1,5 +1,5 @@
 """Pruebas del render del editor de video (motor/render_edicion.py), sin red ni claves:
-python pruebas_render_edicion.py"""
+python -m pruebas.render_edicion"""
 import os
 import re
 import subprocess

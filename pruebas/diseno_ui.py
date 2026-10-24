@@ -1,4 +1,4 @@
-"""Pruebas de la página «Diseño» (ui/paginas/diseno.py) sin ventana, red ni claves: python pruebas_diseno_ui.py"""
+"""Pruebas de la página «Diseño» (ui/paginas/diseno.py) sin ventana, red ni claves: python -m pruebas.diseno_ui"""
 import copy
 import os
 import sys

@@ -7,7 +7,7 @@ versión, o el índice de PyTorch sirviera otro, la instalación se para en vez 
 - se niega a fijar versiones subidas hace menos de 7 días (si una sale maliciosa, da tiempo a que la retiren),
   salvo con --aceptar-recientes (p. ej. por un arreglo de seguridad urgente); entonces lo apunta en el lock.
 
-Uso, tras probar una actualización:  .venv\\Scripts\\python actualizar_lock.py [--aceptar-recientes]
+Uso, tras probar una actualización:  .venv\\Scripts\\python instalador/actualizar_lock.py [--aceptar-recientes]
 """
 import datetime as dt
 import re
@@ -22,12 +22,12 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-RAIZ = Path(__file__).resolve().parent
+RAIZ = Path(__file__).resolve().parent.parent
 PYTORCH = "https://download.pytorch.org/whl/cpu"
 ESPERA = dt.timedelta(days=7)
 CABECERA = """# Versiones exactas ya probadas, con el hash de cada archivo (las instala «Ráfaga Studio.bat» con --require-hashes):
 # una versión o un archivo nuevo malicioso de una librería no entra solo. yt-dlp se actualiza luego en segundo plano
-# (YouTube cambia a menudo), solo con versiones de hace 7 días o más. Regenerar: ver actualizar_lock.py.
+# (YouTube cambia a menudo), solo con versiones de hace 7 días o más. Regenerar: ver instalador/actualizar_lock.py.
 """
 
 
@@ -126,7 +126,7 @@ def main() -> None:
     (RAIZ / "requirements.lock").write_text(CABECERA + nota + "".join(bloque(n, v, h) for n, v, h, _, _ in revisados),
                                            encoding="utf-8", newline="\n")
     (RAIZ / "requirements-torch.lock").write_text(
-        "# torch y torchaudio sin GPU, del índice oficial de PyTorch (ver actualizar_lock.py).\n" + "".join(torch),
+        "# torch y torchaudio sin GPU, del índice oficial de PyTorch (ver instalador/actualizar_lock.py).\n" + "".join(torch),
         encoding="utf-8", newline="\n")
     print(f"{len(revisados)} paquetes con hash ({sum(len(h) for _, _, h, _, _ in revisados)} archivos).")
 

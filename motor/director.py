@@ -4,7 +4,9 @@ usa una tras otra y te cuenta qué hizo. Funciona con cualquier IA de texto cone
 cada paso se pide como JSON (ia.texto_json), sin depender de que el proveedor sepa usar herramientas."""
 import inspect
 import json
+import re
 import traceback
+import unicodedata
 from datetime import datetime
 
 from . import claves, desde_prompt, diseno_ia, herramientas, ia, memoria, musica, roles, serie, video_musical
@@ -134,8 +136,19 @@ def _norma(texto) -> str:
     return str(texto).replace("\\\\", "\\").replace("/", "\\").strip().lower()
 
 
+def _sin_tildes(texto: str) -> str:
+    return unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode().lower()
+
+
 def _sin_permiso(nombre: str, args: dict, del_usuario: str, de_todos: str) -> str | None:
-    """Por qué no se puede usar un enlace o un archivo que la IA no sacó del usuario (ni del estudio), o None."""
+    """Por qué no se puede usar un enlace o un archivo que la IA no sacó del usuario (ni del estudio), o None. La
+    memoria dura entre sesiones: solo guarda lo que dijo el usuario (la mayoría de sus palabras), nunca lo que pide
+    un texto de terceros."""
+    if nombre == "recordar_preferencia":
+        texto, dicho = _sin_tildes(args.get("preferencia", "")), _sin_tildes(del_usuario)
+        palabras = re.findall(r"\w{4,}", texto) or re.findall(r"\w+", texto)
+        if palabras and 2 * sum(p in dicho for p in palabras) <= len(palabras):
+            return t("solo guardo lo que dijo el usuario, con sus palabras: pregúntale")
     for campo in ENLACES.get(nombre, ()):
         if args.get(campo) and _norma(args[campo]) not in del_usuario:
             return t("solo uso enlaces que escribió el usuario: pídeselo")
@@ -154,10 +167,16 @@ def _numero(valor, defecto: int, minimo: int, maximo: int) -> int:
         return defecto
 
 
-# Cuántas imágenes de IA hace como mucho cada herramienta: con Gemini elegido para las imágenes, cada una se paga
+def _solo_anima(args: dict) -> bool:
+    return bool(args.get("imagen") and args.get("solo_animar"))  # herramientas.crear_video: anima gratis y sale
+
+
+# Cuántas imágenes de IA hace como mucho cada herramienta: con una IA de imágenes de pago, cada una se paga. Animado,
+# las escenas que pasan del tope de Omni (o que le fallan) se hacen con imagen: por lo alto, todas
 FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
-         "crear_video": lambda a: 0 if a.get("animado") is True or (a.get("imagen") and a.get("solo_animar")) else
-         max(3, round(_numero(a.get("segundos"), 45, 15, 600) / 6)) + 2,
+         "crear_video": lambda a: 0 if _solo_anima(a) else
+         max(1, round(_numero(a.get("segundos"), 45, 15, 600) / desde_prompt.SEGUNDOS_HABLADO))
+         if a.get("animado") is True else max(3, round(_numero(a.get("segundos"), 45, 15, 600) / 6)) + 2,
          "crear_video_musical": lambda a: video_musical.MAX_ESCENAS,
          "crear_serie": lambda a: _numero(a.get("personajes"), 3, 1, serie.MAX_PERSONAJES),
          "crear_episodio": lambda a: _numero(a.get("planos"), 12, 3, serie.MAX_PLANOS),
@@ -168,21 +187,35 @@ FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
 def costo(nombre: str, args: dict) -> str | None:
     """La pregunta para el usuario si esta llamada gasta dinero (con su costo aproximado, por lo alto) o publica en su
     canal; None si es gratis y se hace directo. Lo decide el código, nunca la IA.
-    ponytail: las voces de ElevenLabs y las imágenes de OpenAI o Replicate gastan del plan del usuario y no se
-    preguntan; si alguien las elige de pago por defecto, añadirlas aquí con su precio."""
+    ponytail: las voces de ElevenLabs no se preguntan, y en Automático las imágenes se cuentan con la IA que toca
+    (claves.para): si esa falla, nubes.rotar puede seguir con OpenAI o Replicate sin preguntar. Si molesta, contar
+    aquí la de pago más cara de nubes.orden("imagen")."""
     if nombre == "programar_publicacion":
+        fecha = str(args.get("fecha_hora", ""))
+        try:  # en la hora de este PC, como la escribió el usuario (con zona o sin ella)
+            fecha = datetime.fromisoformat(fecha).astimezone().strftime("%Y-%m-%d %H:%M")
+        except (ValueError, OverflowError, OSError):  # OSError: Windows con fechas de antes de 1970
+            fecha = fecha[:20].replace("T", " ")
         return t("Esto sube «{titulo}» a tu canal de YouTube y se publicará solo el {fecha}. ¿Lo hago?",
-                 titulo=str(args.get("titulo", ""))[:100],
-                 fecha=str(args.get("fecha_hora", ""))[:20].replace("T", " "))
+                 titulo=str(args.get("titulo", ""))[:100], fecha=fecha)
     usd = 0.0
-    if nombre == "crear_video" and args.get("animado") is True and "gemini" in claves.cargar():
+    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) \
+            and "gemini" in claves.cargar():
         usd += desde_prompt.costo_hablado(_numero(args.get("segundos"), 45, 15, 600))[1]
     if nombre == "crear_cancion":
-        usd += musica.PRECIO.get((claves.para("musica") or {}).get("proveedor"), 0)
+        # en Automático, si Gemini no deja usar Lyria, musica.crear la hace con ElevenLabs: se avisa con el más caro
+        respaldo = "elevenlabs" in claves.cargar() and claves.ajustes().get("musica", "auto") == "auto"
+        usd += max(musica.PRECIO.get((claves.para("musica") or {}).get("proveedor"), 0),
+                   musica.PRECIO["elevenlabs"] if respaldo else 0)
     imagen = claves.para("imagen") or {}
-    if nombre in FOTOS and imagen.get("proveedor") == "gemini":
+    if nombre in FOTOS and imagen.get("proveedor") in ("gemini", *ia.PRECIO_IMAGEN):
         calidad = args.get("calidad") if args.get("calidad") in ("2K", "4K") else "1K"
-        usd += FOTOS[nombre](args) * ia.precio_imagen_gemini(imagen.get("clave", ""), calidad)
+        usd += FOTOS[nombre](args) * (ia.precio_imagen_gemini(imagen.get("clave", ""), calidad)
+                                      if imagen["proveedor"] == "gemini" else ia.PRECIO_IMAGEN[imagen["proveedor"]])
+    transcribe = nombre in ("sacar_shorts", "crear_video_musical") or (nombre == "editar_video"
+                                                                       and args.get("subtitulos"))
+    if transcribe and (claves.para("transcripcion") or {}).get("proveedor") == "openai":
+        usd += ia.PRECIO_TRANSCRIPCION * ia.MINUTOS_NUBE  # no se sabe cuánto dura: lo más que se sube
     return t("Esto cuesta unos US${costo}. ¿Lo hago?", costo=f"{usd:.2f}") if usd else None
 
 
@@ -237,12 +270,12 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     # lo que hizo el estudio en pedidos anteriores también vale (su resumen, no lo que escribió la IA)
     de_antes = _norma("\n".join(str(m.get("hecho", "")) for m in historial if m.get("rol") == "director"))
     pasos, resultados, formato, mensaje = [], [], "9:16", ""
-    rechazadas = set()  # lo que ya dijo que no en este pedido: no se le vuelve a preguntar
+    rechazadas = set()  # los trabajos (herramienta y argumentos) a los que ya dijo que no: no se le vuelve a preguntar
 
-    def permiso(pregunta: str) -> bool:
-        if pregunta not in rechazadas and confirmar(f"{mensaje}\n\n{pregunta}" if mensaje else pregunta):
+    def permiso(pregunta: str, trabajo: tuple) -> bool:
+        if trabajo not in rechazadas and confirmar(f"{mensaje}\n\n{pregunta}" if mensaje else pregunta):
             return True
-        rechazadas.add(pregunta)
+        rechazadas.add(trabajo)
         return False
     for n in range(MAX_PASOS + 1):
         aviso(t("Pensando…"), n / (MAX_PASOS + 1))
@@ -265,7 +298,9 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
             al_decir(mensaje)
         aviso(mensaje or t("Usando {herramienta}…", herramienta=nombre), (n + 0.5) / (MAX_PASOS + 1))
         de_todos = del_usuario + de_antes + _norma("\n".join(p["resultado"] for p in pasos))
-        args, respuesta = _usar(nombre, r["argumentos"], aviso, al_usar, del_usuario, de_todos, permiso)
+        trabajo = (nombre, str(r["argumentos"]))
+        args, respuesta = _usar(nombre, r["argumentos"], aviso, al_usar, del_usuario, de_todos,
+                                lambda pregunta: permiso(pregunta, trabajo))
         pasos.append({"herramienta": nombre, "argumentos": args, "resultado": respuesta, "mensaje": mensaje})
         resultados += herramientas.resultados(respuesta)
         formato = (args.get("formato") if isinstance(args.get("formato"), str) else None) or formato

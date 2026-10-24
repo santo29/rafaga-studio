@@ -9,14 +9,17 @@ from . import claves, roles
 from .idioma import t
 
 ARCHIVO = Path(__file__).resolve().parent.parent / "datos" / "memoria.json"
-MAX_POR_DEPARTAMENTO, MAX_LARGO = 20, 200  # va en cada pedido a la IA: corta y sin crecer sin fin
+MAX_POR_DEPARTAMENTO, MAX_LARGO = 8, 120  # va en cada paso del Director y en cada pedido a la IA: corta
 _SENSIBLE = re.compile(
-    r"contrase[ñn]a|password|passwd|senha|mot de passe|\bpin\b|\bcvv\b|\bcvc\b|tarjeta de (?:cr[eé]dito|d[eé]bito)|"
-    r"credit card|debit card|card number|cart[ãa]o de cr[eé]dito|carte bancaire|api[ _-]?key|\btoken|\bsecret|"
+    r"contrase[ñn]a|password|passwd|\bpass\b|\b(?:mi|la|tu|su) contra\b|senha|mot de passe|\bpin\b(?!-)|\bcvv\b|"
+    r"\bcvc\b|c[oó]digo de seguridad|tarjeta de (?:cr[eé]dito|d[eé]bito)|credit card|debit card|card number|"
+    r"cart[ãa]o de cr[eé]dito|carte bancaire|api[ _-]?key|\btoken|\bsecret|"
     r"\bmi clave\b|\bclaves? (?:de|del|api|secreta)\b|\biban\b|cuenta bancaria|n[uú]mero de cuenta|seguro social",
     re.IGNORECASE)
-_TARJETA = re.compile(r"(?:\d[ -]?){13,19}")  # 13 a 19 cifras seguidas: tarjeta o cuenta (un teléfono tiene menos)
-_TOKEN = re.compile(r"(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{20,}")  # letras y cifras mezcladas, largo: una clave
+# 13 a 19 cifras seguidas, con espacios, puntos o guiones: tarjeta o cuenta (un teléfono tiene menos). Cuatro años
+# seguidos (2023 2024 2025 2026) no son una tarjeta: ninguna empieza por 19 ni por 20
+_TARJETA = re.compile(r"(?<!\d)(?!(?:(?:19|20)\d\d[ .,-]*){4})(?:\d[ .-]?){13,19}")
+_TOKEN = re.compile(r"(?<![#\w-])(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{20,}")  # letras y cifras, largo: clave; no #tag
 
 
 def cargar() -> dict[str, list[str]]:

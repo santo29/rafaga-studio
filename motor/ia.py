@@ -475,6 +475,9 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
+PRECIO_IMAGEN = {"openai": 0.25, "replicate": 0.01}  # US$ por imagen, por lo alto (gpt-image en alta; FLUX schnell)
+PRECIO_TRANSCRIPCION = 0.006  # US$ por minuto con la Whisper API de OpenAI (Groq y el PC: gratis)
+MINUTOS_NUBE = 105  # lo más largo que transcribir() sube a la nube (25 MB a 32 kbps); lo que pasa, en el PC
 IMAGEN_GEMINI = "gemini-nano-banana-2.1"  # Nano Banana 2.1, si la API no dice cuál hay
 # US$ por imagen según el modelo y su calidad (imageSize), según Google el 22-10-2026 (sin cuota gratis): el Flash
 # Image de respaldo (claves sin Nano Banana) cuesta casi el doble

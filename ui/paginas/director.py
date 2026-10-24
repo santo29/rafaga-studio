@@ -646,9 +646,14 @@ class PaginaDirector(QWidget):
     # ---------- Voz ----------
 
     def alternar_voz(self):
-        """Empieza a escuchar; si ya escucha, para y entiende lo dicho hasta ahí; si está hablando, se calla."""
+        """Empieza a escuchar; si ya escucha, para y entiende lo dicho hasta ahí; si está hablando, se calla. Mientras
+        pregunta «¿Lo hago?», sirve para contestar con la voz (y no corta la respuesta que ya escucha)."""
         if self.altavoz.playbackState() == QMediaPlayer.PlayingState:
             self.altavoz.stop()
+        if self.caja:
+            self._soltar_lectura()  # la pregunta que aún se preparaba no suena encima de su respuesta
+            self.intentos = max(self.intentos, 1)
+            return self._escuchar_respuesta()
         if self.escucha and self.escucha.isRunning():
             self.escucha.detener.set()
             return

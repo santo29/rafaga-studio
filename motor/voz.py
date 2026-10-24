@@ -71,17 +71,23 @@ def entender(audio: np.ndarray) -> str:
     return " ".join(p["palabra"] for p in palabras).strip()
 
 
+# Un sí claro es corto y solo dice que sí: «dale un segundo», «ok, espérate» o «sí, pero ¿cuánto?» no lo son
+SI_CLARO = re.compile(r"[\s¡]*(s[ií]|claro|dale|hazlo|adelante|acepto|yes|sim|oui)"
+                      r"([\s,]+(s[ií]|claro|dale|hazlo|adelante|por favor))*[\s.!,]*")
 SI = {"si", "sí", "claro", "dale", "hazlo", "vale", "ok", "okay", "adelante", "acepto", "yes", "yeah", "sure", "sim",
       "oui"}
-NO = {"no", "nop", "nope", "cancela", "cancelar", "para", "espera", "nunca", "non", "não", "nao"}
+NO = {"no", "nop", "nope", "cancela", "cancelar", "para", "espera", "espérate", "esperate", "aguanta", "momento",
+      "déjame", "dejame", "pensar", "pensarlo", "nunca", "non", "não", "nao"}
 
 
 def si_o_no(texto: str) -> bool | None:
-    """La respuesta a «¿Lo hago?»: True, False o None si no está clara (las dos cosas, «si no…», o ninguna). Sin un
-    sí claro no se gasta."""
-    palabras = set(re.findall(r"\w+", str(texto).lower()))
-    si, no = bool(palabras & SI), bool(palabras & NO)
-    return None if si == no else si
+    """La respuesta a «¿Lo hago?»: True solo con un sí claro, False con un no (o un «espera») sin ningún sí, y None
+    si no está clara. Sin un sí claro no se gasta."""
+    texto = str(texto).lower()
+    if SI_CLARO.fullmatch(texto):
+        return True
+    palabras = set(re.findall(r"\w+", texto))
+    return False if palabras & NO and not palabras & SI else None
 
 
 def hablar(texto: str) -> Path:

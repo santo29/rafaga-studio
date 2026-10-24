@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("RAFAGA_IDIOMA", "es")  # los textos que se comprueban están en español
 from PySide6.QtCore import QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QShortcut  # noqa: E402
 from PySide6.QtPdf import QPdfDocument  # noqa: E402

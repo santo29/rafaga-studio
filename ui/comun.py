@@ -21,15 +21,19 @@ ESTILO = """
 QMainWindow, #contenido, QScrollArea, QScrollArea > QWidget > QWidget { background: #0F0F13; }
 #barra { background: #17171D; border-right: 1px solid #24242C; }
 #marca { font-size: 22px; font-weight: 800; color: #FFFFFF; padding-left: 4px; }
-#nav { text-align: left; padding: 6px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
+#nav { text-align: left; padding: 5px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
        font-size: 17px; }
 #nav:hover { background: #20202A; color: #FFFFFF; }
 #nav:checked { background: #2A2340; color: #FFFFFF; }
 #titulo { font-size: 28px; font-weight: 700; }
 #sub { color: #8D8D9A; }
 #tarjeta { background: #17171D; border: 1px solid #24242C; border-radius: 14px; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 10px; padding: 10px; }
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border: 1px solid #7C5CFF; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateTimeEdit { background: #0F0F13; border: 1px solid #2C2C36; border-radius: 10px; padding: 10px; }
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDateTimeEdit:focus { border: 1px solid #7C5CFF; }
+QDateTimeEdit::drop-down { border: none; width: 28px; }
+QCalendarWidget QAbstractItemView { background: #17171D; alternate-background-color: #20202A;
+                                    selection-background-color: #7C5CFF; }
+QCalendarWidget QWidget#qt_calendar_navigationbar { background: #20202A; }
 QComboBox { padding-right: 30px; }
 QComboBox:hover { border: 1px solid #3C3C48; }
 QComboBox::drop-down { border: none; width: 28px; }

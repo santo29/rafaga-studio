@@ -479,6 +479,6 @@ def para(uso: str) -> dict | None:
 
 
 def publico() -> list[dict]:
-    """Lo que el panel puede ver: nunca la clave completa."""
-    return [{**{k: v for k, v in i.items() if k not in ("clave", "voces")},
+    """Lo que el panel puede ver: nunca la clave completa (ni el secreto del cliente de YouTube)."""
+    return [{**{k: v for k, v in i.items() if k not in ("clave", "voces", "client_secret")},
              "clave": i["clave"][:6] + "…" + i["clave"][-4:]} for i in cargar().values()]

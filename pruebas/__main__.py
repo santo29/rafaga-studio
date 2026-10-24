@@ -467,7 +467,7 @@ print("Pruebas de guiones fieles pasadas.")
 
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "edicion", "render_edicion", "edicion_ui",
-               "director", "serie", "inicio", "idioma", "coherencia"):
+               "director", "serie", "inicio", "publicar", "idioma", "coherencia"):
     subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

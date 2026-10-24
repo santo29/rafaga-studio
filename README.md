@@ -10,7 +10,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 [![Engine license: MIT](https://img.shields.io/badge/engine-MIT-22c55e)](LICENSE)
 [![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#-install)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab)](requirements.lock)
-[![MCP server](https://img.shields.io/badge/MCP-15%20tools-7c5cff)](#-drive-it-from-claude-mcp)
+[![MCP server](https://img.shields.io/badge/MCP-16%20tools-7c5cff)](#-drive-it-from-claude-mcp)
 [![Languages](https://img.shields.io/badge/UI-ES%20%C2%B7%20EN%20%C2%B7%20PT%20%C2%B7%20FR-f59e0b)](idiomas)
 
 [**⬇ Download for Windows**](https://github.com/santo29/rafaga-studio/releases/latest) ·
@@ -35,7 +35,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
   Director asks before using it.
 - **An AI Director you can talk to.** Push to talk, say *"make an ad for my barbershop and a post"*, and the Director
   uses the whole studio for you. Your voice is understood **on your PC** (Whisper); nothing to pay.
-- **Drive it from Claude.** A built-in [MCP](https://modelcontextprotocol.io) server exposes 15 tools, so Claude Code,
+- **Drive it from Claude.** A built-in [MCP](https://modelcontextprotocol.io) server exposes 16 tools, so Claude Code,
   Claude Desktop or any MCP agent can produce videos, ads, songs, designs and series for you.
 - **Free first, bring your own keys.** Paste any key and the studio detects the provider. Images and video rotate
   through free daily quotas, your PC, credits and only then paid services; for text and transcription you choose the
@@ -72,6 +72,7 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 | 🎵 **Music** | Lyrics and production in any genre (dembow, reggaetón, bachata…) plus a music video with karaoke lyrics |
 | 🎙️ **Recording booth** | Record over the beat; tuning, genre vocal chains, sidechain mix and mastering |
 | 🔎 **Viral niches** | Real YouTube views-per-day plus live web research (with Claude) → niches with ready ideas |
+| 📅 **Publish** | Schedule your videos on YouTube with your own Google app: YouTube publishes them at the chosen time, even with your PC off |
 | 🔌 **MCP** | Claude (or any agent) uses the whole studio from the chat |
 
 ## 🏗️ How it works
@@ -80,7 +81,7 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 flowchart LR
     U["You<br/>text or voice"] --> D["AI Director<br/>(any text model)"]
     C["Claude / MCP agents"] --> M["MCP server"]
-    D --> T["15 studio tools<br/>motor/herramientas.py"]
+    D --> T["16 studio tools<br/>motor/herramientas.py"]
     M --> T
     T --> E["Engine (MIT)<br/>script · images · video · voice<br/>subtitles · music · design · edit"]
     E --> R["Cloud rotation<br/>free quota → your PC → credits → paid"]
@@ -132,7 +133,7 @@ yourself: `ISCC instalador\rafaga.iss` ([Inno Setup](https://jrsoftware.org/isin
 Open **MCP connection** in the app and click connect: Ráfaga Studio registers itself in Claude Code and Claude
 Desktop. Then just ask Claude: *"Make a 30-second vertical video about three places in the Dominican Republic"*.
 Tools include `crear_video`, `sacar_shorts`, `crear_anuncios`, `crear_cancion`, `crear_video_musical`,
-`crear_diseno`, `editar_video`, `crear_serie`, `crear_episodio` and `investigar_nichos`.
+`crear_diseno`, `editar_video`, `crear_serie`, `crear_episodio`, `investigar_nichos` and `programar_publicacion`.
 
 Or use the engine as a Python library:
 

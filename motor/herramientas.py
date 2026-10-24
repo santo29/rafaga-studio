@@ -4,11 +4,12 @@
 Las rutas pasan por `ruta()`: el MCP la cambia para que las relativas sean de la carpeta del agente.
 El progreso (`aviso`) va por hilo: el Director lo pone para ver cómo avanza cada herramienta en la app."""
 import json
+import re
 import threading
 from pathlib import Path
 
-from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, musica, nichos, seguro, serie, shorts, video,
-               video_musical)
+from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, musica, nichos, publicar, seguro, serie, shorts,
+               video, video_musical)
 from .idioma import t
 
 _hilo = threading.local()
@@ -220,6 +221,16 @@ def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: 
     return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
 
 
+def programar_publicacion(archivo: str, titulo: str, descripcion: str, fecha_hora: str, red: str = "youtube") -> str:
+    """Programa un video (ruta de un video local) para que se publique solo a esa hora, aunque el PC esté apagado: se
+    sube ya a YouTube como privado con su hora de salida y marcado como hecho con IA. Publica en el canal del
+    usuario: úsalo solo si él lo pidió. fecha_hora: ISO 8601, p. ej. 2026-10-25T18:00 (sin zona = hora de este PC),
+    al menos 15 min en el futuro. red: por ahora solo youtube (se conecta una vez en la página «Publicar» de la app).
+    Los #hashtags de la descripción van también como etiquetas."""
+    etiquetas = re.findall(r"#(\w+)", str(descripcion or ""))
+    return _json(publicar.programar(ruta(archivo), titulo, descripcion, etiquetas, fecha_hora, red, aviso=_aviso()))
+
+
 def listar_series() -> str:
     """Las series de dibujos animados creadas, con sus personajes y capítulos."""
     return _json(serie.listar())
@@ -241,7 +252,7 @@ def listar_opciones() -> str:
 TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, crear_anuncios, crear_cancion,
                                  crear_video_musical, producir_cancion, separar_voz_y_pista, crear_diseno,
                                  editar_video, crear_serie, crear_episodio, listar_series, listar_proyectos,
-                                 listar_opciones)}
+                                 listar_opciones, programar_publicacion)}
 
 
 def resultados(respuesta: str) -> list[dict]:

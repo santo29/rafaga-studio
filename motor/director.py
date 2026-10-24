@@ -17,7 +17,7 @@ MAX_HISTORIAL = 12  # mensajes anteriores de la conversación que se le recuerda
 ENLACES = {"sacar_shorts": ("url",)}
 RUTAS = {"crear_video": ("imagen",), "crear_anuncios": ("foto",), "crear_video_musical": ("cancion",),
          "producir_cancion": ("pista", "voz", "referencia"), "separar_voz_y_pista": ("cancion",),
-         "editar_video": ("medios", "musica")}
+         "editar_video": ("medios", "musica"), "programar_publicacion": ("archivo",)}
 
 ESQUEMA = {"type": "object", "properties": {"mensaje": {"type": "string"}, "herramienta": {"type": "string"},
                                             "argumentos": {"type": "string"}},

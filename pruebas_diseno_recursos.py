@@ -59,10 +59,11 @@ assert "accessibility" in recursos.buscar_iconos("wheelchair")  # solo por etiqu
 assert recursos.buscar_iconos("zzzqqqxx") == []
 assert recursos.buscar_iconos("") == nombres[:60] and len(recursos.buscar_iconos("arrow", 5)) == 5
 
-# Fuentes: las 8 familias OFL, y Qt las registra de verdad desde los archivos
+# Fuentes: las 14 familias OFL (8 de marketing y 6 góticas o decorativas), y Qt las registra de verdad
 familias = recursos.fuentes()
 assert familias == sorted(["Montserrat", "Poppins", "Bebas Neue", "Anton", "Oswald", "Playfair Display", "Pacifico",
-                           "Lora"]), familias
+                           "Lora", "Pirata One", "Grenze Gotisch", "Metal Mania", "New Rocker", "Creepster",
+                           "Cinzel Decorative"]), familias
 archivos = recursos.archivos_fuentes()
 leeme = (recursos.RAIZ_ASSETS / "LEEME.md").read_text(encoding="utf-8")
 registradas = set()
@@ -75,7 +76,10 @@ assert set(familias) <= registradas, set(familias) - registradas
 for familia in familias:
     assert QFontInfo(QFont(familia)).family() == familia, familia
 assert "Bold" in QFontDatabase.styles("Montserrat") and "Bold Italic" in QFontDatabase.styles("Poppins")
+assert "Bold" in QFontDatabase.styles("Cinzel Decorative")
 assert (recursos.RAIZ_ASSETS / "fuentes" / "OFL.txt").is_file() and (recursos.RAIZ_ASSETS / "iconos" / "LICENSE").is_file()
+ofl = (recursos.RAIZ_ASSETS / "fuentes" / "OFL.txt").read_text(encoding="utf-8")
+assert all(f"===== {f} =====" in ofl for f in familias), [f for f in familias if f"===== {f} =====" not in ofl]
 
 # Emojis: de unicodedata, con nombre, sin los cuadraditos de tono de piel
 lista = recursos.emojis()

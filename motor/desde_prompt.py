@@ -40,6 +40,7 @@ ESQUEMA = {
         "titulo": {"type": "string"}, "descripcion": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
         "estilo_visual": {"type": "string"},
+        "entendido": {"type": "string"},  # opcional: los guiones de fuera (MCP) siguen valiendo sin él
         "escenas": {"type": "array", "items": {
             "type": "object",
             "properties": {"narracion": {"type": "string"}, "imagen": {"type": "string"}},
@@ -50,16 +51,34 @@ ESQUEMA = {
     "additionalProperties": False,
 }
 
+# Regla común (la misma en Diseño, Director, Dibujos animados y aquí): el pedido puede traer faltas de ortografía.
+FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
+          "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
+          "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+
 INSTRUCCIONES = """Eres guionista de videos virales para YouTube, TikTok, Instagram y Facebook.
 Con el pedido del usuario escribe un guion narrado dividido en escenas.
+- """ + FALTAS + """
+- entendido: una frase corta, en el idioma del usuario, con lo que entendiste del pedido.
 - La primera escena es un gancho que atrapa en 3 segundos. La última cierra con fuerza o invita a seguir.
 - Cada escena: 1 o 2 frases de narración (lo que dice la voz) y una descripción de la imagen.
 - La descripción de imagen va en inglés, muy visual y concreta, sin texto escrito dentro de la imagen.
-- Si el pedido es un personaje que habla (una fruta, un animal, un objeto, una mascota…), la narración la dice ESE
-  personaje en primera persona, y la imagen lo muestra hablando a cámara. Nunca una persona que habla de él.
+- La IA de imágenes lee cada descripción SOLA, sin ver las demás: nunca escribas «the same…», «he», «she» ni «it»;
+  nombra y describe siempre lo que sale.
+- Si el pedido es un personaje que habla (una fruta, un animal, una calavera, un objeto, una mascota…), la narración la
+  dice ESE personaje en primera persona, y la imagen lo muestra hablando a cámara. Nunca una persona que habla de él.
 - Describe al protagonista con las mismas palabras en todas las escenas, para que se vea igual en todo el video.
-- estilo_visual: un estilo común para todas las imágenes (ej. "cinematic photo, dramatic lighting"), en inglés.
+- estilo_visual: un estilo común para todas las imágenes, en inglés, que encaje con el pedido: dibujo animado o
+  animación 3D para personajes fantásticos o que hablan, foto de cine para temas reales. Si el usuario pide un estilo,
+  ese manda. No mezcles «photo/photorealistic» con «cartoon/3D/Pixar».
 - Narración, título, descripción y hashtags en el idioma que pida el usuario (por defecto: """ + IDIOMAS[actual()] + ")."
+
+
+def idioma_de(voz: str) -> str:
+    """La línea del pedido que dice en qué idioma narrar según la voz elegida (vacía si no se sabe, p. ej. ElevenLabs):
+    si no, una voz inglesa leería un guion en español."""
+    codigo = voz.split("-")[0]
+    return f"\nIdioma de la narración: {IDIOMAS[codigo]}" if codigo in IDIOMAS else ""
 
 
 def voces() -> dict[str, str]:
@@ -116,11 +135,14 @@ def prompt_hablado(escena: dict, guion: dict) -> str:
 
 def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
             imagen: str = "", aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None,
-            animado: bool = False) -> dict:
+            animado: bool = False, estilo: str = "") -> dict:
     """Video completo desde un pedido. Con `imagen`, la primera escena es esa foto y las demás mantienen su sujeto.
     guion: el guion ya escrito (con la forma de ESQUEMA) por quien maneja el estudio; entonces no se usa la IA de texto.
     animado: cada escena es un video de IA con su propia voz (los personajes hablan con los labios sincronizados).
-    Es de pago (Gemini, ~US$0,10 por segundo): solo con True; las escenas que fallen se hacen con imagen y narración."""
+    Es de pago (Gemini, ~US$0,10 por segundo): solo con True; las escenas que fallen se hacen con imagen y narración.
+    estilo: un nombre de serie.ESTILOS (o un estilo en inglés); vacío = lo elige la IA."""
+    from . import serie  # aquí: serie importa este módulo
+    estilo = serie.ESTILOS.get(estilo, estilo)
     if imagen:
         imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
     if formato not in video.FORMATOS:  # antes de gastar: un formato raro tumbaría el montaje ya pagado
@@ -141,13 +163,19 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
                    f"mucho 18 palabras de narración por escena.") if animado else ""
         guion = ia.texto_json(INSTRUCCIONES, (
             f"Pedido: {prompt}\nDuración: unos {segundos} segundos (~{int(segundos * 2.5)} palabras de narración), "
-            f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}{hablado}"), ESQUEMA)
+            f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}{hablado}{idioma_de(voz)}"
+            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "")), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»). Animadas, cada una se paga: ni una de más.
     # Se quitan las del medio: la última es el cierre o la llamada a la acción.
     escenas, tope, notas = guion["escenas"], escenas_aprox + (0 if animado else 2), []
     if not escenas:
         raise ValueError(t("El guion no tiene ninguna escena."))
+    if estilo:  # lo impone el código: la IA a veces lo mezcla con otro
+        guion["estilo_visual"] = estilo
+    if guion.get("entendido"):  # se ve mientras trabaja, antes de gastar imágenes y voz
+        notas.append(t("La IA entendió: {x}", x=guion["entendido"]))
+        aviso(notas[-1], 0.05)
     if len(escenas) > tope:
         guion["escenas"] = escenas[:tope - 1] + escenas[-1:]
         notas.append(t("El guion traía {n} escenas y se usaron {tope} (las del medio que sobraban se quitaron).",
@@ -164,7 +192,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         def crear_imagen(p, w, h, destino):  # 1ª escena: la foto tal cual; las demás, con el mismo sujeto
             if destino.name == "video_final_imagen_00.png":  # por su número (con animado, la 1ª puede no pasar aquí)
                 return Path(shutil.copy(foto, destino))
-            return ia.imagen_con_producto(p, foto, w, h, destino)
+            return ia.imagen_con_producto(p, foto, w, h, destino, realista=False)  # el estilo ya va dentro de p
     hablados = clips_hablados(guion, carpeta, formato, aviso, foto, notas) if animado else {}
     try:
         final = montar(guion, carpeta, formato, voz, aviso, crear_imagen=crear_imagen, respaldo=foto, notas=notas,

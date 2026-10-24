@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import ia, seguro, video
-from .desde_prompt import montar
+from .desde_prompt import FALTAS, idioma_de, montar
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -41,11 +41,18 @@ ESQUEMA = {
 INSTRUCCIONES = """Eres el mejor estratega de anuncios de respuesta directa (Meta, TikTok, YouTube) y creativo de UGC.
 Crea variantes de anuncio en video para pruebas A/B. Cada variante usa un ÁNGULO distinto (dolor, deseo, prueba
 social, curiosidad, comparación, oferta…) y un GANCHO distinto en los primeros 2 segundos.
-Estructura: gancho → problema o deseo → producto como solución → prueba/beneficio concreto → llamada a la acción.
+Estructura: gancho → problema o deseo → producto o servicio como solución → prueba/beneficio concreto → llamada a la
+acción.
+- """ + FALTAS + """
+- Lo anunciado puede ser un producto o un negocio o servicio (barbería, restaurante, taller…): si es un servicio, se
+  muestra el servicio y el local, no un «producto».
 - narracion: frases cortas, habladas, naturales, como una persona real; en el idioma del pedido.
-- imagen (en inglés): escena fotorrealista donde aparece EL PRODUCTO DE LA FOTO de referencia, descrito como
-  "the product" (no inventes otra marca), con personas y lugares reales, encuadre de móvil si el estilo es UGC.
-- Sin promesas falsas ni afirmaciones médicas o de ingresos que no se puedan probar.
+- imagen (en inglés): escena fotorrealista con personas y lugares reales, encuadre de móvil si el estilo es UGC. Si es
+  un producto y sale en la escena, escribe exactamente "the product" (no inventes otra marca). La IA de imágenes lee
+  cada descripción SOLA: nunca escribas «the same man», «he», «the guy»; repite la descripción completa de la persona
+  (edad, cara, pelo, ropa) en cada escena donde salga. Sin texto, letreros ni logotipos escritos en la imagen.
+- Sin promesas falsas ni afirmaciones médicas o de ingresos que no se puedan probar. No inventes ofertas, precios ni
+  descuentos: usa solo los que vengan en el pedido.
 - texto_anuncio: el texto que va sobre el anuncio en Meta/TikTok, con emoji moderado y CTA."""
 
 
@@ -68,6 +75,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         f"Producto: {producto}\nDetalles: {detalles}\nPúblico: {publico}\nOferta y llamada a la acción: {oferta}\n"
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
         f"(~{int(segundos * 2.5)} palabras, {max(3, round(segundos / 5))} escenas).\nVariantes: {variantes}"
+        + idioma_de(voz)
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")), ESQUEMA)
 
     # La IA decide cuántas variantes y escenas devuelve: se recorta a lo pedido (el gasto no lo marca la IA).
@@ -77,14 +85,19 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
             e["narracion"] = e["narracion"][:400]
     resultados, total, notas = [], len(plan["variantes"]), []
+    if not web:
+        notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
     for k, v in enumerate(plan["variantes"], 1):
         desde = 0.15 + 0.83 * (k - 1) / total
         aviso(t("Anuncio {n} de {total}: «{angulo}»", n=k, total=total, angulo=v["angulo"]), desde)
         # respaldo: si falla una imagen y no hay ninguna anterior, se usa la foto del producto (nunca se cae el trabajo)
+        # La foto solo va en las escenas que la piden («the product»; el estilo no cuenta): en un servicio, o en una
+        # escena sin el producto, pegarla taparía la escena.
         notas_k = []
         montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
                          hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k,
-                         crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d))
+                         crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d)
+                         if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]
         archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4") \
             if (oferta or producto).strip() else montado

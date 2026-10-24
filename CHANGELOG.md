@@ -11,7 +11,7 @@ First public version · Primera versión.
 - **Magic Shorts**, **Ads** with your real product, **Music** and music videos, **Recording booth**, **Viral niches**.
 - **Design studio** with editable layers and an AI designer; **video editor** with beat-synced effects, filters,
   subtitle styles and templates; **animated series** with original characters and voices.
-- **MCP server** with 15 tools shared with the Director.
+- **MCP server** with 17 tools shared with the Director.
 - Free-first cloud rotation for images and video, and bring-your-own-keys for 13 AI providers.
 - Interface in Spanish, English, Portuguese and French.
 - Privacy notice, terms and third-party notices; Hugging Face and Gradio telemetry turned off.
@@ -25,4 +25,11 @@ First public version · Primera versión.
 - **Coherent AI:** the Director picks the right tool, passes your words through and lets each specialist write; every
   AI that reads your request understands typos the same way; clear quota errors without account IDs.
 - **Gemini Nano Banana images** as an opt-in provider (paid), auto-detecting the newest model of your key.
+- **Design Pro:** Photoshop-style blend modes and image adjustments (brightness, contrast, saturation, blur),
+  remove background, **Edit with AI** on an image layer, a quality selector and 4K / 3000×3000 export.
+- **Smart studio:** the Director works by departments, each with its own quality rules; it shows the plan and the
+  cost and asks before paying or publishing (also by voice), and remembers your preferences per department only
+  after you say yes (it never stores keys, PINs or cards). Paid image providers are used only if you pick them.
+- **Publish:** schedule videos on YouTube with your own Google app (OAuth with PKCE, resumable upload).
+- **Music:** Gemini Lyria first (about US$0.08 per song), ElevenLabs as the second option, with clear errors.
 - **Windows installer** (Inno Setup): official portable Python and hash-verified libraries, per-user, no admin rights.

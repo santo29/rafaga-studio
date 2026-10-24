@@ -10,7 +10,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 [![Engine license: MIT](https://img.shields.io/badge/engine-MIT-22c55e)](LICENSE)
 [![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#-install)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab)](requirements.lock)
-[![MCP server](https://img.shields.io/badge/MCP-16%20tools-7c5cff)](#-drive-it-from-claude-mcp)
+[![MCP server](https://img.shields.io/badge/MCP-17%20tools-7c5cff)](#-drive-it-from-claude-mcp)
 [![Languages](https://img.shields.io/badge/UI-ES%20%C2%B7%20EN%20%C2%B7%20PT%20%C2%B7%20FR-f59e0b)](idiomas)
 
 [**⬇ Download for Windows**](https://github.com/santo29/rafaga-studio/releases/latest) ·
@@ -34,7 +34,10 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
   newest one with a known price, and never spends without asking: the Create screen shows the cost first and the
   Director asks before using it.
 - **An AI Director you can talk to.** Push to talk, say *"make an ad for my barbershop and a post"*, and the Director
-  uses the whole studio for you. Your voice is understood **on your PC** (Whisper); nothing to pay.
+  uses the whole studio for you, like a studio with departments (script, design, music, cartoons, ads, editing,
+  publishing) that each follow their own quality rules. Before anything that costs money or publishes, it shows the
+  cost and asks; it remembers your preferences per department only with your yes. Your voice is understood
+  **on your PC** (Whisper); nothing to pay.
 - **Drive it from Claude.** A built-in [MCP](https://modelcontextprotocol.io) server exposes 17 tools, so Claude Code,
   Claude Desktop or any MCP agent can produce videos, ads, songs, designs and series for you.
 - **Free first, bring your own keys.** Paste any key and the studio detects the provider. Images and video rotate
@@ -64,7 +67,7 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 |---|---|
 | 🤖 **AI Director** | Ask for the job in writing or with your voice; it plans and runs the right tools, step by step |
 | ✨ **Create with AI** | Prompt → script → images → voice → animation → subtitles. Optional talking characters with lip sync |
-| 🎨 **Design** | Illustrator-style workspace (tool column, zoom, align, properties and layers; 2,100+ icons, 14 fonts including gothic ones) and an AI that first understands your request (it asks when unsure, typos included), draws illustrations instead of stock photos and builds posts, thumbnails, flyers, logos and t-shirt prints **as editable layers**, without inventing prices or contacts |
+| 🎨 **Design** | Illustrator-style workspace (tool column, zoom, align, properties and layers; 2,100+ icons, 14 fonts including gothic ones) and an AI that first understands your request (it asks when unsure, typos included), draws illustrations instead of stock photos and builds posts, thumbnails, flyers, logos and t-shirt prints **as editable layers**, without inventing prices or contacts. Photoshop-style blend modes and image adjustments, remove background, **Edit with AI** and 4K export |
 | 🐰 **Cartoons** | Your cartoon series, episode by episode: original characters with a fixed look, a model sheet and their own voice; a storyboard of every shot, redo a single shot, and export frames to OpenToonz, Pencil2D or Krita |
 | ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles |
 | ⚡ **Magic Shorts** | Paste a long video link; the AI picks the best moments and crops them vertically with subtitles |

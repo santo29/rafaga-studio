@@ -407,12 +407,11 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.fondo_imagen()
     assert p.diseno == antes and len(avisos) == n + 2 and "12 imágenes" in avisos[-1]
 
-    # ---------- La ventana completa, con la página después de «Música» ----------
+    # ---------- La ventana completa, con la página después de «Crear con IA» ----------
     import app as aplicacion
-    from ui.paginas.musica import PaginaMusica
     ventana = aplicacion.Ventana()
     i = next(i for i, pagina in enumerate(ventana.orden) if isinstance(pagina, pd.PaginaDiseno))
-    assert isinstance(ventana.orden[i - 1], PaginaMusica) and "Diseño" in ventana.grupo.buttons()[i].text()
+    assert ventana.orden[i - 1] is ventana.crear and "Diseño" in ventana.grupo.buttons()[i].text()
     # Abre en Inicio y el Director va después; sin claves, el Director (funciona con la IA gratis) aconseja conectar
     # una y lleva a «Claves de IA»
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.inicio) == 0

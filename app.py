@@ -64,14 +64,16 @@ class Ventana(QMainWindow):
         self.grupo = QButtonGroup(self)
         Reproductor.al_editar = self._editar_video  # antes de crear las páginas: así sale su botón «✂️ Editar»
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
-        self.director, self.serie = PaginaDirector(), PaginaSerie()
+        self.director = PaginaDirector(abrir_diseno=self._abrir_diseno, abrir_serie=self._abrir_serie)
+        self.serie = PaginaSerie()
         self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie)
+        # Lo más buscado arriba: a 728 px de alto, Diseño y Dibujos animados se ven sin desplazar el menú
         paginas = [(f"🏠  {t('Inicio')}", self.inicio),
                    (f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
+                   (f"🎨  {t('Diseño')}", self.diseno), (f"🐰  {t('Dibujos animados')}", self.serie),
+                   (f"✂️  {t('Editor de video')}", self.edicion),
                    (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()),
                    (f"🎵  {t('Música')}", PaginaMusica()),
-                   (f"🎨  {t('Diseño')}", self.diseno), (f"✂️  {t('Editor de video')}", self.edicion),
-                   (f"🎞️  {t('Serie animada')}", self.serie),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
                    (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"🔑  {t('Claves de IA')}", self.claves),
@@ -134,8 +136,14 @@ class Ventana(QMainWindow):
             self.edicion.abrir(carpeta)
             self.ir_a(self.orden.index(self.edicion))
 
+    def _abrir_diseno(self, carpeta):
+        """Abre en Diseño un diseño guardado (desde el Director), si no se pierden cambios sin guardar."""
+        if self.diseno._descartar_ok():
+            self.diseno.abrir(carpeta)
+            self.ir_a(self.orden.index(self.diseno))
+
     def _abrir_serie(self, nombre):
-        """Abre la página de la serie con esa serie elegida (desde Inicio)."""
+        """Abre la página de la serie con esa serie elegida (desde Inicio o el Director)."""
         self.serie.recargar(nombre)
         self.ir_a(self.orden.index(self.serie))
 

@@ -63,8 +63,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # Cada acceso lleva a su página del menú
     for _, _, nombre, _, menu in inicio.ACCESOS:
         tarjeta(pagina, nombre).click()
-    assert navegado == ["Director IA", "Crear con IA", "Shorts mágicos", "Anuncios", "Diseño", "Serie animada",
-                        "Editor de video", "Música"]
+    assert navegado == ["Director IA", "Crear con IA", "Diseño", "Dibujos animados", "Editor de video",
+                        "Shorts mágicos", "Anuncios", "Música"]  # el orden del menú
+    assert "Crea tus personajes y capítulos de caricatura" in [a[3] for a in inicio.ACCESOS]
 
     # ---------- Indicadores sin claves: la IA gratis lenta y «Conectar» donde falta algo útil ----------
     ind = {i["titulo"]: i for i in inicio.indicadores()}
@@ -180,6 +181,29 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         pagina_video.reproductor.player.stop()
         pagina_video.reproductor.player.setSource(QUrl())
     del con_video, pagina_video
+    # Con muchos ejemplos de título largo, cada fila se desplaza de lado: ni Inicio ni el Director se salen por la
+    # derecha a 1366 px (el visor de la página mide 1106)
+    muchos = [{"id": f"largo-{n}", "titulo": f"Ejemplo {n} con un título bastante largo para la tarjeta"}
+              for n in range(8)]
+    (pagina_director.EJEMPLOS / "ejemplos.json").write_text(json.dumps(muchos), encoding="utf-8")
+    (pagina_director.EJEMPLOS / "disenos.json").write_text(json.dumps(muchos), encoding="utf-8")
+    for e in muchos:
+        (pagina_director.EJEMPLOS / f"{e['id']}.mp4").write_bytes(b"\0" * 64)
+        assert foto.save(str(pagina_director.EJEMPLOS / f"{e['id']}.jpg"))
+    ancha = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
+    assert len(ancha.galeria.findChildren(QToolButton)) == 16
+    assert ancha.minimumSizeHint().width() <= 1106, ancha.minimumSizeHint()
+    director_ancho = pagina_director.PaginaDirector()
+    assert director_ancho.minimumSizeHint().width() <= 1106, director_ancho.minimumSizeHint()
+    del ancha, director_ancho
+    # De qué serie habla lo que hizo el Director: la creada, o la del capítulo (series/<serie>/episodios/NN)
+    serie_de = pagina_director.serie_de_pasos
+    assert serie_de([{"herramienta": "crear_episodio",
+                      "resultado": json.dumps({"carpeta": str(d / "series" / "una" / "episodios" / "01")})},
+                     {"herramienta": "crear_video", "resultado": json.dumps({"carpeta": "x"})}]) == "una"
+    assert serie_de([{"herramienta": "crear_serie", "resultado": json.dumps({"carpeta": str(d / "otra")})}]) == "otra"
+    assert serie_de([{"herramienta": "crear_serie", "resultado": "ERROR: cuota"},
+                     {"herramienta": "crear_episodio", "resultado": "[1]"}]) == "" and serie_de([]) == ""
 
     # ---------- Lo legal: el aviso al primer uso (y si cambia), los documentos y la marca ----------
     from PySide6.QtWidgets import QDialog, QTextBrowser  # noqa: E402
@@ -217,6 +241,16 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     ventana = aplicacion.Ventana()
     assert ventana.orden[0] is ventana.inicio and ventana.paginas.currentIndex() == 0
     assert ventana.grupo.buttons()[0].text() == "Inicio" and ventana.grupo.buttons()[0].isChecked()
+    # Lo más buscado arriba, y cada página que usa el Director es un botón del menú
+    menu = [b.text() for b in ventana.grupo.buttons()]
+    assert menu == ["Inicio", "Director IA", "Crear con IA", "Diseño", "Dibujos animados", "Editor de video",
+                    "Shorts mágicos", "Anuncios", "Música", "Cabina de grabación", "Nichos virales", "Mis proyectos",
+                    "Claves de IA", "Conexión MCP"], menu
+    assert set(pagina_director.PAGINA.values()) <= set(menu)
+    assert ventana.grupo.buttons()[4].property("icono") == "rabbit"
+    ventana._iluminar("crear_serie")
+    assert [b.text() for b in ventana.grupo.buttons() if b.graphicsEffect()] == ["Dibujos animados"]
+    ventana._iluminar(None)
     ventana.inicio.recargar()
     for _, _, nombre, _, menu in inicio.ACCESOS:
         tarjeta(ventana.inicio, nombre).click()
@@ -224,6 +258,45 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert ventana.grupo.buttons()[i].text() == menu and ventana.grupo.buttons()[i].isChecked(), menu
     conectar(ventana.inicio)[0].click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
+
+    # ---------- Lo que entrega el Director, en su página: un diseño no va al reproductor de video ----------
+    carpeta_diseno = diseno.CARPETA / "20261024-120000-cartel"
+    hecho = diseno.nuevo("post", "Cartel")
+    diseno.guardar(hecho, carpeta_diseno)
+    png = diseno.exportar(hecho, carpeta_diseno, carpeta_diseno / "vista_previa.png")
+    director_ui, mostrados = ventana.director, []
+    director_ui.reproductor.mostrar = mostrados.append
+    director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
+        {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []}]})
+    assert mostrados == [] and director_ui.ir_serie.isHidden()
+    assert not director_ui.ir_diseno.isHidden() and director_ui.ir_diseno.text() == "Abrir en Diseño"
+    visor = director_ui.findChildren(QDialog)[-1]  # la imagen, en grande
+    assert visor.windowTitle() == "Cartel" and not visor.findChild(QLabel).pixmap().isNull()
+    visor.close()
+    director_ui.ir_diseno.click()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
+    assert ventana.diseno.carpeta == carpeta_diseno and ventana.diseno.diseno["nombre"] == "Cartel"
+    # Un video y una imagen que no es un diseño: el video al reproductor, y sin «Abrir en Diseño»
+    suelta = d / "suelta.png"
+    assert foto.save(str(suelta))
+    director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "16:9", "resultados": [
+        {"archivo": str(d / "Uno.mp4"), "titulo": "Uno", "descripcion": "", "hashtags": []},
+        {"archivo": str(suelta), "titulo": "Suelta", "descripcion": "", "hashtags": []}]})
+    assert [x["titulo"] for x in mostrados[-1]["resultados"]] == ["Uno"] and director_ui.ir_diseno.isHidden()
+    director_ui.findChildren(QDialog)[-1].close()
+    # Una serie: «Abrir en Dibujos animados» la deja elegida en su página
+    director_ui._listo({"mensaje": "Listo", "formato": "16:9", "resultados": [], "pasos": [
+        {"herramienta": "crear_serie", "argumentos": {},
+         "resultado": json.dumps({"carpeta": str(serie.CARPETA / "20261021-090000-mi-serie")})}]})
+    assert director_ui.ir_diseno.isHidden() and not director_ui.ir_serie.isHidden()
+    assert director_ui.ir_serie.text() == "Abrir en Dibujos animados"
+    assert ventana.serie.series.currentData() is None
+    director_ui.ir_serie.click()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.serie)
+    assert ventana.serie.series.currentData()["nombre"] == "20261021-090000-mi-serie"
+    ventana.serie.recargar("x")  # otra vez sin elegir: el acceso de Inicio tiene que elegirla él
+    assert ventana.serie.series.currentData() is None
+
     tarjeta(ventana.inicio, "Mi serie").click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.serie)
     assert ventana.serie.series.currentData()["nombre"] == "20261021-090000-mi-serie"

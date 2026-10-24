@@ -21,7 +21,7 @@ ESTILO = """
 QMainWindow, #contenido, QScrollArea, QScrollArea > QWidget > QWidget { background: #0F0F13; }
 #barra { background: #17171D; border-right: 1px solid #24242C; }
 #marca { font-size: 22px; font-weight: 800; color: #FFFFFF; padding-left: 4px; }
-#nav { text-align: left; padding: 13px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
+#nav { text-align: left; padding: 9px 16px; border: none; border-radius: 10px; background: transparent; color: #B4B4C0;
        font-size: 17px; }
 #nav:hover { background: #20202A; color: #FFFFFF; }
 #nav:checked { background: #2A2340; color: #FFFFFF; }

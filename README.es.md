@@ -49,12 +49,12 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 |---|---|
 | 🤖 Director IA | Le pides el trabajo por escrito **o con tu voz**, como a tu equipo («hazme un anuncio de mi barbería y un post»), y la IA usa todo el estudio: guion, imágenes, video, diseño, música y edición |
 | ✨ Crear con IA | Guion con IA → imágenes → voz → animación → subtítulos tipo CapCut |
+| 🎨 Diseño | Editor por capas tipo Canva (texto, formas, fotos, 2.100+ iconos, emojis, 8 fuentes) y una IA que diseña anuncios, posts, miniaturas, flyers y logos **en capas editables** con tu marca; exporta PNG, JPG, PDF y SVG |
+| 🐰 Dibujos animados | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Los cuadros se exportan para retocarlos en OpenToonz, Pencil2D o Krita |
+| ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 |
 | ⚡ Shorts mágicos | Pega un enlace; la IA elige los mejores momentos y los recorta en vertical con subtítulos |
 | 🚀 Anuncios | Foto del producto → varias versiones de anuncio (pruebas A/B) con tu producto real |
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |
-| 🎨 Diseño | Editor por capas tipo Canva (texto, formas, fotos, 2.100+ iconos, emojis, 8 fuentes) y una IA que diseña anuncios, posts, miniaturas, flyers y logos **en capas editables** con tu marca; exporta PNG, JPG, PDF y SVG |
-| ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 |
-| 🎞️ Serie animada | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Los cuadros se exportan para retocarlos en OpenToonz, Pencil2D o Krita |
 | 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y master |
 | 🔎 Nichos virales | Vistas por día reales de YouTube + investigación web en vivo (con Claude) → nichos con ideas listas |
 | 🔌 MCP | Claude (u otro agente) puede usar todo el estudio desde el chat |

@@ -30,24 +30,26 @@ ESTILO_INICIO = """
 #ejemplo:hover { background: #20202A; }
 """
 
-# Accesos rápidos: (icono, color, nombre, frase, página del menú a la que lleva; sin traducir, como PAGINA del Director)
+# Accesos rápidos, en el orden del menú: (icono, color, nombre, frase, página del menú a la que lleva; sin traducir,
+# como PAGINA del Director)
 ACCESOS = [
     ("bot", "#B79CFF", t("Director IA"), t("Pídelo con tus palabras y la IA hace todo el trabajo"), "Director IA"),
     ("sparkles", "#FF4D8D", t("Crear video"), t("De una idea a un video con guion, voz e imágenes"), "Crear con IA"),
+    ("palette", "#7CFFB2", t("Diseño"), t("Miniaturas, posts y portadas con tu marca"), "Diseño"),
+    ("rabbit", "#FF8A5C", t("Dibujos animados"), t("Crea tus personajes y capítulos de caricatura"),
+     "Dibujos animados"),
+    ("scissors", "#5CA8FF", t("Editor de video"), t("Corta, une, subtitula y exporta como un profesional"),
+     "Editor de video"),
     ("zap", "#FFB454", t("Shorts mágicos"), t("Los mejores momentos de un video largo, listos para subir"),
      "Shorts mágicos"),
     ("megaphone", "#00E5FF", t("Anuncios"), t("Anuncios para tu negocio en un par de minutos"), "Anuncios"),
-    ("palette", "#7CFFB2", t("Diseño"), t("Miniaturas, posts y portadas con tu marca"), "Diseño"),
-    ("film", "#FF8A5C", t("Serie animada"), t("Tus personajes de siempre en capítulos nuevos"), "Serie animada"),
-    ("scissors", "#5CA8FF", t("Editor de video"), t("Corta, une, subtitula y exporta como un profesional"),
-     "Editor de video"),
     ("music", "#F472B6", t("Música"), t("Canciones y videos musicales con IA"), "Música"),
 ]
 # Lo reciente: el icono y el nombre de cada tipo (el «tipo» de proyecto.json, o «edicion» y «serie»)
 TIPOS = {"shorts": ("zap", "Shorts"), "anuncio": ("megaphone", t("Anuncios")), "musica": ("music", t("Música")),
          "videomusical": ("clapperboard", t("Video musical")), "cabina": ("mic", t("Cabina")),
          "separacion": ("scissors", t("Separación")), "animacion": ("image", t("Animación")),
-         "edicion": ("scissors", t("Editor de video")), "serie": ("film", t("Serie animada"))}
+         "edicion": ("scissors", t("Editor de video")), "serie": ("rabbit", t("Dibujos animados"))}
 # Qué conviene conectar para cada uso: mientras no haya ninguna de estas claves, su indicador ofrece «Conectar»
 CONVIENE = {"texto": ("anthropic", "gemini", "groq", "openai"), "imagen": ("cloudflare",),
             "video": ("huggingface", "modal")}
@@ -298,7 +300,7 @@ class PaginaInicio(QWidget):
         dibujo = QLabel()
         dibujo.setPixmap(icono("circle-play", "#FF4D8D").pixmap(34, 34))
         for w in (dibujo, etiqueta(t("Conoce Ráfaga Studio en un minuto"), "acceso_titulo"),
-                  etiqueta(t("Todo lo que puedes crear: video con IA, diseño, edición y series animadas. Hecho con "
+                  etiqueta(t("Todo lo que puedes crear: video con IA, diseño, edición y dibujos animados. Hecho con "
                              "su propio editor."), "sub")):
             textos.addWidget(w)
         textos.addStretch()
@@ -322,11 +324,8 @@ class PaginaInicio(QWidget):
         for lista, abrir in ((videos, self._ver_ejemplo),
                              (disenos, lambda d: ver_imagen(self, pagina_director.EJEMPLOS / f"{d['id']}.jpg",
                                                             str(d.get("titulo", ""))))):
-            fila = QHBoxLayout()
-            for e in lista:
-                fila.addWidget(pagina_director.tarjeta_ejemplo(e, lambda e=e, abrir=abrir: abrir(e)))
-            fila.addStretch()
-            lay.addLayout(fila)
+            if lista:
+                lay.addWidget(pagina_director.fila_ejemplos(lista, abrir))
         caja.setVisible(bool(videos or disenos))
         return caja
 

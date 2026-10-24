@@ -34,8 +34,11 @@ class PaginaMusica(PaginaTrabajo):
         self.iniciar.clicked.connect(self._iniciar)
         self.form_lay.addWidget(self.idea)
         self.form_lay.addLayout(fila)
-        self.form_lay.addWidget(etiqueta(t("Necesita una clave de música: ElevenLabs (plan de pago) o Gemini "
-                                           "(Lyria 3.5, ~$0.08 por canción)."), "sub"))
+        self.form_lay.addWidget(etiqueta(t("Necesita una clave de música. Por defecto usa Gemini (Lyria 3.5, ~$0.08 "
+                                           "por canción); la segunda opción es ElevenLabs (plan de pago, ~$0.30-0.45 "
+                                           "por canción)."), "sub"))
+        self.form_lay.addWidget(etiqueta(t("¿Hiciste tu canción en Suno u otra app? Elígela en «Video musical» o "
+                                           "llévala a la Cabina para mezclarla y masterizarla.")))
         self.form_lay.addWidget(self.iniciar, 0, Qt.AlignRight)
 
         # Video musical: de la canción recién creada o de cualquier canción del PC.

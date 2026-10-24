@@ -59,7 +59,7 @@ INSTRUCCIONES = """Eres compositor y productor musical de éxitos. Escribe canci
 
 def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:
     prompt = estilo if letra is None else f"{estilo}\n\nLyrics:\n{letra}"
-    r = httpx.post("https://api.elevenlabs.io/v1/music", params={"output_format": "mp3_44100_128"},
+    r = httpx.post("https://api.elevenlabs.io/v1/music", params={"output_format": "mp3_48000_192"},  # el de los modelos v2
                    headers={"xi-api-key": c["clave"]}, timeout=900,
                    json={"prompt": prompt[:4000], "music_length_ms": segundos * 1000, "model_id": c["modelo_musica"],
                          "force_instrumental": letra is None})
@@ -112,13 +112,21 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
         f"Idea: {idea}\nGénero y producción: {estilo_base or 'elígelo tú según la idea'}\nDuración: unos {segundos} segundos.\n"
         + ("Con voz y letra." if con_voz else "Solo pista instrumental, sin letra.")), esquema)
     letra = (cancion.get("letra") or "") if con_voz else ""
+    # Antes de producir: si el audio falla (plan, cuota, red), la letra que ya escribió la IA no se pierde.
+    archivo_letra = carpeta / "letra.txt"
+    archivo_letra.write_text(f"{cancion['titulo']}\n\n{letra}", encoding="utf-8")
 
     aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor=c["proveedor"].capitalize()), 0.3)
     producir = _elevenlabs if c["proveedor"] == "elevenlabs" else _gemini
     audio = carpeta / "cancion.mp3"
     estilo = ". ".join(e for e in (estilo_base, cancion["estilo"]) if e)
-    audio.write_bytes(producir(c, estilo, letra if con_voz else None, segundos))
-    (carpeta / "letra.txt").write_text(f"{cancion['titulo']}\n\n{letra}", encoding="utf-8")
+    try:
+        audio.write_bytes(producir(c, estilo, letra if con_voz else None, segundos))
+    except Exception as e:
+        if not con_voz:
+            raise
+        raise RuntimeError(t("{error}\n\nTu letra no se perdió: está en {archivo}",
+                             error=str(e).strip() or type(e).__name__, archivo=archivo_letra)) from e
 
     proyecto = {"tipo": "musica", "formato": "audio", "carpeta": str(carpeta), "titulo": cancion["titulo"],
                 "genero": genero, "resultados": [{

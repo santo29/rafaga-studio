@@ -1,15 +1,16 @@
 """Piezas comunes de la interfaz: estilo, mensajes, botones, tareas en segundo plano y el reproductor."""
 import os
+import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QProxyStyle, QPushButton,
-                               QSlider, QStyle, QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
+                               QScrollArea, QSlider, QStyle, QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
 
 from motor import desde_prompt, seguro
 from motor.idioma import t
@@ -340,6 +341,26 @@ class PaginaTrabajo(QWidget):
         self.lay.addWidget(self.reproductor, 1)
         self.lay.addStretch()
         self.tarea = None
+        # Una canción o un video pueden tardar minutos sin avisar nada nuevo: el reloj enseña que sigue trabajando.
+        self.reloj = QTimer(self, interval=1000)
+        self.reloj.timeout.connect(self._contar)
+        self._texto, self._inicio = "", 0.0
+
+    def _avanzar(self, texto, fraccion):
+        self._texto = texto
+        self.progreso.setValue(int(fraccion * 100))
+        self._contar()
+
+    def _contar(self):
+        s = int(time.monotonic() - self._inicio)
+        self.estado.setText(f"{self._texto}  {s // 60}:{s % 60:02d}".strip())
+
+    def _ver_estado(self):  # el progreso va debajo de todas las tarjetas: en un portátil quedaba fuera de la vista
+        area = self.parentWidget()
+        while area and not isinstance(area, QScrollArea):
+            area = area.parentWidget()
+        if area:
+            area.ensureWidgetVisible(self.estado)
 
     def lanzar(self, boton_iniciar, funcion, **datos) -> bool:
         """False si ya hay un trabajo en marcha: soltar un hilo que corre tumba la app cuando termina."""
@@ -350,13 +371,18 @@ class PaginaTrabajo(QWidget):
         self.progreso.show()
         self.progreso.setValue(0)
         self.tarea = Tarea(funcion, **datos)
-        self.tarea.progreso.connect(lambda t, f: (self.estado.setText(t), self.progreso.setValue(int(f * 100))))
+        self._texto, self._inicio = "", time.monotonic()
+        self.tarea.progreso.connect(self._avanzar)
+        for fin in (self.tarea.listo, self.tarea.fallo):  # lo primero: el reloj no pisa lo que se escriba al acabar
+            fin.connect(self.reloj.stop)
         self.tarea.listo.connect(lambda p: (self.reproductor.show(), self.reproductor.mostrar(p), p.get("avisos") and
                                             mensaje(self, t("Terminado con avisos"),
                                                                     resumen_avisos(p["avisos"]))))
         self.tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("No se pudo terminar"), e)))
         self.tarea.finished.connect(lambda: (boton_iniciar.setEnabled(True), self.progreso.hide()))
+        self.reloj.start()
         self.tarea.start()
+        QTimer.singleShot(0, self._ver_estado)  # cuando la barra ya ocupa su sitio
         return True
 
 

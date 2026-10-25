@@ -127,6 +127,7 @@ class Ventana(QMainWindow):
         self.director.usando.connect(self._iluminar)
         self.director.termino.connect(lambda: self._iluminar(None))
         hablar = QShortcut(QKeySequence("Ctrl+Space"), self)
+        hablar.setAutoRepeat(False)  # mantenerlo pulsado mientras hablas lo encendía y apagaba (Windows repite la tecla)
         hablar.activated.connect(lambda: (self.ir_a(self.orden.index(self.director)), self.director.alternar_voz()))
         for campo in raiz.findChildren(QAbstractSpinBox):  # Qt ignora el padding izquierdo de ESTILO en estos campos
             campo.lineEdit().setTextMargins(6, 0, 0, 0)

@@ -684,7 +684,9 @@ try:
     assert lanzado[0]["env"]["HF_HUB_CACHE"] == str(nubes.MODELOS / "hf") and lanzado[0]["env"]["HF_HUB_OFFLINE"] == "1"
 finally:
     nubes.MODELOS, seguro.descargar, nubes.subprocess.run, nubes.DEMUCS = modelos_reales, descargar_real, run_real, demucs_real
-assert 'revision="' in (RAIZ / "motor" / "ia.py").read_text(encoding="utf-8")  # Whisper: revisión fija
+# Whisper: revisión fija (un commit, no una rama) y es la que se carga
+assert len(ia.WHISPER_REVISION) == 40 and int(ia.WHISPER_REVISION, 16) >= 0
+assert "revision=WHISPER_REVISION" in (RAIZ / "motor" / "ia.py").read_text(encoding="utf-8")
 
 # 32. El motor de Modal: volumen propio y solo paquetes compilados de hace 7 días o más
 modal_app = (RAIZ / "modal_app.py").read_text(encoding="utf-8")

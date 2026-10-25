@@ -771,7 +771,27 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     return palabras
 
 
-_WHISPER = {}
+_WHISPER, _CARGANDO_WHISPER = {}, threading.Lock()
+# revisión fija: un cambio en la rama «main» del repositorio no entra solo en el PC
+WHISPER_REPO, WHISPER_REVISION = "Systran/faster-whisper-small", "536b0662742c02347bc0e980a01041f333bce120"
+
+
+def whisper():
+    """El Whisper del PC, cargado una sola vez: cargarlo tarda (~4 s; la primera vez descarga ~460 MB). Se reutiliza
+    en cada escena y en cada orden de voz, y el Director lo va cargando mientras hablas (dos hilos no lo cargan doble)."""
+    with _CARGANDO_WHISPER:
+        if "small" not in _WHISPER:
+            from faster_whisper import WhisperModel
+            _WHISPER["small"] = WhisperModel("small", device="cpu", compute_type="int8", revision=WHISPER_REVISION)
+    return _WHISPER["small"]
+
+
+def whisper_descargado() -> bool:
+    """Si el modelo ya está en este PC (sin preguntar a internet): si no, la primera orden de voz espera la descarga."""
+    if "small" in _WHISPER:
+        return True
+    from huggingface_hub import try_to_load_from_cache
+    return isinstance(try_to_load_from_cache(WHISPER_REPO, "model.bin", revision=WHISPER_REVISION), str)
 
 
 def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None, cancion: bool = False,
@@ -805,17 +825,12 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     import subprocess
 
     import numpy as np
-    from faster_whisper import WhisperModel
 
     from .video import FFMPEG, MEDIOS
     # Se decodifica con ffmpeg: la librería 'av' que trae faster-whisper choca con versiones nuevas.
     crudo = subprocess.run([FFMPEG, "-format_whitelist", MEDIOS, "-i", str(audio),
                             "-f", "f32le", "-ac", "1", "-ar", "16000", "-"], capture_output=True, check=True).stdout
-    if "small" not in _WHISPER:  # cargarlo tarda: se reutiliza en cada escena y en cada orden de voz
-        # revisión fija: un cambio en la rama «main» del repositorio no entra solo en el PC
-        _WHISPER["small"] = WhisperModel("small", device="cpu", compute_type="int8",
-                                         revision="536b0662742c02347bc0e980a01041f333bce120")
-    modelo = _WHISPER["small"]
+    modelo = whisper()
     # `pista` (p. ej. la letra) ayuda a Whisper a acertar palabras cantadas o con jerga.
     muestras = np.frombuffer(crudo, np.float32)
     segmentos, _ = modelo.transcribe(muestras, language=idioma, initial_prompt=pista,

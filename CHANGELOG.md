@@ -1,6 +1,8 @@
 # Changelog · Historial de versiones
 
-## Unreleased · Sin publicar
+## 1.0.0 · 2026-10-25
+
+First public version · Primera versión.
 
 - **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle, full
   screen or split screen (the main video moves, whole, into the other half; one click, then drag and resize it on the
@@ -26,10 +28,6 @@
   (y dónde encenderlo), con el disco lleno y al llegar a los 60 minutos; cambiar de página o cerrar la app para la
   grabación y la guarda. La cámara y el micrófono se usan solo en tu PC, solo con el panel abierto y solo cuando tú los
   enciendes; las grabaciones se quedan en la carpeta `grabaciones` del proyecto. Aviso de privacidad actualizado.
-
-## 1.0.0 · 2026-10-24
-
-First public version · Primera versión.
 
 - **AI Director** with push-to-talk voice control (local Whisper) and a glowing border while it listens and works.
 - **Create with AI:** prompt → script → images → voice → animation → karaoke subtitles. New: **talking characters

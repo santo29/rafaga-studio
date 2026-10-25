@@ -286,9 +286,13 @@ sounddevice.InputStream = lambda **k: micro
 try:
     voz.escuchar(threading.Event())
 except RuntimeError:
-    assert abs(micro.lecturas * voz.BLOQUE - voz.SIN_SONIDO) < 1e-9, micro.lecturas  # a los 3 s, no a los 8
+    # cuando si no se diría «No te escuché»: un micro vivo con silencio digital no da una falsa alarma antes
+    assert abs(micro.lecturas * voz.BLOQUE - voz.SIN_SONIDO) < 1e-9 and voz.SIN_SONIDO == voz.SIN_VOZ, micro.lecturas
 finally:
     sounddevice.InputStream = _entrada
+# Ruido de sala que sube y baja después de hablar: el umbral sube con tu voz y para a los SILENCIO s, no a los 30
+niveles = [0.002] * 10 + [0.06] * 20 + [0.004 + 0.003 * (i % 2) for i in range(40)]
+assert next(i for i in range(10, len(niveles) + 1) if voz.hay_que_parar(niveles[:i])) * voz.BLOQUE < 3
 # Sin micrófono (o desactivado): PortAudio dice «device -1»; el usuario lee qué hacer
 sounddevice.InputStream = lambda **k: (_ for _ in ()).throw(sounddevice.PortAudioError("Error querying device -1"))
 try:
@@ -467,6 +471,21 @@ try:
     aviso = "No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa «Hablar» otra vez."
     assert d.chat.toPlainText().endswith(aviso) and leidos == [aviso] and d.estado.text() == "", d.estado.text()
     assert d.brillo.apagando and d.micro.text().endswith("Hablar")
+    # Entendiendo (con ruido de fondo puede tardar un minuto): pulsar otra vez lo abandona y lo que entienda no llega
+    soltar, entendio = threading.Event(), threading.Event()
+    voz.escuchar = lambda detener, nivel=None, dispositivo=None: np.full(voz.SR, 0.1, np.float32)
+    voz.entender = lambda audio: (soltar.wait(10), entendio.set(), "hazme un post")[-1]
+    chat_antes = d.chat.toPlainText()
+    d.alternar_voz()
+    esperar(lambda: d.escucha is not None and not d.escucha.oyendo)
+    hilo = d.escucha
+    d.alternar_voz()
+    assert d.escucha is None and d.micro.text().endswith("Hablar") and hilo in d._viejas
+    soltar.set()
+    assert entendio.wait(5)
+    esperar(lambda: not hilo.isRunning())
+    app.processEvents()
+    assert d.chat.toPlainText() == chat_antes and d.pedido.text() != "hazme un post"
     # Un MP3 que no se puede reproducir solo da error (sin cambiar de estado): la luz no se queda encendida
     malo = tmp / "respuesta-rota.mp3"
     malo.write_bytes(b"no es un mp3" * 100)

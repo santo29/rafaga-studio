@@ -17,8 +17,9 @@ BLOQUE = 0.05  # segundos por trozo del micrófono
 SILENCIO = 1.2  # callado este rato después de hablar: terminó la frase
 MAXIMO = 30  # nadie dicta un pedido más largo: se para igual
 SIN_VOZ = 8  # si en este rato no dijo nada, se deja de escuchar
-# Un micro vivo siempre tiene algo de ruido (suele ser -70 dBFS o más); silenciado o bloqueado en Windows da ceros
-MUDO, SIN_SONIDO = 1e-4, 3
+# Silenciado o bloqueado en Windows, el micro da ceros. Se avisa a los SIN_VOZ s, cuando si no se diría «No te escuché»:
+# algunos micros vivos también dan silencio digital mientras nadie habla, y avisar antes sería una falsa alarma
+MUDO, SIN_SONIDO = 1e-4, SIN_VOZ
 CARPETA = Path(tempfile.gettempdir()) / "rafaga-voz"
 
 
@@ -26,7 +27,9 @@ def _con_voz(niveles: list[float]) -> list[int]:
     """Los trozos que suenan a voz. El umbral sale del ruido de la sala (los momentos más callados), así funciona
     igual con ventilador que sin él. El mínimo es bajo: una voz que llega bajita al micro de un portátil (-30 dBFS de
     pico, trozos de hasta 0.011, medido con voz de Edge) con el 0.012 de antes nunca se oía, ni un «sí» corto."""
-    umbral = max(0.003, 2.5 * float(np.percentile(niveles, 10)))
+    # y con tu voz: el ruido de la sala que queda 15 dB por debajo de ti no cuenta como voz (si no, no paraba hasta los
+    # 30 s); p90 y no el máximo, para que un clic suelto no lo suba
+    umbral = max(0.003, 2.5 * float(np.percentile(niveles, 10)), 0.15 * float(np.percentile(niveles, 90)))
     return [i for i, v in enumerate(niveles) if v > umbral]
 
 

@@ -349,17 +349,21 @@ class Escucha(QThread):
     def __init__(self):
         super().__init__()
         self.detener = threading.Event()
-        self.cerrando = False  # la app se cierra: lo grabado no se transcribe ni se manda
+        self.cerrando = False  # la app se cierra (o se abandonó): lo grabado no se transcribe ni se manda
+        self.oyendo = True  # False en cuanto deja de grabar y se pone a entender
 
     def run(self):
         try:
             voz.preparar()
             audio = voz.escuchar(self.detener, self.nivel.emit)
+            self.oyendo = False
             if self.cerrando:
                 return
             if len(audio):  # sin voz no hay nada que entender: «No te escuché» sale enseguida
                 self.entendiendo.emit(ia.whisper_descargado())
-            self.texto.emit(voz.entender(audio))
+            texto = voz.entender(audio)
+            if not self.cerrando:
+                self.texto.emit(texto)
         except Exception as e:  # sin micrófono, sin permiso…: se avisa, no se cae la app
             traceback.print_exc()
             self.fallo.emit(str(e).strip() or type(e).__name__)
@@ -617,8 +621,8 @@ class PaginaDirector(QWidget):
             return
         self.escucha = self._nueva_escucha()
         self.escucha.texto.connect(self._respuesta_oida)
-        self.escucha.fallo.connect(
-            lambda _: self.estado.setText(t("No pude usar el micrófono: contesta en la ventana.")))
+        self.escucha.fallo.connect(lambda _: (self.estado.setText(t("No pude usar el micrófono: contesta en la ventana.")),
+                                              self.brillo and self.brillo.poner(None)))
         self.escucha.start()
         self.estado.setText(t("Te escucho: di «sí» o «no»."))
         if self.brillo:
@@ -662,6 +666,8 @@ class PaginaDirector(QWidget):
             self.intentos = max(self.intentos, 1)
             return self._escuchar_respuesta()
         if self.escucha and self.escucha.isRunning():
+            if not self.escucha.oyendo:  # ya está entendiendo (con ruido de fondo puede tardar un minuto): se abandona
+                return self._abandonar_escucha()
             self.escucha.detener.set()
             return
         if self.ocupado():
@@ -691,6 +697,20 @@ class PaginaDirector(QWidget):
                             t("Descargando el reconocimiento de voz (unos 460 MB, solo la primera vez)…"))
         if self.brillo:
             self.brillo.poner("pensando")
+
+    def _abandonar_escucha(self):
+        """Whisper termina en segundo plano, pero lo que entienda ya no llega al Director."""
+        hilo, self.escucha = self.escucha, None
+        hilo.cerrando = True
+        try:
+            hilo.fallo.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self._viejas.append(hilo)
+        hilo.finished.connect(lambda: hilo in self._viejas and self._viejas.remove(hilo))
+        if self.brillo:
+            self.brillo.poner(None)
+        self._volver_micro()
 
     def _volver_micro(self):
         poner(self.micro, f"🎙️  {t('Hablar')}")

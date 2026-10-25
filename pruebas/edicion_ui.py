@@ -14,9 +14,12 @@ from PySide6.QtGui import QColor, QDropEvent, QImage, QMouseEvent, QWheelEvent  
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from motor import claves, diseno, edicion, marca, video  # noqa: E402
+from pruebas import camara_falsa  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
 import ui.paginas.diseno as pd  # noqa: E402
 import ui.paginas.edicion as pe  # noqa: E402
+
+camara_falsa.usar()  # «Grabarte» con cámara y micrófono simulados: nunca los de este PC
 
 app = QApplication.instance() or QApplication(["pruebas"])
 app.setStyleSheet(ESTILO)
@@ -369,12 +372,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
     # ---------- Barra de herramientas (como en CapCut) y sus paneles ----------
     assert [b.text() for b in p.pestanas.buttons()] == [
-        "Medios", "Audio", "Texto", "Stickers", "Efectos", "Transiciones", "Subtítulos", "Filtros", "Ajustes",
-        "Plantillas", "Avatar IA"]
+        "Medios", "Audio", "Grabarte", "Texto", "Stickers", "Efectos", "Transiciones", "Subtítulos", "Filtros",
+        "Ajustes", "Plantillas", "Avatar IA"]
     for b in p.pestanas.buttons():
         b.click()
         assert b.isChecked() and p.paneles.currentIndex() == p.pestanas.id(b) and p.titulo_pestana.text() == b.text()
         assert b.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
+    assert not camara_falsa.Camara.creadas  # abrir «Grabarte» no enciende la cámara: solo tú, con su botón
     assert p.listas["transicion"].count() == len(edicion.TRANSICIONES)  # la lista completa, también las nuevas
     assert not p.avatar_btn.isEnabled()  # «Próximamente»: no promete lo que aún no hace
     efectos, filtros, desl = p.listas["efecto"], p.listas["filtro"], p.deslizadores
@@ -594,6 +598,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not ventana.edicion.tareas and ventana.edicion.proyecto["clips"])
     assert ventana.edicion.proyecto["formato"] == "16:9"
     assert ventana.edicion.proyecto["clips"][0]["archivo"] == str(clip.resolve())
+    # Con la cámara de «Grabarte» encendida, ir a otra página del menú la apaga (la ventana ya se ve: como de verdad)
+    ventana.show()
+    ventana.edicion.herramientas["grabarte"].click()
+    assert ventana.edicion.grabarte.encender() and camara_falsa.Camara.creadas[-1].activa
+    ventana.ir_a(0)
+    assert ventana.edicion.grabarte.estado == "apagada" and not camara_falsa.Camara.creadas[-1].activa
+    ventana.ir_a(i)
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)  # un video sin guardar: cerrar pregunta
     reproductor.editar.click()  # y «No» deja el proyecto como estaba
     assert len(ventana.edicion.proyecto["clips"]) == 1 and not ventana.edicion.tareas

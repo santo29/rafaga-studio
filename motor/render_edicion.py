@@ -21,6 +21,11 @@ fondo y en silencio durante su tramo, y el audio no suena.
 Proxies: miniatura() encarga, para los videos más grandes que la vista previa, una copia ligera (_proxy) que se hace en
 un hilo aparte con prioridad baja; fotograma() la usa en cuanto está (saltar en un 4K HEVC o en una grabación de
 pantalla con un fotograma clave cada 8 s cuesta 1–2 s por fotograma; en el proxy, ~0,15 s).
+Capas de video (Grabarte: tu cara encima del video): cada una es un tramo más (el de un clip sin filtros, al tamaño de
+su caja: fps, encaje y sonido normalizados igual, así una webcam de tasa variable no se desfasa) que se pone encima con
+la máscara de su forma (alphamerge) y su borde (dos PNG pintados con edicion.forma_video, como en el lienzo), en su
+sitio entre las demás capas; su sonido entra en la mezcla. Con «bajar_musica», la música baja mientras suena una voz
+(los audios «voz» y las capas de video): sidechaincompress con la voz como señal de control.
 """
 import atexit
 import hashlib
@@ -77,6 +82,9 @@ _VUELTA = 2  # segundos que tarda el Brillo Ráfaga en dar la vuelta al cuadro
 _LATIDO = 0.8  # segundos entre latido y latido del efecto «pulso»
 # (preset, crf) del tramo y del video final. Los tramos de exportar casi sin pérdida: luego se codifican otra vez
 _CALIDAD = {False: (("ultrafast", 26), ("ultrafast", 28)), True: (("ultrafast", 16), ("veryfast", 20))}
+# La música bajo la voz: a -30 dB de voz ya baja; una voz normal (-20 dB) la deja ~9 dB más baja. Entra en 40 ms y,
+# al callarte, vuelve en ~1 s (el detector RMS hace el release el doble de lento): sin bombeo entre palabra y palabra
+_BAJAR = "sidechaincompress=threshold=0.03:ratio=8:attack=40:release=250"
 
 
 # ---------- Utilidades ----------
@@ -510,16 +518,17 @@ def _salida_tramo(final: bool) -> list:
 
 
 def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: bool, avance,
-           fondo: str = "#000000", golpe: tuple | None = None, brillo: str = "") -> Path:
+           fondo: str = "#000000", golpe: tuple | None = None, brillo: str = "", alto: int | None = None) -> Path:
     """El clip normalizado (H.264 + PCM en .mov), del caché si ya estaba hecho con estos mismos parámetros. Si su
-    archivo falta, el color de fondo y silencio. golpe y brillo: los de su efecto (ver _efecto)."""
+    archivo falta, el color de fondo y silencio. golpe y brillo: los de su efecto (ver _efecto). alto: el del video,
+    si no es h (el tramo de una capa de video): con él en el nombre, la limpieza de los de ese tamaño lo encuentra."""
     falta = c.get("falta", False)
     entrada = None if falta else _entrada(c, cache)
     n = _cuadros_tramo(c, fps)
     preset, crf = _CALIDAD[final][0]
     datos = {k: v for k, v in c.items() if k not in _SIN_TRAMO}
     clave = _hash(VERSION, fondo if falta else _huella(entrada), datos, w, h, fps, ajuste, preset, crf, golpe)
-    destino = cache / f"tramo-{'exp' if final else 'vista'}{h}-{clave}.mov"
+    destino = cache / f"tramo-{'exp' if final else 'vista'}{alto or h}-{clave}.mov"
     if destino.is_file():
         return destino
     muestras = n * _R // fps
@@ -619,6 +628,48 @@ def _capa_png(capa: dict, carpeta: Path, cache: Path, w: int, h: int, escala: fl
     return destino, x0, y0, x1 - x0, y1 - y0
 
 
+def _pip(capa: dict, cache: Path, escala: float, fps: int, final: bool, alto: int, avance) -> tuple:
+    """Una capa de video como tramo: su archivo como un clip sin filtros (tamaño, fps y sonido normalizados como los de
+    un clip: también una webcam de tasa variable queda a fps fijos por sus tiempos, sin desfase con el sonido),
+    recortado para llenar su caja. Devuelve (tramo, x, y, ancho, alto) en píxeles de salida (ancho y alto pares)."""
+    cw, ch = (max(2, round(capa[k] * escala / 2) * 2) for k in ("ancho", "alto"))
+    clip = {**edicion._CLIP, "tipo": "video", **{k: capa[k] for k in ("archivo", "desde", "hasta", "duracion_archivo",
+                                                                     "volumen", "silencio")}}
+    return (_tramo(clip, cache, cw, ch, fps, "recortar", final, avance, alto=alto), round(capa["x"] * escala),
+            round(capa["y"] * escala), cw, ch)
+
+
+def _marco(capa: dict, cache: Path, cw: int, ch: int, escala: float, alto: int) -> tuple[Path, Path | None]:
+    """La máscara de la forma de una capa de video (blanco dentro y negro fuera, con el canto suavizado: alphamerge la
+    usa de transparencia) y su borde (PNG transparente; None si no tiene), a su tamaño en el video y pintados con
+    edicion.forma_video y pintar_borde, como en el lienzo del editor."""
+    caja = QRectF(0, 0, cw, ch)
+
+    def pintar(destino, fondo, dibujar, formato):
+        if destino.is_file():
+            return destino
+
+        def hacer(temporal):
+            imagen = QImage(cw, ch, QImage.Format_ARGB32_Premultiplied)
+            imagen.fill(fondo)
+            p = QPainter(imagen)
+            p.setRenderHint(QPainter.Antialiasing)
+            dibujar(p)
+            p.end()
+            if not imagen.convertToFormat(formato).save(str(temporal), "PNG"):
+                raise RuntimeError(t("No se pudo preparar una capa del video."))
+        return _a_disco(destino, hacer)
+    mascara = pintar(cache / f"pip-{alto}-mascara-{_hash(VERSION, capa['forma'], cw, ch)}.png", QColor("#000000"),
+                     lambda p: p.fillPath(edicion.forma_video(capa["forma"], caja), QColor("#FFFFFF")),
+                     QImage.Format_Grayscale8)
+    if not round(capa["grosor_borde"] * escala, 2):
+        return mascara, None
+    return mascara, pintar(cache / f"pip-{alto}-borde-{_hash(VERSION, capa['forma'], capa['borde'],
+                                                                capa['grosor_borde'], cw, ch, escala)}.png",
+                           QColor(0, 0, 0, 0), lambda p: edicion.pintar_borde(p, capa, caja, escala),
+                           QImage.Format_ARGB32)
+
+
 def _subtitulos(palabras: list, formato: str, cache: Path, estilo: str = "clasico") -> Path:
     """El .ass de los subtítulos (video.subtitulos_ass) en cache/, con el estilo en su nombre."""
     destino = cache / f"subs-{_hash(VERSION, palabras, formato, estilo)}.ass"  # solo hex: va tal cual dentro del filtro
@@ -683,6 +734,18 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
                                  p["clips"][i - 1]["transicion"], cache, h, fps, final), entra, 0, entra))
         if largo - entra - sale > 0:  # lo que se solapa ya va en los pasos; lo que el tramo trae de más, sin usar
             piezas.append((tramos[-1], _cuadros_tramo(c, fps), entra, largo - sale))
+    # Las capas de video que se ven en lo que sale, como un tramo más cada una (ver _pip)
+    escala, pips = h / video.FORMATOS[p["formato"]][1], {}
+
+    def cuadros_capa(capa):  # (primer fotograma, fin) de una capa en la línea de tiempo
+        return round(capa["inicio"] * fps), min(entero, round((capa["inicio"] + capa["duracion"]) * fps))
+    for capa in p["capas"]:
+        ini, fin = cuadros_capa(capa)
+        if capa["tipo"] == "video" and not capa.get("falta") and fin > max(ini, d0) and ini < d1:
+            texto = t("Preparando tu grabación…")
+            aviso(texto, 0.5)
+            pips[capa["id"]] = _pip(capa, cache, escala, fps, final, h, lambda f, x=texto: aviso(f"{x} {f:.0%}", 0.5))
+            tramos.append(pips[capa["id"]][0])
     usados.update(f.name for f in tramos)
     usados.update(f.name for f, *_ in piezas)
     for tipo in ("tramo", "paso"):
@@ -741,28 +804,59 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
         grafo.append(f"[{v}]tpad=stop={max(0, relleno)}:stop_mode=add:color={fondo},trim=end_frame={total},"
                      "setpts=PTS-STARTPTS[o]")
     grafo.append(f"[{a}]apad,atrim=end_sample={total * _R // fps}[pista]")
+    # El tramo de cada capa de video, desde lo que sale (-ss: al µs, cae justo en su fotograma y su muestra)
+    entrada_pip = {}
+    for capa in p["capas"]:
+        if capa["id"] in pips:
+            salta = d0 - cuadros_capa(capa)[0]
+            entradas.append([*(["-ss", f"{salta / fps:.6f}"] if salta > 0 else []), "-i", pips[capa["id"]][0].name])
+            entrada_pip[capa["id"]] = len(entradas) - 1
 
-    # 3. Capas: sus PNG, seguidos en otra entrada concat; cada una se recorta a su caja, se repite en memoria (loop)
-    # desde su inicio y se pone encima con overlay
-    visibles, escala = [], h / video.FORMATOS[p["formato"]][1]
+    # 3. Capas, en su orden (la última, encima). Las de diseño: sus PNG, seguidos en otra entrada concat; cada una se
+    # recorta a su caja, se repite en memoria (loop) desde su inicio y se pone encima con overlay. Las de video: su
+    # tramo con la máscara de su forma y, encima, su borde (ver _marco)
+    visibles, orden = [], []  # orden: (capa, ini, fin, índice de su PNG en visibles o None si es de video)
     for capa in [] if solo_audio else p["capas"]:
-        ini, fin = round(capa["inicio"] * fps), min(entero, round((capa["inicio"] + capa["duracion"]) * fps))
+        ini, fin = cuadros_capa(capa)
+        if capa["tipo"] == "video":
+            if capa["id"] in pips:
+                orden.append((capa, ini, fin, None))
+            continue
         hecho = _capa_png(capa, carpeta, cache, w, h, escala) if fin > ini else None
         if hecho:
             usados.add(hecho[0].name)
             if fin > d0 and ini < d1:
-                visibles.append((capa, ini, fin, *hecho))
+                orden.append((capa, ini, fin, len(visibles)))
+                visibles.append(hecho)
     if visibles:
-        listas[f"lista-{sello}-capas.txt"] = "".join(f"file {png.name}\n" for _, _, _, png, *_ in visibles)
+        listas[f"lista-{sello}-capas.txt"] = "".join(f"file {png.name}\n" for png, *_ in visibles)
         entradas.append(["-f", "concat", "-i", f"lista-{sello}-capas.txt"])
         grafo.append(f"[{len(entradas) - 1}:v]split={len(visibles)}" + "".join(f"[p{j}]" for j in range(len(visibles))))
     ultimo = "o"
-    for j, (capa, ini, fin, png, x, y, cw, ch) in enumerate(visibles):
+    for j, (capa, ini, fin, k) in enumerate(orden):
         dura = min(_ANIMACION, (fin - ini) / fps / 2)
         t0, t1 = (ini - d0) / fps, (fin - d0) / fps  # en una ventana pueden caer antes de 0: la animación sigue bien
         ve, deja = max(ini, d0) - d0, min(fin, d1) - d0
-        cadena = [f"[p{j}]trim=start_frame={j}:end_frame={j + 1},crop={cw}:{ch}:{x}:{y},format=yuva420p,"
-                  f"loop=loop=-1:size=1,trim=end_frame={deja - ve},setpts=(N+{ve})/({fps}*TB)"]
+        a_su_sitio = f"trim=end_frame={deja - ve},setpts=(N+{ve})/({fps}*TB)"
+        if k is None:  # capa de video: el tramo con la forma como transparencia y el borde encima
+            _, x, y, cw, ch = pips[capa["id"]]
+            mascara, borde = _marco(capa, cache, cw, ch, escala, h)
+            usados.update(f.name for f in (mascara, borde) if f)
+            entradas.append(["-loop", "1", "-framerate", fps, "-i", mascara.name])
+            grafo += [f"[{entrada_pip[capa['id']]}:v]{a_su_sitio},format=yuva420p[pv{j}]",
+                      f"[{len(entradas) - 1}:v]format=gray,{a_su_sitio}[pm{j}]",
+                      f"[pv{j}][pm{j}]alphamerge[c{j}]",
+                      f"[{ultimo}][c{j}]overlay=x={x}:y={y}:eof_action=pass[o{j}]"]
+            ultimo = f"o{j}"
+            if borde:
+                entradas.append(["-loop", "1", "-framerate", fps, "-i", borde.name])
+                grafo += [f"[{len(entradas) - 1}:v]format=yuva420p,{a_su_sitio}[pb{j}]",
+                          f"[{ultimo}][pb{j}]overlay=x={x}:y={y}:eof_action=pass[ob{j}]"]
+                ultimo = f"ob{j}"
+            continue
+        _, x, y, cw, ch = visibles[k]
+        cadena = [f"[p{k}]trim=start_frame={k}:end_frame={k + 1},crop={cw}:{ch}:{x}:{y},format=yuva420p,"
+                  f"loop=loop=-1:size=1,{a_su_sitio}"]
         px, py = str(x), str(y)
         if capa["entrada"] == "fundido":
             cadena += _fundido("in", t0, dura)
@@ -788,9 +882,19 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
             ultimo = "s"
         grafo.append(f"[{ultimo}]format=yuv420p[vfin]")
         _limpiar(cache, f"capa-{h}-*.png", usados)
+        _limpiar(cache, f"pip-{h}-*.png", usados)
 
-    # 4. Audios: cada uno a su sitio de la línea de tiempo, con su volumen y fundidos, sumados sin bajar el volumen
+    # 4. Audios: cada uno a su sitio de la línea de tiempo, con su volumen y fundidos, sumados sin bajar el volumen.
+    # Con «bajar_musica», la música (sumada) pasa por un compresor que escucha la voz (sumada): baja mientras hablas
     mezcla, huellas, s0 = ["pista"], [], d0 * _R // fps  # s0: la muestra donde empieza lo que sale
+    musicas, voces = [], []
+    for j, capa in enumerate(p["capas"]):  # el sonido de cada capa de video: el de su tramo, ya en su sitio
+        if capa["id"] in entrada_pip:
+            ini, fin = cuadros_capa(capa)
+            ve, deja = max(ini, d0) - d0, min(fin, d1) - d0
+            grafo.append(f"[{entrada_pip[capa['id']]}:a]atrim=end_sample={(deja - ve) * _R // fps},"
+                         f"asetpts=PTS-STARTPTS,adelay={ve * _R // fps}S:all=1[mv{j}]")
+            voces.append(f"mv{j}")
     for j, au in enumerate(p["audios"]):
         if au.get("falta"):  # su archivo no está: no suena (la interfaz lo marca para volver a enlazarlo)
             continue
@@ -810,7 +914,19 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
             cadena.append(f"afade=t=out:st={max(0.0, largo - au['salida']):.6f}:d={au['salida']}")
         cadena.append(f"adelay={max(0, round(au['inicio'] * _R) - s0)}S:all=1")
         grafo.append(",".join(cadena) + f"[m{j}]")
-        mezcla.append(f"m{j}")
+        {"musica": musicas, "voz": voces}.get(au["tipo"], mezcla).append(f"m{j}")
+    if p["bajar_musica"] and musicas and voces:
+        # Las dos sin fin (apad) y cortadas DESPUÉS del compresor: al acabarse una de sus entradas tira lo que aún
+        # tenía de la otra (la música se cortaba medio segundo antes del final)
+        for nombre, sonidos in (("musica", musicas), ("voces", voces)):
+            suma = f"amix=inputs={len(sonidos)}:normalize=0:duration=longest," if len(sonidos) > 1 else ""
+            grafo.append("".join(f"[{s}]" for s in sonidos) + f"{suma}apad[{nombre}]")
+        largo = total * _R // fps
+        grafo += ["[voces]asplit=2[voz][escucha]", f"[musica][escucha]{_BAJAR},atrim=end_sample={largo}[bajada]",
+                  f"[voz]atrim=end_sample={largo}[voz_entera]"]
+        mezcla += ["bajada", "voz_entera"]
+    else:
+        mezcla += musicas + voces
     if len(mezcla) > 1:
         grafo.append("".join(f"[{m}]" for m in mezcla) + f"amix=inputs={len(mezcla)}:normalize=0:duration=first[afin]")
     else:
@@ -907,6 +1023,37 @@ def _cuadro(entrada: str, _huella_archivo: tuple, datos: str, ajuste: str, fps: 
     if len(r.stdout) < w * h * 4:
         return None
     return QImage(r.stdout[:w * h * 4], w, h, 4 * w, QImage.Format_RGB32).copy()  # copy: los bytes no viven más
+
+
+def fotograma_capa(capa: dict, carpeta: Path, momento: float, fps: int = 30, alto_max: int = 360) -> QImage | None:
+    """El fotograma de una capa de video (tu cara) en el segundo `momento` de la línea de tiempo: el mismo que sale en
+    el video montado a esos fps, entero (el lienzo lo recorta a su caja al pintarlo, como ffmpeg: edicion.pintar_video)
+    y de `alto_max` px como mucho. None si falta su archivo o la capa no se ve en ese momento."""
+    c = edicion.validar({"capas": [capa]})["capas"][0]
+    momento = diseno._campo(edicion._num(0, edicion.MAX_DURACION, 6), momento, t("El momento del video"))
+    fps = diseno._campo(edicion._fps, fps, t("Los fps"))
+    alto_max = int(diseno._campo(edicion._num(16, 2160, 0), alto_max, t("El alto de la imagen")))
+    j = int((momento - c["inicio"]) * fps + 1e-3)  # el fotograma de la capa que se ve, como en _render
+    if c.get("falta") or j < 0 or momento >= c["inicio"] + c["duracion"]:
+        return None
+    cache = _cache(carpeta)
+    entrada = seguro.archivo_medio(c["archivo"], seguro.VIDEOS, t("capa de video"))
+    proxy = _proxy(entrada, cache) if alto_max <= _PROXY else None
+    entrada = proxy if proxy and proxy.is_file() else entrada
+    return _cuadro_capa(str(entrada), _huella(entrada), c["desde"], fps, j, alto_max)
+
+
+@lru_cache(maxsize=32)
+def _cuadro_capa(entrada: str, _huella_archivo: tuple, desde: float, fps: int, j: int, alto: int) -> QImage | None:
+    """El fotograma j de una capa de video que empieza en `desde`, con los tiempos de su tramo (ver _cuadro)."""
+    salto, m = _salto(entrada, max(0.0, desde + j / fps - 2e-4))
+    r = subprocess.run([video.FFMPEG, "-hide_banner", "-loglevel", "error", *video.solo_medios([
+        *salto, "-i", entrada, "-vf", f"setpts=PTS-{m:.6f}/TB,fps={fps}:start_time=0,scale=-2:'min({alto},ih)'",
+        "-frames:v", "1", "-an", "-sn", "-f", "image2pipe", "-c:v", "png", "-"])], capture_output=True)
+    if r.returncode:
+        raise RuntimeError(t("ffmpeg falló: {error}", error=r.stderr.decode("utf-8", "replace").strip()[:800]))
+    imagen = QImage.fromData(r.stdout, "PNG")
+    return None if imagen.isNull() else imagen
 
 
 def miniatura(clip: dict, carpeta: Path, alto: int = 72) -> QImage:

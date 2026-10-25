@@ -425,4 +425,92 @@ with tempfile.TemporaryDirectory() as d:
     falla(edicion.abrir, ajeno)
     assert sorted(x["nombre"] for x in edicion.listar()) == ["Perdidos", "Real"]  # el roto no impide ver los demás
 
+    # ---------- Capas de video (Grabarte): tu cara encima del video ----------
+    def cara(**c):
+        return {"tipo": "video", "archivo": r"C:\grabaciones\yo.mp4", "desde": 1, "hasta": 4, "duracion_archivo": 5,
+                "inicio": 2, "x": 700, "y": 1400, "ancho": 300, "alto": 300, **c}
+    p = edicion.validar({"capas": [cara(onclick="x", rotacion=45)], "otra": 1})
+    capa = p["capas"][0]
+    assert capa["duracion"] == 3 and "onclick" not in capa and "rotacion" not in capa  # lo que sobra se quita
+    assert (capa["forma"], capa["borde"], capa["grosor_borde"], capa["volumen"], capa["silencio"]) == (
+        "circulo", edicion.BORDE, 0, 1, False)  # lo que falta, por defecto
+    assert edicion.validar(p) == p and edicion.validar(json.loads(json.dumps(p))) == p
+    assert cerca(edicion.duracion_total(p), 5) and [c["id"] for c in edicion.capas_en(p, 4.9)] == [capa["id"]]
+    assert edicion.validar({"capas": [cara(duracion=99)]})["capas"][0]["duracion"] == 3  # siempre hasta - desde
+    assert edicion.validar({"capas": [cara(ancho=9000)]})["capas"][0]["ancho"] == 2 * 1080  # tope de las capas
+    assert edicion.validar({"capas": [cara(falta=True)]})["capas"][0]["falta"] is True
+    for malo in (cara(forma="estrella"), cara(grosor_borde=201), cara(volumen=3), cara(borde="rojo"),
+                 cara(archivo=r"\\atacante.example\s\yo.mp4"), cara(archivo="yo.mp4"), cara(archivo=r"C:\yo.png"),
+                 cara(archivo=r"C:\a\..\yo.mp4"), cara(hasta=6), cara(desde=4, hasta=4.05), cara(silencio="no"),
+                 cara(inicio=3599), cara(x=float("nan")), cara(falta="sí"), {**cara(), "archivo": None}):
+        falla(edicion.validar, {"capas": [malo]})
+    falla(edicion.validar, {"capas": [cara()] * (edicion.MAX_VIDEOS + 1)})
+    # Los proyectos de antes se abren igual: «Bajar la música» viene puesta
+    assert edicion.validar({})["bajar_musica"] is True
+    assert edicion.validar({"bajar_musica": False})["bajar_musica"] is False
+    falla(edicion.validar, {"bajar_musica": "sí"})
+
+    # Disposiciones de un clic: dentro del cuadro en los cuatro formatos, esquinas del 28 % del lado corto
+    for formato, (ancho, alto) in video.FORMATOS.items():
+        cajas = {cual: edicion.disposicion(formato, cual, "redondeado", "#FF4D8D") for cual in edicion.DISPOSICIONES}
+        for cual, caja in cajas.items():
+            assert 0 <= caja["x"] and 0 <= caja["y"] and caja["x"] + caja["ancho"] <= ancho, (formato, cual, caja)
+            assert caja["y"] + caja["alto"] <= alto and caja["borde"] == "#FF4D8D", (formato, cual, caja)
+            edicion.validar({"formato": formato, "capas": [cara(inicio=0, **caja)]})  # todas valen tal cual
+        corto = min(ancho, alto)
+        esquinas = [cajas[c] for c in ("sup_izq", "sup_der", "inf_izq", "inf_der")]
+        assert all(c["ancho"] == c["alto"] == round(corto * 0.28) and c["forma"] == "redondeado" and c["grosor_borde"]
+                   for c in esquinas)
+        assert len({(c["x"], c["y"]) for c in esquinas}) == 4
+        assert esquinas[0]["x"] == esquinas[2]["x"] < esquinas[1]["x"] and esquinas[0]["y"] < esquinas[2]["y"]
+        assert cajas["completa"] == {"x": 0, "y": 0, "ancho": ancho, "alto": alto, "forma": "rectangulo",
+                                     "borde": "#FF4D8D", "grosor_borde": 0}
+        mitad = cajas["dividida"]
+        if ancho > alto:  # 16:9: lado a lado (a la derecha)
+            assert (mitad["x"], mitad["y"], mitad["ancho"], mitad["alto"]) == (ancho // 2, 0, ancho // 2, alto)
+        else:  # 9:16, 1:1 y 4:5: arriba y abajo
+            assert (mitad["x"], mitad["y"], mitad["ancho"], mitad["alto"]) == (0, alto // 2, ancho, alto // 2)
+    assert edicion.disposicion("9:16", "inf_der")["y"] < 1920 - 302 - 100  # lejos de los textos de abajo de TikTok
+    for malo in (("21:9", "inf_der"), ("9:16", "centro"), ("9:16", "inf_der", "estrella"), ("9:16", "completa",
+                                                                                              "circulo", "azul")):
+        falla(edicion.disposicion, *malo)
+
+    # Una grabación al proyecto: con imagen, capa de video en su sitio; solo voz, un audio «voz»
+    voz = d / "voz.m4a"
+    video.ffmpeg("-f", "lavfi", "-i", "sine=frequency=300:duration=1.5", "-c:a", "aac", voz)
+    base = edicion.anadir_medio(edicion.nuevo(formato="16:9"), str(videos["clip.mp4"]))
+    q = edicion.anadir_grabacion(base, str(videos["clip.mp4"]), 0.5, "sup_izq", "circulo", "#00E5FF")
+    capa = q["capas"][-1]
+    assert capa["tipo"] == "video" and capa["archivo"] == str(videos["clip.mp4"].resolve()) and capa["inicio"] == 0.5
+    assert abs(capa["hasta"] - 2) < 0.05 and capa["desde"] == 0 and capa["borde"] == "#00E5FF"
+    assert {k: capa[k] for k in ("x", "y", "ancho", "alto", "forma")} == {
+        k: edicion.disposicion("16:9", "sup_izq")[k] for k in ("x", "y", "ancho", "alto", "forma")}
+    assert base == edicion.validar(base) and not base["capas"]  # no toca el que recibe
+    q = edicion.anadir_grabacion(q, str(voz), 1)
+    assert q["audios"][-1]["tipo"] == "voz" and q["audios"][-1]["inicio"] == 1 and len(q["capas"]) == 1
+    tarde = edicion.anadir_grabacion(base, str(videos["clip.mp4"]), edicion.MAX_DURACION - 1)
+    assert cerca(tarde["capas"][-1]["hasta"], 1) and cerca(edicion.duracion_total(tarde), edicion.MAX_DURACION)
+    for malo in (str(secreto), r"\\atacante.example\s\yo.mp4", str(d / "foto.png"), str(d / "no_existe.mp4")):
+        falla(edicion.anadir_grabacion, base, malo, 0)
+    falla(edicion.anadir_grabacion, base, str(videos["clip.mp4"]), edicion.MAX_DURACION)  # no cabe
+    falla(edicion.anadir_grabacion, base, str(videos["clip.mp4"]), 0, "centro")
+    # Recortar la capa: se queda en su sitio de la línea de tiempo (como un audio); borrarla
+    recortada = edicion.recortar(q, capa["id"], 0.5, 1.5)
+    nueva = recortada["capas"][-1]
+    assert (nueva["desde"], nueva["hasta"], nueva["inicio"], nueva["duracion"]) == (0.5, 1.5, 1, 1)
+    falla(edicion.recortar, edicion.validar({**q, "capas": q["capas"] + [{"tipo": "texto", "id": "t9"}]}), "t9", 0, 1)
+    assert not edicion.borrar(q, capa["id"])["capas"]
+    # Un archivo de cámara que ya no está: «falta» al abrir, volver a enlazar lo arregla
+    shutil.copy(videos["clip.mp4"], d / "mi_cara.mp4")
+    con_cara = edicion.anadir_grabacion(edicion.nuevo("Con cara"), str(d / "mi_cara.mp4"), 0)
+    guardada = edicion.nueva_carpeta("con cara")
+    edicion.guardar(con_cara, guardada)
+    (d / "mi_cara.mp4").unlink()
+    abierta = edicion.abrir(guardada)
+    assert abierta["capas"][0]["falta"] is True
+    arreglada = edicion.reenlazar(abierta, abierta["capas"][0]["id"], str(videos["clip.mp4"]))
+    assert "falta" not in arreglada["capas"][0]
+    assert arreglada["capas"][0]["archivo"] == str(videos["clip.mp4"].resolve())
+    falla(edicion.reenlazar, abierta, abierta["capas"][0]["id"], str(voz))  # sin imagen no vale para una cámara
+
 print("Pruebas del editor de video (modelo) pasadas.")

@@ -204,6 +204,8 @@ class Ventana(QMainWindow):
                                    str(Path(__file__).resolve().parent))
 
     def closeEvent(self, e):
+        # Grabándote en el editor: la toma se para, se guarda y entra en el video antes de preguntar si guardarlo
+        self.edicion.parar_grabacion()
         # un diseño o un video sin guardar se perdería al cerrar
         if not (self.diseno._descartar_ok() and self.edicion._descartar_ok()):
             return e.ignore()

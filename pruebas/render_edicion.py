@@ -11,7 +11,8 @@ from pathlib import Path
 import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtGui import QImage  # noqa: E402
+from PySide6.QtCore import QRectF  # noqa: E402
+from PySide6.QtGui import QImage, QPainter  # noqa: E402
 
 from motor import claves, desde_prompt, diseno, edicion, ia, video  # noqa: E402
 from motor import render_edicion as render  # noqa: E402
@@ -538,6 +539,97 @@ with tempfile.TemporaryDirectory() as d:
         falla(render.voz_ia, "Hola", "es-DO-EmilioNeural", r"\\atacante.example\s")
     finally:
         desde_prompt.narrar = narrar
+
+    # ---------- Grabarte: tu cara en un círculo con borde, a su hora y con su sonido ----------
+    def tono(archivo, f, a, b) -> float:
+        """Amplitud del tono de f Hz entre los segundos a y b (mono, 48 kHz)."""
+        x = sonido(archivo)[int(a * 48000):int(b * 48000)]
+        return float(2 * abs(np.mean(x * np.exp(-2j * np.pi * f * np.arange(len(x)) / 48000))))
+    gris3 = hacer("gris3.mp4", "-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=3", *h264[:6])  # sin sonido
+    verde = hacer("verde.mp4", "-f", "lavfi", "-i", "color=c=0x00FF00:s=320x240:r=30:d=1.5", "-f", "lavfi", "-i",
+                  "aevalsrc='0.5*sin(2*PI*1000*t)':s=48000:d=1.5", *h264)
+    g = edicion.anadir_grabacion({**proyecto(gris3), "formato": "16:9"}, str(verde), 1.0, "sup_der", "circulo")
+    g["capas"][0].update(borde="#FF0000", grosor_borde=30)
+    g = edicion.validar(g)
+    capa = g["capas"][0]
+    vista = render.vista_previa(g, carpeta)
+    k = 640 / 1080  # vista previa: 1138×640
+    cx, cy, r = (capa["x"] + capa["ancho"] / 2) * k, (capa["y"] + capa["alto"] / 2) * k, capa["ancho"] / 2 * k
+    dentro, en_borde = cuadro(vista, 45), [int(v) for v in (cx, cy - r + 6)]  # en 1.5 s
+    assert dentro[int(cy), int(cx), 1] > 200 and dentro[int(cy), int(cx), 0] < 90, dentro[int(cy), int(cx)]  # verde
+    rojo_borde = dentro[en_borde[1], en_borde[0]]
+    assert rojo_borde[0] > 180 and rojo_borde[1] < 90, rojo_borde  # el borde, por dentro del círculo
+    esquina = dentro[int(cy - r + 3), int(cx - r + 3)]  # dentro de la caja pero fuera del círculo: transparente
+    assert abs(esquina - 128).max() < 25, esquina
+    for n in (15, 81):  # antes de 1 s y después de 2.5 s, solo el fondo gris
+        assert abs(cuadro(vista, n)[int(cy), int(cx)] - 128).max() < 25, n
+    assert tono(vista, 1000, 1.1, 2.4) > 0.3  # su sonido, mezclado a su hora
+    assert tono(vista, 1000, 0.1, 0.9) < 0.01 and tono(vista, 1000, 2.6, 2.95) < 0.01
+    # Lo que se ve en el lienzo del editor (el fotograma del fondo + edicion.pintar_video) es lo que sale
+    cara = render.fotograma_capa(capa, carpeta, 1.5, 30)
+    assert (cara.width(), cara.height()) == (320, 240) and de_qimage(cara)[120, 160, 1] > 200  # entera, sin recortar
+    lienzo = render.fotograma(g, carpeta, 1.5).convertToFormat(QImage.Format_RGB32)
+    pintor = QPainter(lienzo)
+    pintor.scale(k, k)  # en píxeles del video, como el lienzo
+    edicion.pintar_video(pintor, capa, QRectF(capa["x"], capa["y"], capa["ancho"], capa["alto"]), cara)
+    pintor.end()
+    # Por bloques de 8×8: el canto del borde puede caer un píxel más allá (la caja del video va a píxeles pares)
+    diferencia = np.abs(reducir(de_qimage(lienzo), 142, 80) - reducir(dentro, 142, 80))
+    assert diferencia.mean() < 4 and np.percentile(diferencia, 99) < 30, (diferencia.mean(), diferencia.max())
+    assert render.fotograma_capa(capa, carpeta, 0.5, 30) is None and render.fotograma_capa(capa, carpeta, 2.5) is None
+    assert render.fotograma_capa({**capa, "falta": True}, carpeta, 1.5) is None
+    falla(render.fotograma_capa, {**capa, "archivo": str(d / "claves.json.mp4")}, carpeta, 1.5)
+    falla(render.fotograma_capa, {**capa, "archivo": r"\\atacante.example\s\v.mp4"}, carpeta, 1.5)
+    falla(render.fotograma_capa, capa, carpeta, 1.5, 29)
+    # Sin borde, redondeada y a pantalla completa también montan (la máscara y el borde van en cache/pip-*)
+    for cambio in ({"grosor_borde": 0}, {"forma": "redondeado"}, edicion.disposicion("16:9", "completa")):
+        assert info(render.vista_previa(edicion.validar({**g, "capas": [{**capa, **cambio}]}), carpeta))[:2] == (
+            1138, 640)
+    assert {f.name.split("-")[2] for f in (carpeta / "cache").glob("pip-640-*.png")} <= {"mascara", "borde"}
+    # Al exportar: los tramos casi sin pérdida de la cámara también se borran
+    exportado = render.exportar(g, carpeta, d / "con_cara.mp4", "720p")
+    assert info(exportado)[:2] == (1280, 720) and not list((carpeta / "cache").glob("*-exp*.mov"))
+    assert tono(exportado, 1000, 1.1, 2.4) > 0.3
+
+    # Una webcam de tasa variable (falta 1 de cada 7 fotogramas; sus tiempos lo dicen): el blanco y el pitido del
+    # segundo 4 de la grabación salen a la vez y en su sitio. Contando fotogramas, la imagen llegaría 0.6 s antes
+    vfr = hacer("vfr.mp4", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=6,drawbox=c=white:t=fill:"
+                "enable='gte(t,4)'", "-f", "lavfi", "-i", "aevalsrc='if(gte(t,4),0.8*sin(2*PI*1000*t),0)':s=48000:d=6",
+                "-vf", "select='not(eq(mod(n\\,7)\\,3))'", "-fps_mode", "vfr", *h264)
+    assert cuadros(vfr) < 160, cuadros(vfr)  # de verdad le faltan fotogramas
+    g = edicion.anadir_grabacion(edicion.nuevo(formato="16:9"), str(vfr), 0.5, "completa")
+    blanco, pitido = blanco_y_pitido(render.vista_previa(g, carpeta))
+    assert abs(blanco - 135) <= 1 and abs(pitido - 4.5) < 0.02 and abs(pitido - blanco / 30) < 0.04, (blanco, pitido)
+
+    # ---------- Bajar la música cuando hablas: baja bajo la voz y vuelve después (hasta el final) ----------
+    hacer("tono.wav", "-f", "lavfi", "-i", "aevalsrc='0.3*sin(2*PI*330*t)':s=48000:d=6")
+    hacer("habla.wav", "-f", "lavfi", "-i", "aevalsrc='0.3*sin(2*PI*1000*t)':s=48000:d=1.5")
+    g = edicion.anadir_grabacion(edicion.anadir_medio(edicion.nuevo(), str(d / "tono.wav")), str(d / "habla.wav"), 2)
+    assert [a["tipo"] for a in g["audios"]] == ["musica", "voz"] and g["bajar_musica"]
+    con = d / "con_bajar.mp4"  # copiada: cada vista previa nueva borra la anterior de cache/
+    con.write_bytes(render.vista_previa(g, carpeta).read_bytes())
+    sin_bajar = render.vista_previa({**g, "bajar_musica": False}, carpeta)
+    antes, debajo, despues = tono(con, 330, 0.5, 1.5), tono(con, 330, 2.4, 3.4), tono(con, 330, 4.8, 5.6)
+    assert debajo < antes / 2.5, (antes, debajo)  # más de 8 dB más baja
+    assert abs(despues - antes) < 0.05 * antes and tono(con, 330, 5.8, 5.97) > 0.9 * antes, (antes, despues)
+    assert abs(tono(sin_bajar, 330, 2.4, 3.4) - antes) < 0.05 * antes  # sin la opción, la música no cambia
+    assert abs(tono(con, 1000, 2.4, 3.4) - tono(sin_bajar, 1000, 2.4, 3.4)) < 0.02  # la voz, igual
+    # El sonido de tu grabación también la baja
+    g = edicion.anadir_grabacion(edicion.anadir_medio(edicion.nuevo(), str(d / "tono.wav")), str(verde), 2)
+    con = render.vista_previa(g, carpeta)
+    assert tono(con, 330, 2.4, 3.3) < tono(con, 330, 0.5, 1.5) / 2.5 and tono(con, 1000, 2.4, 3.3) > 0.3
+    # Y los subtítulos automáticos la oyen: va en la mezcla que se transcribe
+    oido = {}
+
+    def transcribir_cara(audio, progreso=lambda f: None, **_):
+        oido["tono"], oido["silencio"] = tono(audio, 1000, 2.2, 3.3), tono(audio, 1000, 0.3, 1.5)
+        return [{"palabra": "hola", "inicio": 2.2, "fin": 2.6}]
+    real, ia.transcribir = ia.transcribir, transcribir_cara
+    try:
+        assert render.subtitulos_automaticos(g, carpeta) == [{"palabra": "hola", "inicio": 2.2, "fin": 2.6}]
+    finally:
+        ia.transcribir = real
+    assert oido["tono"] > 0.2 and oido["silencio"] < 0.01, oido
 
     # ---------- Lo hostil se rechaza antes de llegar a ffmpeg ----------
     secreto = d / "claves.mp4"

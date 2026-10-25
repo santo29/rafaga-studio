@@ -1,8 +1,9 @@
 """Línea de tiempo del editor de video, como la de CapCut: un QWidget que se pinta solo, con la regla de segundos, el
-cursor y las pistas Video (clips con miniatura y el rombo de su transición), Capas (textos y stickers), Audio (con su
-forma de onda) y Subtítulos. Ratón: clic elige; arrastrar mueve (un clip cambia de orden; una capa o un audio, de
-inicio); arrastrar un borde recorta; clic o arrastre en la regla o en un hueco mueve el cursor; la rueda o el
-deslizador hacen zoom. El imán pega lo que se arrastra a los bordes de lo demás y al cursor.
+cursor y las pistas Video (clips con miniatura y el rombo de su transición), Capas (textos, stickers y tus grabaciones
+de cámara, en violeta y con miniatura: se recortan como un audio), Audio (con su forma de onda) y Subtítulos.
+Ratón: clic elige; arrastrar mueve (un clip cambia de orden; una capa o un audio, de inicio); arrastrar un borde
+recorta; clic o arrastre en la regla o en un hueco mueve el cursor; la rueda o el deslizador hacen zoom. El imán pega
+lo que se arrastra a los bordes de lo demás y al cursor.
 
 No cambia el proyecto: al soltar un arrastre emite `cambio` con un proyecto nuevo validado (un solo «deshacer»).
 Las miniaturas y las formas de onda las hace motor/render_edicion en un hilo aparte (Hilo): mientras, se ve el color."""
@@ -21,8 +22,8 @@ from motor.idioma import t
 
 REGLA, VIDEO, CAPA, AUDIO, SUBS, HUECO = 26, 58, 26, 38, 24, 6  # alturas en píxeles
 IZQ, BORDE, IMAN, UMBRAL = 12, 6, 8, 4  # px: margen, zona para recortar, alcance del imán, lo que hay que mover para arrastrar
-COLORES = {"clips": "#2F5D8A", "capas": "#9A5B2E", "audios": "#1F6F5C"}
-FALTA = "#B23B3B"  # un clip o audio cuyo archivo se movió o se borró
+COLORES = {"clips": "#2F5D8A", "capas": "#9A5B2E", "audios": "#1F6F5C", "video": "#5B3FA0"}  # video: tu cara
+FALTA = "#B23B3B"  # un clip, capa de video o audio cuyo archivo se movió o se borró
 
 
 def render():
@@ -40,14 +41,20 @@ def reloj(segundos: float) -> str:
 
 def nombre(clave: str, e: dict) -> str:
     """Nombre corto de un clip, una capa o un audio, en texto plano."""
-    if clave in ("clips", "audios"):
+    if clave in ("clips", "audios") or _es_video(clave, e):
         archivo = Path(e["archivo"]).name
-        texto = t("Falta: {archivo}", archivo=archivo) if e.get("falta") else archivo
+        texto = t("Falta: {archivo}", archivo=archivo) if e.get("falta") else \
+            f"🎥 {archivo}" if _es_video(clave, e) else archivo
     else:
         texto = {"texto": t("Texto · {contenido}", contenido=e.get("texto", "")),
                  "icono": t("Sticker · {nombre}", nombre=e.get("nombre", "")),
                  "emoji": e.get("texto", ""), "imagen": t("Imagen")}.get(e["tipo"], "")
     return " ".join(texto.split())[:60]
+
+
+def _es_video(clave: str, e: dict) -> bool:
+    """Una capa de video (tu cara): se recorta como un audio (cambia su tramo del archivo) y lleva miniatura."""
+    return clave == "capas" and e["tipo"] == "video"
 
 
 def _carriles(tramos: list[tuple[float, float]]) -> tuple[list[int], int]:
@@ -246,10 +253,10 @@ class LineaTiempo(QWidget):
     def _pintar_elemento(self, p, zona, caja, clave, e, r):
         p.save()
         p.setClipRect(caja)
-        p.fillRect(caja, QColor(FALTA if e.get("falta") else COLORES[clave]))
+        p.fillRect(caja, QColor(FALTA if e.get("falta") else COLORES["video" if _es_video(clave, e) else clave]))
         if e.get("falta"):
             r = None  # el archivo no está: ni miniatura ni onda que sacar
-        if r and clave == "clips":
+        if r and (clave == "clips" or _es_video(clave, e)):
             mini = self._imagen(("mini", e["archivo"], e["desde"]), r, "miniatura", dict(e), self.carpeta, 72)
             if mini:  # repetida a lo largo del clip, solo en lo que se ve (un clip de 60 min serían miles)
                 paso = mini.width() * caja.height() / mini.height()
@@ -370,17 +377,18 @@ class LineaTiempo(QWidget):
             if abs(pegar) * self.escala <= IMAN:
                 dt += pegar
         minimo, v = edicion.MIN_CLIP + 0.01, e.get("velocidad", 1)  # con margen: el redondeo a ms no lo deja corto
+        tramo = clave == "audios" or _es_video(clave, e)  # se recorta su trozo del archivo
         if modo == "izq":
             dt = min(dt, fin - inicio - minimo)
-            if clave == "capas":
-                dt = max(dt, -inicio)
-            elif clave == "audios":
+            if tramo:
                 dt = max(dt, -e["desde"], -e["inicio"])
+            elif clave == "capas":
+                dt = max(dt, -inicio)
             elif e["tipo"] == "video":
                 dt = max(dt, -e["desde"] / v)
         elif modo == "der":
             dt = max(dt, minimo - (fin - inicio))
-            if clave == "audios":
+            if tramo:
                 dt = min(dt, e["duracion_archivo"] - e["hasta"])
             elif clave == "clips" and e["tipo"] == "video":
                 dt = min(dt, (e["duracion_archivo"] - e["hasta"]) / v)
@@ -396,7 +404,7 @@ class LineaTiempo(QWidget):
             centro = (inicio + fin) / 2 + dt
             otros = [(x + y) / 2 for k, (x, y) in enumerate(self._tiempos) if k != a["i"]]
             return edicion.mover_clip(p, e["id"], sum(c < centro for c in otros))
-        if clave in ("clips", "audios"):
+        if clave in ("clips", "audios") or _es_video(clave, e):
             v = e.get("velocidad", 1)
             desde = e["desde"] + (dt * v if modo == "izq" else 0)
             hasta = e["hasta"] + (dt * v if modo == "der" else 0)

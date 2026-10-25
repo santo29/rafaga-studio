@@ -17,7 +17,7 @@ MAPA = {"📄": "file-plus", "📂": "folder-open", "💾": "save", "↶": "undo
         "⚡": "zap", "🔑": "key-round", "🔌": "plug", "⬛": "square",
         "▲": "arrow-up", "▼": "arrow-down", "🤖": "bot", "📎": "paperclip", "🎞️": "film", "🏠": "house",
         "🛡️": "shield-check", "🐰": "rabbit", "📅": "calendar-clock", "🧠": "brain", "🔒": "lock",
-        "🔓": "lock-open", "⚖️": "scale"}
+        "🔓": "lock-open", "⚖️": "scale", "🎥": "video", "📥": "import"}
 
 
 @cache

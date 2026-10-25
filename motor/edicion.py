@@ -18,6 +18,9 @@ Reglas que aplica validar() además de tipos y rangos:
   0.2 s, pasa a «ninguna»); la del último clip siempre es «ninguna». Así recortar o mover nunca deja un proyecto roto.
 - Ids únicos entre clips, capas y audios (borrar busca en los tres): los repetidos o raros se cambian por uno nuevo.
 - La duración total es lo que acaba más tarde de las tres pistas (como CapCut: donde no hay clip se ve `fondo`).
+- Las capas de tipo «video» (Grabarte: tu cara encima del video) llevan su archivo como un clip de video (ruta,
+  «duracion_archivo», «falta», desde/hasta) y, como las demás capas, inicio y caja (x, y, ancho, alto); su «duracion»
+  es siempre hasta - desde (validar la recalcula). Hasta MAX_VIDEOS: cada una es un video más que decodificar.
 """
 import json
 import math
@@ -26,6 +29,9 @@ import time
 import unicodedata
 import uuid
 from pathlib import Path
+
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
 
 from . import diseno, seguro, video
 from .idioma import t
@@ -74,13 +80,20 @@ ENTRADAS = {"ninguna": t("Ninguna"), "fundido": t("Fundido"), "deslizar": t("Des
 SALIDAS = {"ninguna": t("Ninguna"), "fundido": t("Fundido")}
 MOVIMIENTOS = {"ninguno": t("Ninguno"), "acercar": t("Acercar"), "alejar": t("Alejar")}
 TIPOS_AUDIO = {"musica": t("Música"), "voz": t("Voz"), "efecto": t("Efecto")}
+FORMAS_VIDEO = {"circulo": t("Círculo"), "redondeado": t("Redondeado"), "rectangulo": t("Rectángulo")}
+# Dónde va una capa de video con un clic (ver disposicion); luego se mueve y cambia de tamaño en la vista previa
+DISPOSICIONES = {"sup_izq": t("Arriba a la izquierda"), "sup_der": t("Arriba a la derecha"),
+                 "inf_izq": t("Abajo a la izquierda"), "inf_der": t("Abajo a la derecha"),
+                 "completa": t("Pantalla completa"), "dividida": t("Pantalla dividida")}
+BORDE = "#7C5CFF"  # el violeta de Ráfaga: el borde de la cámara si la marca del usuario no tiene colores
 FPS = (24, 25, 30, 60)
 MAX_CLIPS, MAX_CAPAS, MAX_AUDIOS, MAX_PALABRAS = 300, 100, 50, 20_000  # 60 min hablando rápido: ~12 000 palabras
+MAX_VIDEOS = 6  # capas de video: cada una es un video más que decodificar a la vez al montar
 MAX_DURACION, MIN_CLIP, IMAGEN = 3600, 0.1, 3  # segundos: total, lo mínimo de un clip, lo que dura una foto nueva
 _T = 86_400  # «desde»/«hasta» dentro de un archivo: hasta 24 h (se puede usar un trozo de una grabación larga)
 _MAX_JSON = 8 * 1024 ** 2
 _TIPOS = {"video": seguro.VIDEOS, "imagen": seguro.IMAGENES}
-_TIPOS_CAPA = ("texto", "icono", "emoji", "imagen")
+_TIPOS_CAPA = ("texto", "icono", "emoji", "imagen", "video")
 
 
 # ---------- Validación ----------
@@ -138,6 +151,12 @@ _AUDIO = {"tipo": "musica", "inicio": 0, "desde": 0, "volumen": 1, "entrada": 0,
 _REGLAS_AUDIO = {"tipo": diseno._una(*TIPOS_AUDIO), "archivo": _ruta(seguro.AUDIOS), "inicio": _num(0, MAX_DURACION),
                  "desde": _num(0, _T), "hasta": _num(0, _T), "volumen": _num(0, 2, 2), "entrada": _num(0, 10, 2),
                  "salida": _num(0, 10, 2)}
+_VIDEO = {"desde": 0, "inicio": 0, "x": 0, "y": 0, "ancho": 300, "alto": 300, "forma": "circulo", "borde": BORDE,
+          "grosor_borde": 0, "volumen": 1, "silencio": False}
+_REGLAS_VIDEO = {"desde": _num(0, _T), "hasta": _num(0, _T), "inicio": _num(0, MAX_DURACION),
+                 "x": _num(-20000, 20000, 0), "y": _num(-20000, 20000, 0), "ancho": _num(1, 20000, 0),
+                 "alto": _num(1, 20000, 0), "forma": diseno._una(*FORMAS_VIDEO), "borde": diseno.color,
+                 "grosor_borde": _num(0, 200, 0), "volumen": _num(0, 2, 2), "silencio": diseno._si_no}
 _PALABRA, _SEGUNDO = diseno._texto(100), _num(0, MAX_DURACION)
 
 
@@ -181,6 +200,13 @@ def _capa(c, n: int, ids: set, ancho: int, alto: int) -> dict:
     if tipo not in _TIPOS_CAPA:
         raise ValueError(t("Capa {n}: tipo de capa desconocido ({tipo!r:.40}); valen {tipos}.", n=n, tipo=tipo,
                            tipos=", ".join(_TIPOS_CAPA)))
+    if tipo == "video":  # su archivo, como un clip de video; su caja, recortada como la de las demás capas
+        que = t("Capa {n} ({tipo})", n=n, tipo=tipo)
+        r = _tramo({"id": _id(c.get("id"), ids), "tipo": tipo,
+                    "archivo": diseno._campo(_ruta(seguro.VIDEOS), c.get("archivo"), f"{que}, «archivo»"),
+                    **_campos(c, _REGLAS_VIDEO, _VIDEO, que)}, c, que)
+        r["duracion"] = round(r["hasta"] - r["desde"], 3)
+        return diseno.ajustar_capa(r, {"ancho": ancho, "alto": alto})
     base = diseno.ajustar_capa(diseno._capa(c, n, ids), {"ancho": ancho, "alto": alto})
     return {**base, **_campos(c, _REGLAS_CAPA, _CAPA, t("Capa {n} ({tipo})", n=n, tipo=tipo))}
 
@@ -252,6 +278,9 @@ def validar(proyecto: dict) -> dict:
          "ajuste": diseno._campo(diseno._una("recortar", "difuminar"), proyecto.get("ajuste", "recortar"),
                                  t("El ajuste")),
          "fondo": diseno._campo(diseno.color, proyecto.get("fondo", "#000000"), t("El fondo")),
+         # Al render: la música baja sola mientras suena una voz (ver render_edicion._render, paso 4)
+         "bajar_musica": diseno._campo(diseno._si_no, proyecto.get("bajar_musica", True),
+                                       t("«Bajar la música cuando hablas»")),
          "clips": [_clip(c, n, ids) for n, c in enumerate(proyecto.get("clips", []), 1)],
          "capas": [_capa(c, n, ids, ancho, alto) for n, c in enumerate(proyecto.get("capas", []), 1)],
          "audios": [_audio(a, n, ids) for n, a in enumerate(proyecto.get("audios", []), 1)],
@@ -260,6 +289,8 @@ def validar(proyecto: dict) -> dict:
     capas = p["capas"]  # los mismos topes que un diseño (ver motor/diseno): la vista previa las pinta a la vez
     if sum(c["tipo"] == "imagen" for c in capas) > diseno.MAX_IMAGENES:
         raise ValueError(t("Un video puede tener hasta {n} capas de imagen.", n=diseno.MAX_IMAGENES))
+    if sum(c["tipo"] == "video" for c in capas) > MAX_VIDEOS:
+        raise ValueError(t("Un video puede tener hasta {n} grabaciones encima (capas de video).", n=MAX_VIDEOS))
     if sum(len(c["texto"]) for c in capas
            if c["tipo"] == "texto" and c["contorno"] and c["grosor_contorno"]) > diseno.MAX_LETRAS_CONTORNO:
         raise ValueError(t("Los textos con contorno pueden sumar hasta {n} letras: quita el contorno de alguno o "
@@ -318,6 +349,52 @@ def capas_en(proyecto: dict, t: float) -> list[dict]:
     return [dict(c) for c in proyecto["capas"] if c["inicio"] <= t < c["inicio"] + c["duracion"]]
 
 
+# ---------- Capas de video: su forma y su borde (los pintan igual el lienzo del editor y el render) ----------
+
+def forma_video(forma: str, caja: QRectF, dentro: float = 0) -> QPainterPath:
+    """El contorno de una capa de video en su caja: el círculo va centrado y mide el lado corto; las esquinas
+    redondeadas, un 14 % del lado corto. `dentro`: px hacia dentro (el borde va por dentro de la caja, como en las
+    formas de motor/diseno), con las esquinas paralelas a las de fuera."""
+    lado = min(caja.width(), caja.height())
+    radio = {"rectangulo": 0.0, "redondeado": lado * 0.14, "circulo": lado / 2}[forma]
+    if forma == "circulo":
+        caja = QRectF(caja.center().x() - lado / 2, caja.center().y() - lado / 2, lado, lado)
+    radio = max(0.0, radio - dentro)
+    camino = QPainterPath()
+    camino.addRoundedRect(caja.adjusted(dentro, dentro, -dentro, -dentro), radio, radio)
+    return camino
+
+
+def pintar_borde(p: QPainter, capa: dict, caja: QRectF, escala: float = 1) -> None:
+    """El borde de una capa de video (grosor_borde en px del video, por `escala`) dentro de su forma."""
+    grosor = capa["grosor_borde"] * escala
+    if grosor > 0:
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(capa["borde"]), grosor))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(forma_video(capa["forma"], caja, grosor / 2))
+        p.restore()
+
+
+def pintar_video(p: QPainter, capa: dict, caja: QRectF, imagen: QImage | None) -> None:
+    """Una capa de video en `caja`: el fotograma recortado para llenarla y centrado (como scale + crop de ffmpeg en el
+    render) dentro de su forma, y su borde. Sin fotograma (aún no está hecho o falta el archivo), un vidrio oscuro."""
+    camino = forma_video(capa["forma"], caja)
+    p.save()
+    p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+    p.setClipPath(camino, Qt.IntersectClip)
+    if imagen is not None and not imagen.isNull() and caja.width() > 0 and caja.height() > 0:
+        k = max(caja.width() / imagen.width(), caja.height() / imagen.height())
+        origen = QRectF(0, 0, caja.width() / k, caja.height() / k)
+        origen.moveCenter(QRectF(imagen.rect()).center())
+        p.drawImage(caja, imagen, origen)
+    else:
+        p.fillPath(camino, QColor(40, 34, 64, 220) if not capa.get("falta") else QColor(178, 59, 59, 200))
+    p.restore()
+    pintar_borde(p, capa, caja)
+
+
 # ---------- Operaciones (todas devuelven un proyecto nuevo validado) ----------
 
 def _buscar(p: dict, id_elemento: str, claves=("clips", "capas", "audios")) -> dict:
@@ -326,6 +403,19 @@ def _buscar(p: dict, id_elemento: str, claves=("clips", "capas", "audios")) -> d
             if e["id"] == id_elemento:
                 return e
     raise ValueError(t("No encuentro ese elemento en el proyecto."))
+
+
+def _medios(p: dict) -> list[dict]:
+    """Lo que usa un archivo de video o audio de este PC: clips, capas de video y audios (las fotos de las capas de
+    imagen van dentro de imagenes/)."""
+    return p["clips"] + [c for c in p["capas"] if c["tipo"] == "video"] + p["audios"]
+
+
+def _buscar_medio(p: dict, id_elemento: str) -> dict:
+    e = _buscar(p, id_elemento)
+    if e not in _medios(p):
+        raise ValueError(t("Eso no usa un archivo de video o audio."))
+    return e
 
 
 def _abajo(segundos: float) -> float:
@@ -375,6 +465,56 @@ def anadir_medio(proyecto: dict, ruta: str, audio: bool = False) -> dict:
     return validar(p)
 
 
+def disposicion(formato: str, cual: str, forma: str = "circulo", borde: str = BORDE) -> dict:
+    """La caja de una capa de video según DISPOSICIONES (x, y, ancho, alto, forma, borde y grosor_borde) en un video de
+    ese formato: en una esquina, un 28 % del lado corto con el borde de la marca (en 9:16, lejos de la barra de arriba
+    y de los textos de abajo de TikTok y Reels); a pantalla completa; o en media pantalla, a la derecha si el video es
+    apaisado y abajo si es vertical o cuadrado. Las dos últimas, rectangulares y sin borde."""
+    ancho, alto = video.FORMATOS[diseno._campo(diseno._una(*video.FORMATOS), formato, t("El formato"))]
+    cual = diseno._campo(diseno._una(*DISPOSICIONES), cual, t("La disposición"))
+    caja = {"forma": diseno._campo(diseno._una(*FORMAS_VIDEO), forma, t("La forma")),
+            "borde": diseno._campo(diseno.color, borde, t("El borde")), "grosor_borde": 0}
+    if cual == "completa":
+        return {**caja, "x": 0, "y": 0, "ancho": ancho, "alto": alto, "forma": "rectangulo"}
+    if cual == "dividida":
+        mitad = {"x": ancho // 2, "y": 0, "ancho": ancho - ancho // 2, "alto": alto} if ancho > alto else \
+            {"x": 0, "y": alto // 2, "ancho": ancho, "alto": alto - alto // 2}
+        return {**caja, **mitad, "forma": "rectangulo"}
+    corto = min(ancho, alto)
+    lado, margen = round(corto * 0.28), round(corto * 0.045)
+    arriba_abajo = round(alto * 0.08) if alto > ancho else margen
+    return {**caja, "ancho": lado, "alto": lado, "grosor_borde": max(2, round(corto * 0.012)),
+            "x": margen if cual.endswith("izq") else ancho - lado - margen,
+            "y": arriba_abajo if cual.startswith("sup") else alto - lado - arriba_abajo}
+
+
+def anadir_grabacion(proyecto: dict, ruta: str, inicio: float = 0, cual: str = "inf_der", forma: str = "circulo",
+                     borde: str = BORDE) -> dict:
+    """Una grabación tuya (de Grabarte o importada) en el segundo `inicio` de la línea de tiempo: con imagen, una capa
+    de video con la disposición `cual` (ver disposicion); solo voz, un audio de tipo «voz». Lo que no quepa en los 60
+    minutos se recorta. El elemento creado es el último de p["capas"] o de p["audios"]."""
+    p = validar(proyecto)
+    inicio = diseno._campo(_num(0, MAX_DURACION), inicio, t("El momento de la grabación"))
+    caja = disposicion(p["formato"], cual, forma, borde)
+    real = str(seguro.archivo_medio(ruta, seguro.VIDEOS | seguro.AUDIOS, t("grabación")))
+    largo, imagen = _medir(real)
+    cabe = _abajo(min(largo, MAX_DURACION - inicio))
+    if cabe < MIN_CLIP:
+        raise ValueError(t("La grabación empezaría al final de los {minutos} minutos del video: no cabe.",
+                           minutos=MAX_DURACION // 60))
+    sufijo = Path(real).suffix.lower()
+    if imagen and sufijo in seguro.VIDEOS:
+        p["capas"].append({"tipo": "video", "archivo": real, "hasta": cabe, "duracion_archivo": largo,
+                           "inicio": inicio, **caja})
+    elif not imagen and sufijo in seguro.AUDIOS:
+        p["audios"].append({"tipo": "voz", "archivo": real, "hasta": cabe, "duracion_archivo": largo,
+                            "inicio": inicio})
+    else:
+        raise ValueError(t("{nombre} no es una grabación que pueda usar: elige un video de tu cara o un audio de tu "
+                           "voz.", nombre=Path(real).name))
+    return validar(p)
+
+
 def _vale(ruta: str, tipos: set) -> bool:
     try:
         return bool(seguro.archivo_medio(ruta, tipos))
@@ -383,11 +523,12 @@ def _vale(ruta: str, tipos: set) -> bool:
 
 
 def reenlazar(proyecto: dict, id_elemento: str, ruta: str) -> dict:
-    """«Volver a enlazar»: el clip o audio `id_elemento` y los demás que usaban su archivo (los trozos de un clip
-    dividido; ese video usado también como pista de audio, o al revés, si el nuevo les vale) pasan a usar `ruta` y
-    pierden «falta». Tiene que ser lo mismo (un video con imagen, una foto o un audio) y durar al menos lo que se usa."""
+    """«Volver a enlazar»: el clip, capa de video o audio `id_elemento` y los demás que usaban su archivo (los trozos de
+    un clip dividido; ese video usado también como pista de audio, o al revés, si el nuevo les vale) pasan a usar `ruta`
+    y pierden «falta». Tiene que ser lo mismo (un video con imagen, una foto o un audio) y durar al menos lo que se
+    usa."""
     p = validar(proyecto)
-    e = _buscar(p, id_elemento, ("clips", "audios"))
+    e = _buscar_medio(p, id_elemento)
     tipos = _TIPOS.get(e["tipo"], seguro.AUDIOS)  # los audios llevan «musica», «voz» o «efecto»
     real = str(seguro.archivo_medio(ruta, tipos, t("archivo")))
     nuevo = {"archivo": real}
@@ -397,7 +538,7 @@ def reenlazar(proyecto: dict, id_elemento: str, ruta: str) -> dict:
             raise ValueError(t("{nombre} no tiene imagen, solo sonido: elige el video de este clip.",
                                nombre=Path(real).name))
     viejo = e["archivo"]
-    for x in p["clips"] + p["audios"]:
+    for x in _medios(p):
         suyos = _TIPOS.get(x["tipo"], seguro.AUDIOS)
         # el de otro tipo, solo si el nuevo le vale: un .mov no es audio y un audio de más de 2 GB no abriría
         if x["archivo"] == viejo and (suyos is tipos or _vale(real, suyos) and (x["tipo"] != "video" or imagen)):
@@ -429,16 +570,17 @@ def dividir(proyecto: dict, momento: float) -> dict:
 
 
 def recortar(proyecto: dict, id_clip: str, desde: float, hasta: float) -> dict:
-    """Nuevo tramo (segundos dentro del archivo) de un clip o de un audio, ajustado al principio y al final del archivo.
-    En una foto, hasta - desde es lo que dura. Un audio sigue sonando en el mismo sitio de la línea de tiempo."""
+    """Nuevo tramo (segundos dentro del archivo) de un clip, capa de video o audio, ajustado al principio y al final del
+    archivo. En una foto, hasta - desde es lo que dura. Un audio o una capa de video sigue en el mismo sitio de la línea
+    de tiempo."""
     p = validar(proyecto)
     desde = max(0.0, diseno._campo(_num(-_T, _T), desde, t("El inicio del recorte")))
     hasta = diseno._campo(_num(-_T, _T), hasta, t("El final del recorte"))
-    e = _buscar(p, id_clip, ("clips", "audios"))
+    e = _buscar_medio(p, id_clip)
     if e["tipo"] == "imagen":
         e["hasta"] = hasta - desde
     else:
-        if "inicio" in e:  # audio: quitar sonido del principio no lo mueve en la línea de tiempo
+        if "inicio" in e:  # audio o capa: quitar del principio no lo mueve en la línea de tiempo
             e["inicio"] = max(0.0, e["inicio"] + desde - e["desde"])
         e.update(desde=desde, hasta=min(hasta, e["duracion_archivo"]))
     return validar(p)
@@ -541,11 +683,12 @@ def _leer(carpeta: Path) -> dict:
 
 
 def abrir(carpeta: Path) -> dict:
-    """El proyecto validado, con cada archivo de clip y audio comprobado (local y es lo que dice ser). Si ya no está
-    (movido, borrado, USB quitado) no falla: lo marca «falta» para volver a enlazarlo (reenlazar)."""
+    """El proyecto validado, con cada archivo de clip, capa de video y audio comprobado (local y es lo que dice ser).
+    Si ya no está (movido, borrado, USB quitado) no falla: lo marca «falta» para volver a enlazarlo (reenlazar)."""
     p = _leer(carpeta)
-    for clave, que in (("clips", t("clip")), ("audios", t("audio"))):
-        for n, e in enumerate(p[clave], 1):
+    for lista, que in ((p["clips"], t("clip")), ([c for c in p["capas"] if c["tipo"] == "video"], t("capa de video")),
+                       (p["audios"], t("audio"))):
+        for n, e in enumerate(lista, 1):
             e.pop("falta", None)  # se mira cada vez: el USB puede haber vuelto
             tipos = _TIPOS.get(e["tipo"], seguro.AUDIOS)
             try:

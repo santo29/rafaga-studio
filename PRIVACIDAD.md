@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 7 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 8 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -9,6 +9,9 @@
   apaga además los avisos de uso que mandarían por su cuenta las librerías de Hugging Face y Gradio.
 - **Tus proyectos, diseños, series, grabaciones y ajustes se guardan en tu PC** (casi todo en la carpeta `datos` de la
   app; abajo está el resto).
+- **Tu cámara y tu micrófono solo se usan cuando tú los enciendes**, en «Grabarte» del editor de video: solo en tu PC,
+  solo con ese panel abierto (el micrófono, solo mientras grabas) y se apagan al salir del panel o de la página.
+  Windows enciende su luz de la cámara mientras está en uso. Lo grabado no se envía a ningún sitio.
 - **Tus claves de IA se guardan cifradas** con tu cuenta de Windows y cada una se envía solo al proveedor que le
   corresponde por su formato (las de Kling y Seedance, solo al que eliges con su botón «Conectar»).
 - **Las funciones de IA usan servicios de internet.** Para crear, la app envía tus pedidos, textos, imágenes o audios
@@ -31,6 +34,7 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Aceptación de este aviso (versión y fecha) | `datos/legal.json` |
 | Videos, shorts, anuncios, canciones y grabaciones de la Cabina | `datos/proyectos/` |
 | Proyectos del editor de video | `datos/ediciones/` |
+| Lo que grabas con «Grabarte» (tu cámara y tu micrófono) | `datos/ediciones/<proyecto>/grabaciones/`. La app nunca las borra sola, tampoco al descartar un video sin guardar: bórralas tú cuando quieras |
 | Diseños y tu marca (nombre, colores, logo) | `datos/disenos/`, `datos/marca.json`, `datos/marca/` |
 | Series animadas, personajes y capítulos | `datos/series/` |
 | Investigaciones de nichos | `datos/nichos/` |
@@ -62,10 +66,11 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Al animar escenas o hacer escenas que hablan con Kling o Seedance (de pago; nunca en «Automático»: solo si los eliges en «Animar escenas con IA de video» o en «Escenas que hablan») | Kling AI (de Kuaishou), en la región de tu clave: con una clave global, `api-singapore.klingai.com` (contrato con Kling AI Pte. Ltd., Singapur); con una clave de su plataforma de China (klingai.com), `api-beijing.klingai.com` (Kuaishou, en China continental, con sus propias condiciones). Seedance en BytePlus ModelArk (de ByteDance), región Asia-Pacífico (`ark.ap-southeast.bytepluses.com`) | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento; en las escenas que hablan, también la frase que se dice. Con la clave global, Kling guarda los pedidos y respuestas 30 días y borra los videos a los 30 días; sus datos están en Singapur y, en la API de pago, no los usa para mejorar sus productos. Con una clave de China, dónde guarda tus datos, cuánto tiempo y para qué lo dicen las condiciones de esa plataforma, no las de Singapur. BytePlus procesa en Malasia, Indonesia o la UE, no entrena con tus datos sin tu permiso, deja el video 24 h para bajarlo y el registro de la tarea 7 días; lo que su filtro de contenido rechaza lo guarda 180 días en Malasia. Antes de cada trabajo la app te dice lo más que puede costar y no gasta sin tu sí; con un agente MCP, cuando aceptas su costo en la ventana de Ráfaga Studio |
 | Al crear videos, anuncios, capítulos de serie o videos musicales, y al animar una imagen (de fábrica la IA de video está en «Automático») | Primero un Space público de Hugging Face (`zerogpu-aoti/wan2-2-fp8da-aoti-faster`), sin token. Si falla, tu nube Modal o Pollinations si los conectaste. Si eliges Modal, Pollinations, Kling o Seedance en «Claves de IA», el Space público no se usa. Con «No usar», no se envía nada | Cada imagen nueva de las escenas (también tu foto de referencia cuando es la primera escena) y la descripción del movimiento. A Pollinations solo va la descripción |
 | Al narrar (voz de los videos y respuestas del Director) | Servicio de voces de Microsoft Edge; o ElevenLabs si eliges una de sus voces | El texto que se va a leer |
-| Al transcribir (subtítulos, shorts, video musical, escenas animadas con voz) | Groq u OpenAI si los conectaste; si no, se hace en tu PC | El audio (en el video musical, también la letra, para acertar las palabras) |
+| Al transcribir (subtítulos, shorts, video musical, escenas animadas con voz) | Groq u OpenAI si los conectaste; si no, se hace en tu PC | El audio (en los subtítulos automáticos del editor, también tu voz de «Grabarte»; en el video musical, también la letra, para acertar las palabras) |
 | La primera vez que transcribes en tu PC o le hablas al Director | Hugging Face (`Systran/faster-whisper-small`) | Solo la descarga del modelo Whisper; tu audio no se envía |
 | Al hablarle al Director | **Nadie: tu voz se entiende en tu PC** con Whisper | Nada de tu voz (el texto que dictaste sí va a tu IA de texto, como cualquier pedido al Director) |
 | Cabina de grabación y separar voz y pista | **Nadie: se hace en tu PC** | Nada |
+| Al grabarte en el editor de video («Grabarte»: tu cámara y tu micrófono) | **Nadie: se graba en tu PC** | Nada. La cámara se enciende solo cuando pulsas «Encender cámara» o «Grabar», y el micrófono solo mientras grabas; al salir del panel o de la página se apagan |
 | La primera vez que separas voz y pista | Meta (`dl.fbaipublicfiles.com`) | Solo la descarga del modelo Demucs; tu canción no se envía |
 | Al crear música | ElevenLabs o Google Gemini (Lyria) | Tu idea y la letra |
 | Al programar en YouTube | Google (YouTube) | El video, título, descripción y etiquetas; tu permiso de YouTube se guarda cifrado en tu PC |
@@ -125,6 +130,7 @@ Tus datos están en tu PC y los controlas tú:
 
 - **Borrar todo:** cierra la app, desconecta el MCP en «Conexión MCP», borra la carpeta `datos` y, si quieres, las
   carpetas «Ráfaga Studio» de Videos e Imágenes y la caché de Whisper (`.cache\huggingface`).
+- **Borrar tus grabaciones de cámara:** borra la carpeta `grabaciones` dentro de cada proyecto de `datos/ediciones`.
 - **Borrar una clave:** quítala en «Claves de IA» y, si quieres, anúlala también en la web de su proveedor.
 - **Borrar lo que recuerda el Director:** en el Director, «Memoria del estudio». Nunca guarda claves, contraseñas,
   tarjetas ni números de cuenta: los rechaza.

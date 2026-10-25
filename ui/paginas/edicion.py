@@ -1,8 +1,9 @@
-"""Página «✂️ Editor de video»: edición a mano como en CapCut. Arriba, la barra de herramientas (medios, audio, texto,
-stickers, efectos, transiciones, subtítulos, filtros, ajustes, plantillas y avatar IA) y, a la izquierda, el panel de
-la elegida; en el centro, la vista previa (el fotograma del video con las capas encima, que se mueven y cambian de
-tamaño como en el editor de diseño); a la derecha, las propiedades de lo elegido; abajo, a todo lo ancho, la línea de
-tiempo (ui/linea_tiempo.py).
+"""Página «✂️ Editor de video»: edición a mano como en CapCut. Arriba, la barra de herramientas (medios, audio,
+grabarte, texto, stickers, efectos, transiciones, subtítulos, filtros, ajustes, plantillas y avatar IA) y, a la
+izquierda, el panel de la elegida; en el centro, la vista previa (el fotograma del video con las capas encima, que se
+mueven y cambian de tamaño como en el editor de diseño; las capas de video, con su fotograma en el cursor); a la
+derecha, las propiedades de lo elegido; abajo, a todo lo ancho, la línea de tiempo (ui/linea_tiempo.py). «Grabarte»
+(ui/grabarte.py) graba tu cara o tu voz mientras el video suena y la pone en el cursor.
 
 El proyecto es el dict de motor/edicion.py y nunca se cambia por dentro: cada cambio hace uno nuevo validado, así el
 deshacer es una pila de proyectos. Lo lento (medir archivos, fotogramas, vista previa, exportar, subtítulos, voz) va
@@ -27,6 +28,7 @@ from motor.idioma import t
 from ui.comun import (archivo_valido, boton, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO, REFLEJO_FINO,
                       SelectorVoz, Tarea, tarjeta)
 from ui import iconos
+from ui.grabarte import PanelGrabarte, casilla
 from ui.linea_tiempo import Hilo, LineaTiempo, nombre, reloj, render
 import ui.paginas.diseno as pd
 
@@ -135,6 +137,36 @@ def _musica(proyecto) -> list[dict]:
     return [a for a in proyecto["audios"] if a["tipo"] == "musica"][:1]
 
 
+def _color_marca() -> str:
+    """El primer color de tu marca (Diseño → Mi marca) para el borde de tu cámara; sin colores, el violeta de Ráfaga."""
+    try:
+        return diseno.color((marca.cargar().get("colores") or [edicion.BORDE])[0])
+    except (ValueError, OSError, AttributeError):
+        return edicion.BORDE
+
+
+class ItemVideo(diseno.ItemCapa):
+    """Una capa de video (tu cara) en el lienzo: su fotograma en el cursor (`imagen`, lo pide la página) dentro de su
+    forma y con su borde, pintado como en el video montado (edicion.pintar_video). Se mueve y cambia de tamaño como las
+    demás capas (pd.Lienzo)."""
+    def __init__(self, capa, carpeta):
+        self.imagen = None
+        super().__init__(capa, carpeta)
+
+    def aplicar(self, capa):
+        self.prepareGeometryChange()
+        self._capa = dict(capa)
+        self.setData(0, capa["id"])
+        self.setPos(capa["x"], capa["y"])
+        self.update()
+
+    def boundingRect(self):
+        return QRectF(0, 0, self._capa["ancho"], self._capa["alto"])
+
+    def paint(self, p, opcion=None, widget=None):
+        edicion.pintar_video(p, self._capa, self.boundingRect(), self.imagen)
+
+
 def _propiedades() -> dict:
     """Los campos de Propiedades por grupo: (texto de la fila, [(campo, tipo de control, *datos)])."""
     def numero(campo, minimo, maximo, sufijo="", factor=1, decimales=0):
@@ -155,6 +187,9 @@ def _propiedades() -> dict:
                   (t("Dura"), [numero("duracion_transicion", 0.2, 2, " s", 1, 1)])],
         "capas": [(t("Posición"), [numero("x", -pd.LIMITE, pd.LIMITE), numero("y", -pd.LIMITE, pd.LIMITE)]),
                   (t("Tamaño"), [numero("ancho", 1, 20000), numero("alto", 1, 20000)]),
+                  (t("Forma"), [("forma", "opc", edicion.FORMAS_VIDEO)]),  # las de las capas de video (tu cara)
+                  (t("Borde"), [("borde", "color"), numero("grosor_borde", 0, 200, " px")]),
+                  (t("Volumen"), [numero("volumen", 0, 2, " %", 100), ("silencio", "si", t("Silenciar"))]),
                   (t("Giro"), [numero("rotacion", -360, 360, "°"), numero("opacidad", 0, 1, " %", 100)]),
                   (t("Texto"), [("texto", "texto")]),
                   (t("Fuente"), [("fuente", "opc", pd.fuentes())]),
@@ -198,6 +233,7 @@ class PaginaEdicion(QWidget):
         self.tareas, self._previa, self._exportado, self._fuente_foto = set(), None, None, None
         self._sin_guardar = set()  # carpetas de videos descartados sin guardar: _limpiar las borra
         self._foto_en_curso = self._foto_pendiente = False
+        self._fotos_pip, self._pips_pedidos = {}, set()  # fotogramas de las capas de video: hechos y pedidos al hilo
         self.setAcceptDrops(True)
         self.setStyleSheet(ESTILO_PAGINA)
         lay = QVBoxLayout(self)
@@ -282,7 +318,8 @@ class PaginaEdicion(QWidget):
         self.herramientas = {}
         for i, (clave, nombre_icono, texto, panel) in enumerate((
                 ("medios", "folder-open", t("Medios"), self._panel_medios()),
-                ("audio", "music", t("Audio"), self._panel_audio()),
+                ("audio", "music", t("Audio"), self._desplazable(self._panel_audio())),
+                ("grabarte", "video", t("Grabarte"), self._desplazable(self._panel_grabarte())),
                 ("texto", "type", t("Texto"), self._panel_texto()),
                 ("stickers", "sticker", t("Stickers"), self._panel_stickers()),
                 ("efectos", "wand-sparkles", t("Efectos"), self._panel_lista(
@@ -401,8 +438,15 @@ class PaginaEdicion(QWidget):
         self.voz = SelectorVoz()
         self.voz_btn = boton(f"🎙️  {t('Voz IA')}")
         self.voz_btn.clicked.connect(self.voz_ia)
+        fila, self.bajar_musica = casilla(t("Bajar la música cuando hablas"))
+        fila.setToolTip(t("Mientras suena una voz (tu grabación o una voz IA), la música baja sola y luego vuelve"))
+        self.bajar_musica.toggled.connect(self.poner_bajar_musica)
         return self._panel(musica, etiqueta(t("Voz IA: se añade en el cursor."), "sub"), self.texto_voz, self.voz,
-                           self.voz_btn)
+                           self.voz_btn, fila)
+
+    def _panel_grabarte(self):
+        self.grabarte = PanelGrabarte(self)
+        return self.grabarte
 
     def _panel_lista(self, opciones: dict, campo: str, *debajo):
         """Las opciones de un campo del clip (filtro, efecto o transición) que se aplican al clip elegido. Filtros y
@@ -686,13 +730,23 @@ class PaginaEdicion(QWidget):
             for item in items:
                 self.escena.removeItem(item)
             for capa in visibles:
-                item = diseno.ItemCapa(capa, self.carpeta or edicion.CARPETA)
+                clase = ItemVideo if capa["tipo"] == "video" else diseno.ItemCapa
+                item = clase(capa, self.carpeta or edicion.CARPETA)
                 item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
                 self.escena.addItem(item)
+        pedir = False
         for item in self._items():
             item.setSelected(item.data(0) == self.sel)
+            if isinstance(item, ItemVideo):  # su fotograma en el cursor, si ya está hecho; si no, se pide
+                clave = self._clave_pip(item._capa)
+                item.imagen = self._fotos_pip.get(clave)
+                hecho = clave in self._fotos_pip or clave in self._pips_pedidos
+                pedir |= not hecho and not item._capa.get("falta")
+                item.update()
         self.escena.blockSignals(False)
         self.vista.viewport().update()  # las asas
+        if pedir:
+            self._espera.start()
 
     def _mostrar_propiedades(self):
         grupo, e = self._seleccion()
@@ -701,7 +755,9 @@ class PaginaEdicion(QWidget):
                                    "capas": t("Propiedades · Capa"), "audios": t("Propiedades · Audio")}[grupo]
                                   + (f" · {nombre(grupo, e)}" if grupo != "proyecto" else ""))
         self.reenlazar_btn.setVisible(bool(e.get("falta")))
-        ocultos = OCULTOS.get(e.get("tipo"), set()) if grupo == "clips" else set()
+        video_elegido = grupo == "capas" and e["tipo"] == "video"
+        # lo que dura una capa de video es su tramo: se cambia recortándola en la línea de tiempo
+        ocultos = OCULTOS.get(e.get("tipo"), set()) if grupo == "clips" else {"duracion"} if video_elegido else set()
         if grupo == "clips" and e["transicion"] == "ninguna":
             ocultos = ocultos | {"duracion_transicion"}
         for g, caja in self.grupos.items():
@@ -730,6 +786,8 @@ class PaginaEdicion(QWidget):
             else:
                 pd._pintar_color(w, v)
         self._marcar_paneles(e if grupo == "clips" else None)
+        self.grabarte.marcar(e if video_elegido else None, self.proyecto)
+        self.bajar_musica.setChecked(self.proyecto["bajar_musica"])
         self._cargando = False
 
     def _marcar_paneles(self, clip):
@@ -908,8 +966,28 @@ class PaginaEdicion(QWidget):
 
     # ---------- Vista previa ----------
 
+    def _clave_pip(self, capa) -> tuple:
+        """Qué fotograma de su archivo enseña una capa de video en el cursor (el mismo que sale al montar)."""
+        fps = self.proyecto["fps"]
+        j = int((self.cursor - capa["inicio"]) * fps + 1e-3)
+        return "pip", capa["archivo"], round(capa["desde"] + j / fps, 4), fps
+
+    def _pedir_pips(self):
+        """El fotograma en el cursor de cada capa de video que se ve, en el hilo (cada uno, una vez)."""
+        r = render()
+        if not hasattr(r, "fotograma_capa"):
+            return  # se ve su forma en vidrio oscuro
+        for capa in edicion.capas_en(self.proyecto, self.cursor):
+            if capa["tipo"] == "video" and not capa.get("falta"):
+                clave = self._clave_pip(capa)
+                if clave not in self._fotos_pip and clave not in self._pips_pedidos:
+                    self._pips_pedidos.add(clave)
+                    self.hilo.pedir(clave, r.fotograma_capa, capa, self._carpeta(), self.cursor, self.proyecto["fps"])
+
     def _pedir_fotograma(self):
-        """El fondo del video en el cursor, hecho en el hilo; uno a la vez y siempre el del último sitio pedido."""
+        """El fondo del video en el cursor, hecho en el hilo; uno a la vez y siempre el del último sitio pedido. Y el
+        de las capas de video."""
+        self._pedir_pips()
         r = render()
         if edicion.clip_en(self.proyecto, self.cursor) is None or not hasattr(r, "fotograma"):
             if r is None and self.proyecto["clips"]:
@@ -926,7 +1004,13 @@ class PaginaEdicion(QWidget):
                       "subtitulos": {"activos": False, "palabras": []}}
         self.hilo.pedir("foto", r.fotograma, solo_clips, self._carpeta(), self.cursor)
 
-    def _foto_lista(self, _clave, imagen):
+    def _foto_lista(self, clave, imagen):
+        if isinstance(clave, tuple):  # el de una capa de video (None si falló: se queda en vidrio oscuro)
+            self._pips_pedidos.discard(clave)
+            self._fotos_pip[clave] = imagen if isinstance(imagen, QImage) and not imagen.isNull() else None
+            while len(self._fotos_pip) > 24:  # los últimos: ir y volver con el cursor no los rehace
+                del self._fotos_pip[next(iter(self._fotos_pip))]
+            return self._montar_vista()
         self._foto_en_curso = False
         hecha = isinstance(imagen, QImage) and not imagen.isNull()
         if hecha:
@@ -1087,6 +1171,8 @@ class PaginaEdicion(QWidget):
                 self.stickers.addItem(item)
 
     def _ir_pestana(self, i):
+        if not self.paneles.widget(i).isAncestorOf(self.grabarte):
+            self.grabarte.apagar()  # fuera de «Grabarte», la cámara y el micrófono se apagan (y lo grabado se guarda)
         self.pestanas.button(i).setChecked(True)
         self.paneles.setCurrentIndex(i)
         self.titulo_pestana.setText(self.pestanas.button(i).text())
@@ -1121,10 +1207,102 @@ class PaginaEdicion(QWidget):
         if self._operar(lambda p: edicion.validar({**p, "subtitulos": subtitulos})) is None:
             self._mostrar_propiedades()  # la casilla vuelve a lo que tiene el proyecto
 
+    # ---------- Grabarte (lo que usa ui/grabarte.PanelGrabarte) ----------
+
+    def poner_bajar_musica(self, si):
+        """«Bajar la música cuando hablas» (en Audio y en Grabarte: las dos casillas enseñan lo mismo)."""
+        if not self._cargando:
+            self._operar(lambda p: edicion.validar({**p, "bajar_musica": bool(si)}))
+
+    def _video_elegido(self) -> dict | None:
+        grupo, e = self._seleccion()
+        return e if grupo == "capas" and e["tipo"] == "video" else None
+
+    def aplicar_disposicion(self, cual, forma):
+        """Una disposición de Grabarte a la capa de video elegida, en un clic y un «deshacer» (sin ninguna elegida,
+        queda para la próxima toma). Se queda su color de borde y, en las esquinas, el grosor que le pusiste."""
+        e = self._video_elegido()
+        if e:
+            caja = edicion.disposicion(self.proyecto["formato"], cual, forma, e["borde"])
+            if e["grosor_borde"] and caja["grosor_borde"]:
+                caja["grosor_borde"] = e["grosor_borde"]
+            self._cambiar(object(), **caja)
+
+    def aplicar_forma(self, forma):
+        if self._video_elegido():
+            self._cambiar(object(), forma=forma)
+
+    def preparar_grabacion(self, listo):
+        """Antes de grabarte: el video montado desde el cursor hasta el final, para que suene mientras hablas.
+        listo(archivo); listo(None) si desde ahí no hay nada que reproducir (se graba igual); listo(False) si falló."""
+        self.parar()
+        r = render()
+        if self.cursor >= edicion.duracion_total(self.proyecto) or not hasattr(r, "vista_previa"):
+            return listo(None)
+        self.estado.setText(t("Preparando el video para grabarte…"))
+        self._trabajo(lambda aviso, **k: {"archivo": str(r.vista_previa(aviso=aviso, **k))},
+                      lambda res: listo(res["archivo"]), self.play_btn, al_fallar=lambda _e: listo(False),
+                      proyecto=self.proyecto, carpeta=self._carpeta(), desde=self.cursor)
+
+    def reproducir_grabando(self, archivo, desde, silenciar):
+        """Empezó la grabación: el video suena desde `desde` (sin sonido si lo pediste: con altavoces se colaría en el
+        micrófono)."""
+        self.sonido.setMuted(bool(silenciar))
+        if archivo:
+            self.cursor, self._previa = desde, (self.proyecto, desde, archivo)
+            self._ver(archivo, desde)
+
+    def fin_grabacion(self):
+        self.sonido.setMuted(False)
+        self.parar()
+
+    def toma_lista(self, ruta, inicio, en_hilo=True):
+        """Una grabación (de Grabarte o importada) al video en el segundo `inicio`, con la disposición y la forma
+        elegidas en el panel y el borde del color de tu marca: una capa de video o, si es solo voz, un audio «voz». Se
+        mide en el hilo (en_hilo=False: aquí mismo, al cerrar la app) y entra en un solo «deshacer»."""
+        cual, forma = self.grabarte.disposicion()
+        formato, carpeta = self.proyecto["formato"], self.carpeta
+        datos = {"ruta": str(ruta), "inicio": round(min(max(0.0, inicio), edicion.MAX_DURACION), 3), "cual": cual,
+                 "forma": forma, "borde": _color_marca()}
+
+        def medir(aviso=None, **k):
+            q = edicion.anadir_grabacion(edicion.nuevo(formato=formato), **k)
+            return {"nuevo": ("capas", q["capas"][-1]) if q["capas"] else ("audios", q["audios"][-1])}
+
+        def poner(r):
+            if carpeta is not None and self.carpeta != carpeta:  # mientras se medía se abrió otro video
+                return self.estado.setText(f"⚠️ {t('La grabación es de otro video: está en {ruta}', ruta=ruta)}")
+            clave, e = r["nuevo"]
+            p = self.proyecto
+            try:
+                limpio = edicion.validar({**p, clave: p[clave] + [{**e, "id": None}]})  # validar le da un id nuevo
+            except ValueError as error:
+                return mensaje_error(self, t("No se pudo añadir la grabación"), error)
+            self._carpeta()
+            self._aplicar(limpio)
+            self._elegir(limpio[clave][-1]["id"])
+        if en_hilo:
+            return self._trabajo(medir, poner, **datos)
+        try:
+            poner(medir(**datos))
+        except (ValueError, OSError) as error:
+            mensaje_error(self, t("No se pudo añadir la grabación"), error)
+
+    def parar_grabacion(self):
+        """Al cerrar la app: si estás grabando, se para, se guarda y entra en el video (luego se pregunta si
+        guardarlo)."""
+        self.grabarte.apagar(esperar=True)
+
+    def hideEvent(self, e):
+        if not e.spontaneous():  # otra página del menú (minimizar la ventana no cuenta): cámara y micrófono, apagados
+            self.grabarte.apagar()
+        super().hideEvent(e)
+
     # ---------- Trabajos en segundo plano ----------
 
-    def _trabajo(self, funcion, al_terminar, boton_tarea=None, **datos):
-        """Lo lento en un hilo (ui.comun.Tarea), con el progreso arriba; su resultado (un dict) va a al_terminar."""
+    def _trabajo(self, funcion, al_terminar, boton_tarea=None, al_fallar=None, **datos):
+        """Lo lento en un hilo (ui.comun.Tarea), con el progreso arriba; su resultado (un dict) va a al_terminar y, si
+        falla, el error se enseña y va a al_fallar."""
         tarea = Tarea(funcion, **datos)
         self.tareas.add(tarea)  # si nadie la guarda, Python la destruiría a medias
         if boton_tarea:
@@ -1133,7 +1311,8 @@ class PaginaEdicion(QWidget):
         self.progreso.show()
         tarea.progreso.connect(self._avance)
         tarea.listo.connect(al_terminar)
-        tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("No se pudo terminar"), e)))
+        tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("No se pudo terminar"), e),
+                                       al_fallar and al_fallar(e)))
         tarea.finished.connect(lambda: self._fin_tarea(tarea, boton_tarea))
         tarea.start()
 
@@ -1162,6 +1341,7 @@ class PaginaEdicion(QWidget):
         return self.carpeta
 
     def _empezar(self, proyecto, carpeta):
+        self.grabarte.apagar(esperar=True)  # una toma a medias se guarda antes de cambiar de video
         self.parar()
         self._limpiar(self.carpeta)
         if carpeta is None:  # al abrir, _abrir ya vació la caché y dejó leídas las fotos del proyecto nuevo
@@ -1181,7 +1361,8 @@ class PaginaEdicion(QWidget):
             # borró, pero una miniatura o un proxy tenía abierto un archivo de cache/ o la volvió a crear
             for c in self._sin_guardar | {c for c in edicion.CARPETA.glob("*/") if not (c / "imagenes").exists()}:
                 if c.parent == edicion.CARPETA and not (c / "proyecto.json").exists():  # solo las que hizo _carpeta
-                    shutil.rmtree(c, ignore_errors=True)
+                    # Tus grabaciones no se borran nunca solas: de un video así solo se va la caché
+                    shutil.rmtree(c / "cache" if any((c / "grabaciones").glob("*")) else c, ignore_errors=True)
             self._sin_guardar.clear()
 
     def _descartar_ok(self):
@@ -1242,7 +1423,7 @@ class PaginaEdicion(QWidget):
 
     def _avisar_faltan(self) -> int:
         """Avisa arriba de los archivos del video que no encuentro (o quita el aviso si ya no falta ninguno)."""
-        faltan = len({e["archivo"] for e in self.proyecto["clips"] + self.proyecto["audios"] if e.get("falta")})
+        faltan = len({e["archivo"] for e in edicion._medios(self.proyecto) if e.get("falta")})
         aviso = t("No encuentro {n} archivo(s) del video (se movieron o se borraron): están en rojo; elige uno y "
                   "pulsa «Volver a enlazar…».", n=faltan)
         self.estado.setText(f"⚠️ {aviso}" if faltan else "")

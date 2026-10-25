@@ -15,6 +15,13 @@
 ; Lo que ocupa Python ya descomprimido (con extractarchive, Inno pide el tamaño descomprimido)
 #define PythonTamano "41702504"
 
+; Ráfaga Guardia: el manifiesto de integridad (la huella SHA-256 de cada archivo de código, ver instalador\integridad.py)
+; se rehace en cada compilación con el Python del proyecto, así nunca se empaqueta uno viejo: uno viejo haría que la app
+; instalada viera su propio código como cambiado y se bloqueara. Si falla, no se compila.
+#if Exec(AddBackslash(SourcePath) + "..\.venv\Scripts\python.exe", "-s -E instalador\integridad.py", AddBackslash(SourcePath) + "..", 1, 0) != 0
+  #error No se pudo generar dist\integridad.json: ejecuta .venv\Scripts\python.exe -s -E instalador\integridad.py y mira el error
+#endif
+
 [Setup]
 AppId={{F4E4489A-13B7-423F-8FA7-A074C052C272}
 AppName={#Nombre}
@@ -84,11 +91,14 @@ Name: "escritorio"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{c
 Source: "..\app.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\mcp_server.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\modal_app.py"; DestDir: "{app}"; Flags: ignoreversion
+; El lanzador (abre la app con el Python instalado) y el manifiesto con la huella de todo el código (Ráfaga Guardia)
+Source: "..\Ráfaga Studio.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\integridad.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements.lock"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements-torch.lock"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\*.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\motor\*.py"; DestDir: "{app}\motor"; Flags: ignoreversion
+Source: "..\motor\*.py"; DestDir: "{app}\motor"; Flags: ignoreversion recursesubdirs
 Source: "..\ui\*"; DestDir: "{app}\ui"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs
 Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs
 Source: "..\idiomas\*.json"; DestDir: "{app}\idiomas"; Flags: ignoreversion

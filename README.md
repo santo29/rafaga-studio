@@ -156,6 +156,12 @@ with your Windows account (DPAPI). AI features send your requests directly to th
 free no-key services. Every data flow is listed, one by one, in the [privacy notice](PRIVACIDAD.md). Found a security
 issue? See [SECURITY.md](SECURITY.md).
 
+**🛡️ Ráfaga Guardia**, the guardian inside the app, logs on your PC what the app stops (network paths, links to your
+local network, fake files, MCP agents that insist after your «No», keys of another service…), checks that the app's
+code is the one you installed, and locks paid features, publishing, the memory and MCP until you unlock it on its
+page. The rules decide; the AI only explains an event if you ask. It protects the app and what it holds (your keys,
+money and data), not your whole PC: details and limits in [SECURITY.md](SECURITY.md#ráfaga-guardia--el-vigilante-de-la-app).
+
 ## 🗺️ Roadmap
 
 - [x] Prompt-to-video, shorts, ads, music, design, video editor, cartoons (animated series)

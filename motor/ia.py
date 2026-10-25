@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import claves, seguro
+from . import claves, guardia, seguro
 from .idioma import t
 
 VIDEO_MAXIMO = 300 * 1024 ** 2  # un clip de IA de 5 s pesa unos pocos MB
@@ -309,6 +309,8 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
     if c["proveedor"] == "gemini":
         destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad))
         return destino
+    if c["proveedor"] == "openai":
+        guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     size = "1024x1536" if alto > ancho else "1536x1024" if ancho > alto else "1024x1024"
     base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
     modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
@@ -447,6 +449,7 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
         return r.content
 
     def replicate():
+        guardia.sin_bloqueo()  # de pago: bloqueado, rotar pasa a la siguiente opción (la gratis)
         c = todas["replicate"]
         relacion = "9:16" if vertical else "16:9" if horizontal else "1:1"
         r = httpx.post(f"https://api.replicate.com/v1/models/{c['modelo_imagen']}/predictions", timeout=300,
@@ -465,6 +468,7 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
         return seguro.descargar(salida)
 
     def openai():
+        guardia.sin_bloqueo()  # de pago: bloqueado, rotar pasa a la siguiente opción (la gratis)
         c = todas["openai"]
         size = "1024x1536" if vertical else "1536x1024" if horizontal else "1024x1024"
         r = httpx.post("https://api.openai.com/v1/images/generations", timeout=300,
@@ -624,6 +628,7 @@ def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path
                    calidad: str = "1K") -> bytes:
     """Una imagen con Gemini (Nano Banana, de pago): solo si el usuario lo eligió para las imágenes. Con
     `referencia`, la edita manteniendo igual a quien sale en ella. calidad: 1K, 2K o 4K (PRECIO_IMAGEN_GEMINI)."""
+    guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     partes = [{"text": prompt}]
     if referencia:
         tipo = {".png": "image/png", ".webp": "image/webp"}.get(referencia.suffix.lower(), "image/jpeg")
@@ -675,6 +680,7 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
     referencia: imagen del sujeto (tu foto o producto) que el video debe mantener; con Kling y Seedance, su primer
     fotograma. quien: el que se fijó (y se preguntó) al empezar el trabajo; sin él, el elegido ahora. Así, cambiar
     «Escenas que hablan» a mitad de un trabajo nunca paga con otro servicio."""
+    guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     quien = quien or (claves.para("video_voz") or {}).get("proveedor")
     if quien in claves.VIDEO_DE_PAGO:
         elegido = claves.cargar().get(quien)

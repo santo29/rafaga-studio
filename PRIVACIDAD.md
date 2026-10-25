@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 6 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 7 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 
@@ -36,6 +36,7 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Investigaciones de nichos | `datos/nichos/` |
 | Lo que programaste en YouTube (archivo, hora, título e id del video) | `datos/publicaciones.json` |
 | Tus preferencias que recuerda el Director (memoria del estudio: «títulos cortos», «mi marca es…») | `datos/memoria.json` |
+| Historial de Ráfaga Guardia: lo que la app frenó (fecha, tipo, gravedad, de dónde vino y un detalle corto sin claves, sin enlaces firmados y sin rutas enteras: de un archivo solo queda su nombre), si el estudio está bloqueado y la huella del archivo de claves (para notar si otro programa lo cambia). Guarda los últimos 500 eventos y lo borras con «Borrar historial» | `datos/guardia.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |
 | Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json` (sin copias: esa configuración lleva los tokens de tus otros servidores MCP). Al desinstalar la app, se quita |
@@ -53,6 +54,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | Cuándo | A quién | Qué se envía |
 |---|---|---|
 | Al conectar una clave en «Claves de IA» | El proveedor que le corresponde por su formato; Kling y Seedance, el que eliges con su botón «Conectar» (Kling: primero `api-singapore.klingai.com` y, solo si allí no la conocen, `api-beijing.klingai.com`, su región de China) | La clave, para comprobar que funciona (sin gastar nada) |
+| Solo si pulsas «Explicar con IA» en un evento de Ráfaga Guardia | La IA de texto que conectaste; sin ninguna clave, la IA gratis de Pollinations | Ese evento y nada más: su fecha, tipo, gravedad, origen y el detalle corto ya limpio (sin claves, enlaces firmados ni rutas enteras). Lo que responde la IA solo se enseña: nunca hace nada |
 | Al escribir guiones, diseñar, investigar o usar el Director | La IA de texto que conectaste (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, xAI, DeepSeek o Pollinations). Sin ninguna clave, la IA gratis de Pollinations | Tu pedido y el texto necesario para hacer el trabajo; en el Director, también la conversación, lo que devolvieron sus herramientas y las rutas de los archivos que adjuntas (en ellas se ve tu nombre de usuario de Windows). Las preferencias de la memoria del estudio viajan dentro de estos pedidos: todas al Director y, a cada especialista, las de todo el estudio y las de su departamento |
 | Al crear imágenes (videos, anuncios, series, diseños) | La primera que funcione, empezando por la que elijas: Cloudflare, Pollinations, Hugging Face, Replicate, OpenAI, y Google Gemini solo si lo eliges en «Claves de IA» (de pago). Si no conectaste un token de Hugging Face, «Hugging Face» es un Space público. Al final, siempre, Pollinations sin clave. Aunque tengas claves, si la tuya falla se prueban las demás | La descripción de la imagen; con Gemini elegido, también tu foto de referencia (para mantener igual a la persona, el personaje o el producto) |
 | En videos, anuncios y series con foto de referencia | OpenAI o Pollinations, si los conectaste | Tu foto de referencia, para mantener igual el producto, la persona o el personaje |
@@ -142,7 +144,10 @@ comprobación ya no puede frenar tu red local). Fijamos las versiones de las lib
 yt-dlp y su componente yt-dlp-ejs, que se actualizan solos al abrir la app (solo versiones ya compiladas y publicadas
 hace 7 días o más), y el motor de video que se instala en tu propia nube Modal si la conectas (también con versiones
 ya compiladas y de hace 7 días o más). Revisamos el código con
-pruebas automáticas de seguridad. Ningún programa es infalible: mantén tu Windows y tu antivirus al día.
+pruebas automáticas de seguridad. **Ráfaga Guardia**, dentro de la app, apunta en tu PC lo que se frena, comprueba
+que el código de la app es el que instalaste y, si un agente insiste o el código cambió, bloquea lo de pago, publicar,
+la memoria y el MCP hasta que lo desbloquees tú (detalles en [SECURITY.md](SECURITY.md)). Protege la app y lo que
+guarda, no el PC entero: ningún programa es infalible, mantén tu Windows y tu antivirus al día.
 
 ## Leyes aplicables
 

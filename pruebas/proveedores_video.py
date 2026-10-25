@@ -400,6 +400,11 @@ assert "DE PAGO" in director.INSTRUCCIONES and "US$1 por cada 8 s" not in direct
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
 import mcp_server  # noqa: E402
+from motor import guardia  # noqa: E402
+
+# Aquí se prueba la ventana del MCP diciendo «No» muchas veces seguidas: la regla de Ráfaga Guardia que bloquea al
+# agente que insiste tiene su propia prueba (pruebas/guardia.py)
+guardia.INSISTENCIA = 10 ** 6
 
 
 def por_protocolo(nombre: str, argumentos: dict) -> str:

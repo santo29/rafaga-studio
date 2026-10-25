@@ -130,6 +130,17 @@ Hugging Face, las voces de Microsoft). El detalle completo, función por funció
   privado) y Spaces públicos de Hugging Face, que reciben lo que se les manda.
 - ¿Encontraste un problema de seguridad? Sigue [SECURITY.md](SECURITY.md) en lugar de abrir un *issue* público.
 
+### 🛡️ Ráfaga Guardia
+
+El vigilante de la app, al final del menú (su escudo se pone verde, ámbar o rojo). Apunta en tu PC
+(`datos/guardia.json`) lo que la app frena: rutas de red, enlaces a tu red local, archivos que fingen ser otra cosa,
+agentes MCP que insisten después de tu «No», claves de otro servicio, claves que Windows no puede descifrar o que
+cambió otro programa. Comprueba que el código de la app es el que instalaste (el instalador lleva la huella de cada
+archivo) y, si el código cambió o un agente te insiste 3 veces en 10 minutos, **bloquea** lo de pago, publicar, la
+memoria y el MCP hasta que lo desbloquees tú, en su página. Los eventos graves salen como notificación de Windows.
+Las reglas deciden; la IA solo te explica un evento si pulsas «Explicar con IA». Protege la app y lo que guarda (tus
+claves, tu dinero y tus datos), **no el PC entero**: no es un antivirus. Límites en [SECURITY.md](SECURITY.md).
+
 Solo el motor, desde Python:
 
 ```python

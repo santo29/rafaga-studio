@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from . import seguro
+from . import guardia, seguro
 from .idioma import t
 
 NOMBRE = "Seedance"
@@ -124,6 +124,7 @@ def _esperar(url: str, cabecera: dict) -> dict:
 
 
 def _generar(info: dict, imagen: Path | None, prompt: str, destino: Path, segundos: float, voz: bool) -> str:
+    guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     from . import ia  # ia también importa este módulo
     cabecera = {"Authorization": f"Bearer {info['clave']}"}
     contenido = [{"type": "text", "text": prompt}]

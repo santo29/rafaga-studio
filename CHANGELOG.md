@@ -50,3 +50,12 @@ First public version · Primera versión.
   keys aside; no plaintext backup of Claude's config; the installer always installs inside your profile, removes
   the MCP registration on uninstall and only takes prebuilt wheels; the lock quarantine checks the newest file of a
   version; the Demucs model is verified with its full SHA-256.
+- **Ráfaga Guardia, the guardian inside the app:** a new «🛡️ Ráfaga Guardia» page at the end of the menu, with a
+  shield that turns green, amber or red. It logs locally what the app stops (network paths, local-network links and
+  redirects, fake-ip proxies, fake files, Director and MCP refusals, keys from another service, DPAPI failures, a keys
+  file changed by another program, sensitive data refused by the memory) without keys, signed URLs or full paths;
+  checks the app's code against an integrity manifest built by the installer; checks the keys file, the install
+  folder, the MCP registration and the Demucs model; and **locks** paid features, publishing, the memory and MCP when
+  the code changed or an MCP agent insists after 3 «No» in 10 minutes. Only a person on the page can unlock it. Serious
+  events show a Windows notification; «Explicar con IA» explains an event in plain words (the AI never acts). The
+  launcher `.bat` also opens the installed copy. Privacy notice version 7.

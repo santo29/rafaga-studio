@@ -6,7 +6,7 @@ from typing import Callable
 
 import httpx
 
-from . import claves, ia, memoria
+from . import claves, guardia, ia, memoria
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -109,6 +109,7 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
     if not c or not c.get("clave"):
         raise ia.SinClave(t("Conecta una clave de música: Gemini (Lyria, ~$0.08 por canción, con la facturación "
                             "activada) o ElevenLabs (plan de pago)."))
+    guardia.sin_bloqueo()  # las canciones son de pago (Lyria o ElevenLabs): con el estudio bloqueado no empieza
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-musica")
     carpeta.mkdir(parents=True)
     estilo_base = GENEROS.get(genero, genero)

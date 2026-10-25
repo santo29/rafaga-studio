@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from . import guardia
 from .idioma import t
 
 ARCHIVO = Path(__file__).resolve().parent.parent / "datos" / "claves.json"
@@ -339,6 +340,8 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
         # ponytail: si las claves de Kling resultan medir 40 caracteres (como el token clásico de Cloudflare), esta
         # regla las rechaza: entonces hay que dejar pasar ese caso aquí.
         if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE) or re.match(AJENAS, clave):
+            guardia.registrar("clave_ajena", "media", t("Se rechazó una clave de otro servicio pegada en «Conectar» "
+                                                        "de {proveedor}: no se mandó.", proveedor=proveedor.capitalize()))
             raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
                                "la reconoce sola.", proveedor=proveedor.capitalize()))
         opciones = [proveedor]
@@ -447,6 +450,7 @@ def _escribir(todas: dict) -> None:
     texto = json.dumps(todas, indent=2)
     if os.name == "nt":
         texto = CIFRADO + base64.b64encode(_dpapi(texto.encode("utf-8"), cifrar=True)).decode("ascii")
+    guardia.anotar_claves(texto)  # antes de escribir: así Guardia sabe que este cambio lo hizo la app
     _reemplazar(ARCHIVO, texto)
 
 
@@ -479,11 +483,14 @@ def _leer() -> dict:
         texto = ARCHIVO.read_text(encoding="utf-8-sig")  # -sig: un BOM no debe impedir leer claves antiguas
     except FileNotFoundError:
         return {}
+    guardia.vigilar_claves(texto)  # ¿lo escribió otro programa?
     try:
         todas = _descifrar(texto)
     except ValueError:
         # Dañado de verdad: se aparta con un nombre único (nunca pisa otra copia) y la app arranca sin claves.
         # Si estaba en claro, la copia apartada queda cifrada. La pantalla de Claves avisa de que existe.
+        guardia.registrar("claves_danadas", "media", t("El archivo de tus claves estaba dañado: se apartó y la app "
+                                                       "siguió sin claves."))
         apartado = ARCHIVO.with_name(f"claves.danado-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}")
         if os.name == "nt" and not texto.startswith(CIFRADO):
             apartado.write_text(CIFRADO + base64.b64encode(_dpapi(texto.encode("utf-8"), cifrar=True)).decode("ascii"),
@@ -501,6 +508,8 @@ def cargar() -> dict:
     try:
         return _leer()
     except NoSeDescifra:  # Windows no puede descifrarlas ahora: la app sigue sin claves y el archivo queda como está
+        guardia.registrar("claves_dpapi", "media", t("Windows no pudo descifrar tus claves guardadas (¿otra cuenta u "
+                                                     "otro PC?): la app siguió sin ellas."))
         return {}
 
 
@@ -509,6 +518,8 @@ def _leer_para_cambiar() -> dict:
     try:
         return _leer()
     except NoSeDescifra:
+        guardia.registrar("claves_dpapi", "media", t("Windows no pudo descifrar tus claves guardadas (¿otra cuenta u "
+                                                     "otro PC?): la app siguió sin ellas."))
         raise ValueError(t("Windows no puede descifrar ahora tus claves guardadas (¿abriste la app desde otra cuenta "
                            "u otro PC?). No se tocan: cierra la sesión de Windows, vuelve a entrar y prueba otra "
                            "vez. Si datos/claves.json viene de otro PC, sácalo de la carpeta datos.")) from None

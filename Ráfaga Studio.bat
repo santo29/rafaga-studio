@@ -1,5 +1,10 @@
 @echo off
 cd /d "%~dp0"
+rem La copia instalada con instalador\rafaga.iss lleva su Python en python\tools
+if exist python\tools\pythonw.exe (
+  start "" python\tools\pythonw.exe -s -E app.py
+  exit /b 0
+)
 if not exist .venv (
   rem Dentro de este bloque, un parentesis en un echo lo cierra antes de tiempo y el .bat no arranca: van con ^
   echo Rafaga Studio - ^(c^) 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones

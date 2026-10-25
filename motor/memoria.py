@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from . import claves, roles
+from . import claves, guardia, roles
 from .idioma import t
 
 ARCHIVO = Path(__file__).resolve().parent.parent / "datos" / "memoria.json"
@@ -49,6 +49,8 @@ def recordar(departamento: str, preferencia: str) -> dict[str, list[str]]:
     if not preferencia or len(preferencia) > MAX_LARGO:
         raise ValueError(t("La preferencia tiene que ser un texto de 1 a {maximo} caracteres.", maximo=MAX_LARGO))
     if sensible(preferencia):
+        guardia.registrar("memoria", "media", t("La memoria del estudio no guardó un dato sensible (una clave, una "
+                                                "contraseña o una tarjeta)."))
         raise ValueError(t("No guardo claves, contraseñas, tarjetas ni números de cuenta en la memoria del estudio."))
     memoria = cargar()
     lista = [p for p in memoria.get(departamento, []) if p.lower() != preferencia.lower()] + [preferencia]

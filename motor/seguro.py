@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import httpcore
 
+from . import guardia
 from .idioma import t
 
 IMAGENES = {".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp"}
@@ -84,6 +85,7 @@ def archivo_medio(ruta: str, tipos: set[str], que: str = "archivo") -> Path:
     # Rutas de red se rechazan ANTES de tocar el disco: comprobarlas ya abriría una conexión SMB y Windows mandaría
     # la huella de la contraseña del usuario a ese servidor. Lo mismo si se llega a ella por un enlace del disco.
     if es_ruta_de_red(texto) or _enlace_a_red(texto):
+        guardia.registrar("red", "media", t("Se rechazó un archivo de una carpeta de red: {ruta}", ruta=texto))
         raise ValueError(t("{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o "
                            "ábrelo desde una unidad con letra, como Z:): {ruta}", que=que.capitalize(), ruta=texto))
     p = Path(texto)
@@ -94,6 +96,8 @@ def archivo_medio(ruta: str, tipos: set[str], que: str = "archivo") -> Path:
         raise ValueError(t("{que}: no encuentro el archivo {ruta}", que=que.capitalize(), ruta=texto))
     real = p.resolve(strict=True)  # sigue accesos directos/enlaces: se valida y se usa el archivo de verdad
     if es_ruta_de_red(str(real)):  # por si un enlace de otro tipo llevó a la red: nunca se abre ni se renderiza
+        guardia.registrar("red", "media", t("Se rechazó un acceso directo que lleva a una carpeta de red: {ruta}",
+                                            ruta=texto))
         raise ValueError(t("{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o "
                            "ábrelo desde una unidad con letra, como Z:): {ruta}", que=que.capitalize(), ruta=texto))
     if real.suffix.lower() not in tipos:
@@ -106,6 +110,8 @@ def archivo_medio(ruta: str, tipos: set[str], que: str = "archivo") -> Path:
                            gb=tope // 1024 ** 3, nombre=p.name))
     with open(real, "rb") as f:
         if not _es_del_tipo(f.read(512), tipos):  # 512: MPEG-TS se reconoce por su tercer paquete (byte 388)
+            guardia.registrar("archivo_falso", "media", t("Se rechazó un archivo que no es lo que dice su nombre: "
+                                                          "{nombre}", nombre=p.name))
             raise ValueError(t("{que}: {nombre} no es una imagen, un audio ni un video de verdad.",
                                que=que.capitalize(), nombre=p.name))
     return real
@@ -154,6 +160,8 @@ def enlace_publico(url: str) -> str:
     """http(s) hacia un host público. Se usa en cada salto que el programa pide por su cuenta."""
     texto = enlace_web(url)
     if not host_publico(urlsplit(texto).hostname):
+        guardia.registrar("red_local", "media", t("Se rechazó un enlace a tu red local: {host}",
+                                                  host=urlsplit(texto).hostname))
         raise ValueError(t("El enlace debe ser de un sitio público de internet (no de tu red local)."))
     return texto
 
@@ -170,8 +178,12 @@ class _SoloPublicas(httpcore.SyncBackend):
             raise httpcore.ConnectError(t("no se encontró {host}: {error}", host=host, error=e))
         if not ips or not all(_ip_publica(ip) for ip in ips):
             if ips and all(es_fake_ip(ip) for ip in ips):  # que quien usa Clash sepa por qué y dónde activarlo
+                guardia.registrar("fake_ip", "baja", t("Se frenó una conexión a una dirección de un proxy «fake-ip»: "
+                                                       "{host}", host=host))
                 raise httpcore.ConnectError(t("la dirección es de un proxy «fake-ip» (Clash…): si lo usas a propósito, "
                                               "actívalo en «Claves de IA»"))
+            guardia.registrar("red_local", "media", t("Se frenó una conexión a una dirección de tu red local: {host}",
+                                                      host=host))
             raise httpcore.ConnectError(t("la dirección no es pública (red local)"))
         for ip in ips:  # todas ya comprobadas: se prueba la siguiente si una no responde (p. ej. IPv6 roto)
             try:

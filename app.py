@@ -23,6 +23,7 @@ from ui.paginas.crear import PaginaCrear
 from ui.paginas.director import PAGINA, PaginaDirector
 from ui.paginas.diseno import PaginaDiseno
 from ui.paginas.edicion import PaginaEdicion
+from ui.paginas.guardia import COLORES, ESCUDOS, PaginaGuardia, TITULOS
 from ui.paginas.inicio import PaginaInicio
 from ui.paginas.mcp import PaginaMCP
 from ui.paginas.musica import PaginaMusica
@@ -67,6 +68,7 @@ class Ventana(QMainWindow):
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
         self.director = PaginaDirector(abrir_diseno=self._abrir_diseno, abrir_serie=self._abrir_serie)
         self.serie = PaginaSerie()
+        self.guardia = PaginaGuardia()  # revisa la app en segundo plano al abrirla
         self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie, self._usar_pedido)
         # Lo más buscado arriba: a 728 px de alto, Diseño y Dibujos animados se ven sin desplazar el menú
         paginas = [(f"🏠  {t('Inicio')}", self.inicio),
@@ -79,13 +81,13 @@ class Ventana(QMainWindow):
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
                    (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"📅  {t('Publicar')}", PaginaPublicar()),
                    (f"🔑  {t('Claves de IA')}", self.claves),
-                   (f"🔌  {t('Conexión MCP')}", PaginaMCP())]
+                   (f"🔌  {t('Conexión MCP')}", PaginaMCP()), (f"🛡️  {t('Ráfaga Guardia')}", self.guardia)]
         self.orden = [p for _, p in paginas]  # para ir a una página sin contar posiciones
         # El menú se desplaza solo si no cabe: así la ventana entra en pantallas de portátil (768 px de alto)
         menu = QWidget()
         botones = QVBoxLayout(menu)
         botones.setContentsMargins(0, 0, 0, 0)
-        botones.setSpacing(3)  # junto con el padding de #nav: los 15 botones caben a 728 px de alto sin desplazar
+        botones.setSpacing(2)  # junto con el padding de #nav: los 16 botones caben a 728 px de alto sin desplazar
         desplaza_menu = QScrollArea()
         desplaza_menu.setWidgetResizable(True)
         desplaza_menu.setFrameShape(QFrame.NoFrame)
@@ -108,8 +110,13 @@ class Ventana(QMainWindow):
             desplazable.setWidget(pagina)
             self.paginas.addWidget(desplazable)
         botones.addStretch()
+        # El escudo de Ráfaga Guardia, el último del menú, lleva el color de su estado (verde, ámbar, rojo)
+        self.escudo = self.grupo.buttons()[-1]
+        self.guardia.estado_cambiado.connect(self._escudo)
+        self.guardia.abrir.connect(self._abrir_guardia)
+        self._escudo(self.guardia.estado or "ok")
         nav.addWidget(self._selector_idioma())
-        privacidad = boton(f"🛡️  {t('Privacidad y legal')}", "nav")
+        privacidad = boton(f"⚖️  {t('Privacidad y legal')}", "nav")
         privacidad.clicked.connect(lambda: legal.acerca_de(self))
         nav.addWidget(privacidad)
         lay.addWidget(barra)
@@ -129,6 +136,19 @@ class Ventana(QMainWindow):
     def ir_a(self, i):
         self.paginas.setCurrentIndex(i)
         self.grupo.buttons()[i].setChecked(True)
+
+    def _escudo(self, estado):
+        """El escudo de Ráfaga Guardia en el menú, del color de su estado."""
+        self.escudo.setIcon(iconos.icono(ESCUDOS[estado], COLORES[estado]))
+        self.escudo.setProperty("icono", ESCUDOS[estado])  # como poner(): qué icono lleva
+        self.escudo.setToolTip(f"{t('Ráfaga Guardia')}: {TITULOS[estado]}")
+
+    def _abrir_guardia(self):
+        """La notificación de Ráfaga Guardia pulsada: la ventana delante, en su página."""
+        self.ir_a(self.orden.index(self.guardia))
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     def _ir_pagina(self, nombre):
         """Va a la página del menú con ese nombre (sin traducir, como en PAGINA del Director)."""
@@ -206,6 +226,7 @@ class Ventana(QMainWindow):
                 tarea.wait(10_000)  # ponytail: Whisper en el PC no se puede parar; pasado este rato se cierra igual
             self.edicion.tareas.clear()
         self.edicion._limpiar(self.edicion.carpeta)
+        self.guardia.cerrar()
 
     def _editar_video(self, archivo, formato):
         if self.edicion.editar_video(archivo, formato):

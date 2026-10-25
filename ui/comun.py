@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGr
                                QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory, QTextEdit,
                                QVBoxLayout, QWidget)
 
-from motor import desde_prompt, seguro
+from motor import desde_prompt, guardia, seguro
 from motor.idioma import t
 from ui.iconos import COLOR, icono, poner, separar
 
@@ -569,6 +569,9 @@ class PaginaTrabajo(QWidget):
                 n=clips, proveedor=ia.nombre_video(pago), costo=f"{mudos:.2f}")
         else:
             return True
+        if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: nada de pago empieza
+            mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
+            return False
         return QMessageBox.question(self, titulo, texto) == QMessageBox.Yes
 
     def lanzar(self, boton_iniciar, funcion, **datos) -> bool:

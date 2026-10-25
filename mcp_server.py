@@ -24,8 +24,10 @@ def _ruta(ruta: str) -> str:
     quedan igual (el motor rechaza las de red)."""
     return os.path.join(ORIGEN, ruta) if ruta else ruta
 
-from motor import director, diseno, herramientas
+from motor import director, diseno, guardia, herramientas
 from motor.idioma import t
+
+guardia.ORIGEN = "mcp"  # lo que apunte Ráfaga Guardia desde este proceso viene de un agente
 
 # Las herramientas corren en otros hilos: la QApplication sin ventana que dibuja los diseños nace aquí, en el hilo
 # principal, como pide Qt
@@ -77,6 +79,10 @@ def herramienta(funcion):
 
     @functools.wraps(funcion)
     def envoltura(*args, **kwargs):
+        if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: ninguna herramienta, ni las gratis
+            guardia.registrar("bloqueado", "baja", t("Un agente MCP pidió «{herramienta}» con el estudio bloqueado.",
+                                                     herramienta=funcion.__name__))
+            raise ToolError(guardia.mensaje_bloqueo())
         try:
             datos = firma.bind(*args, **kwargs).arguments
         except TypeError:  # argumentos que no tiene: que falle la herramienta con su propio error
@@ -84,12 +90,18 @@ def herramienta(funcion):
         if datos is not None:
             partes = [director.costo(funcion.__name__, datos)]
             if fuera := _de_fuera(funcion.__name__, datos):
+                guardia.registrar("mcp_fuera", "baja", t("Un agente MCP pidió usar {n} archivo(s) de fuera de su "
+                                                         "carpeta en «{herramienta}».", n=len(fuera),
+                                                         herramienta=funcion.__name__))
                 partes.append(t("Usaría estos archivos de tu PC, de fuera de su carpeta (se envían al servicio de IA "
                                 "que toque): {archivos}", archivos="; ".join(fuera)))
                 partes += [] if partes[0] else [t("¿Lo hago?")]
             partes = [p for p in partes if p]
             if partes and not _preguntar("\n\n".join([t("Un agente conectado por MCP pide «{herramienta}».",
                                                           herramienta=funcion.__name__), *partes])):
+                # cuenta para la regla de Guardia: 3 «No» en 10 minutos es un agente que insiste, y se bloquea
+                guardia.registrar("mcp_no", "media", t("Dijiste «No» a un agente MCP que pedía «{herramienta}».",
+                                                       herramienta=funcion.__name__))
                 raise ToolError(t("el usuario no lo aceptó: no se hizo ni se gastó nada"))
         try:
             return funcion(*args, **kwargs)

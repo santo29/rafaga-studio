@@ -9,7 +9,7 @@ import traceback
 import unicodedata
 from datetime import datetime
 
-from . import claves, desde_prompt, diseno_ia, herramientas, ia, memoria, musica, roles, serie, video_musical
+from . import claves, desde_prompt, diseno_ia, guardia, herramientas, ia, memoria, musica, roles, serie, video_musical
 from .idioma import IDIOMAS, actual, t
 
 MAX_PASOS = 6  # cada herramienta tarda minutos y gasta cuota: un pedido no puede convertirse en cien trabajos
@@ -255,6 +255,8 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
     confirmar(pregunta)."""
     funcion = herramientas.TODAS.get(nombre)
     if funcion is None:
+        guardia.registrar("herramienta", "baja", t("El Director pidió una herramienta que no existe: {herramienta}",
+                                                   herramienta=str(nombre)[:60]), "director")
         return {}, f"ERROR: {t('esa herramienta no existe; usa una de la lista')}"
     try:
         args = json.loads(argumentos or "{}") if isinstance(argumentos, str) else argumentos
@@ -266,8 +268,14 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         return {}, f"ERROR: {t('argumentos no válidos')} ({e})"
     problema = _sin_permiso(nombre, args, del_usuario, de_todos)
     if problema:
+        guardia.registrar("director", "media", t("El Director no usó «{herramienta}»: {motivo}", herramienta=nombre,
+                                                 motivo=problema), "director")
         return args, f"ERROR: {problema}"
     pregunta = costo(nombre, args)
+    if pregunta and guardia.bloqueado():  # lo de pago, publicar y la memoria (lo que costo pregunta): bloqueado
+        guardia.registrar("bloqueado", "baja", t("El Director no usó «{herramienta}»: el estudio está bloqueado.",
+                                                 herramienta=nombre), "director")
+        return args, f"ERROR: {guardia.mensaje_bloqueo()}"
     if pregunta and not confirmar(pregunta):
         return args, f"ERROR: {t('el usuario no lo aceptó: no se hizo ni se gastó nada')}"
     al_usar(nombre)

@@ -1,6 +1,6 @@
 # Aviso de privacidad de Ráfaga Studio
 
-**Versión 8 · 24 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 9 · 25 de octubre de 2026** · Responsable: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 ## Lo esencial
 

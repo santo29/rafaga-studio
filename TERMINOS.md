@@ -1,6 +1,6 @@
 # Términos de uso de Ráfaga Studio
 
-**Versión 4 · 24 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 5 · 25 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 Al instalar o usar Ráfaga Studio aceptas estos términos y el [Aviso de privacidad](PRIVACIDAD.md). Si no estás de
 acuerdo, no uses la app.
@@ -26,11 +26,11 @@ condiciones. Algunas funciones son de pago en tu cuenta: por ejemplo, el video a
 US$0,10 por segundo de video, y animar escenas o hacer escenas que hablan con Kling o Seedance se cobra por cada clip
 (de unos centavos a unos US$2, según el modelo). Kling y Seedance solo se usan si los eliges en «Claves de IA», nunca en
 «Automático», y si uno falla la app no prueba otro que te cobre otra vez. Nada de pago se hace sin que lo aceptes: la
-app te dice antes lo más que puede costar cada trabajo, el Director te pregunta antes de usarlo, y un agente conectado
-por MCP recibe primero la pregunta con el costo y la orden de hacértela, y solo puede seguir con el código de un solo
-uso de esa pregunta, que vale solo para ese trabajo y ese costo (topes de 15 escenas con voz por video y de 15 clips de
-pago por trabajo). La app no puede ver si el agente de verdad te preguntó: el control final es la aprobación de
-herramientas de tu cliente MCP. Si eliges otra IA de pago en «Claves de IA» con un trabajo en marcha, ese trabajo no la
+app te dice antes lo más que puede costar cada trabajo, el Director te pregunta antes de usarlo, y si un agente
+conectado por MCP quiere gastar, publicar o guardar algo en la memoria, Ráfaga Studio te lo pregunta en una ventana
+propia con «Sí» y «No» que el agente no puede leer ni contestar (topes de 15 escenas con voz por video y de 15 clips de
+pago por trabajo). Un agente que además pueda manejar tu escritorio sí podría pulsarla: dale ese permiso solo a agentes
+de confianza. Si eliges otra IA de pago en «Claves de IA» con un trabajo en marcha, ese trabajo no la
 usa: vale para el siguiente, que te vuelve a preguntar. Esas cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
 opciones gratis; para el texto y la transcripción usa el proveedor que conectes. Tiene topes para no gastar de más, pero eres
 responsable de vigilar el uso y los límites de tus cuentas. Puedes quitar una clave cuando quieras.

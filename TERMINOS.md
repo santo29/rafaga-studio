@@ -10,16 +10,15 @@ acuerdo, no uses la app.
 Ráfaga Studio es un estudio creativo con IA que funciona en tu PC.
 
 - **El motor** (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py` y
-  `ejemplos/`) es software libre con licencia MIT: ver [LICENSE](LICENSE). Las demás pruebas (`pruebas/*.py`),
-  `pruebas/real.py` y `instalador/actualizar_lock.py` forman parte de la app y siguen su licencia.
+  `ejemplos/`) es software libre con [licencia MIT](LICENSE). Las demás pruebas de la carpeta `pruebas/` (incluida
+  `pruebas/real.py`) y `instalador/actualizar_lock.py` forman parte de la app y siguen su licencia.
 - **La app de escritorio** (`app.py` y `ui/`, «Ráfaga Studio Pro») viene en el repositorio para que funcione, pero no
-  es software libre: es propiedad del titular. Puedes usarla para crear
-  tu contenido, también con fines comerciales. No puedes revender, redistribuir, alquilar ni publicar la app, ni una
+  es software libre: es propiedad del titular. Puedes usarla para crear tu contenido, también con fines comerciales. No puedes revender, redistribuir, alquilar ni publicar la app, ni una
   versión modificada, sin permiso escrito del titular.
 - Las librerías, modelos, fuentes e iconos de terceros conservan sus propias licencias: ver
   [Avisos de terceros](AVISOS_DE_TERCEROS.md).
 
-## 2. Tus claves, tus cuentas y tus costes
+## 2. Tus claves, tus cuentas y tus costos
 
 Ráfaga Studio trabaja con tus propias claves de servicios de IA (BYOK). Sin clave, la app usa servicios gratis de
 terceros (Spaces públicos de Hugging Face y Pollinations), que reciben lo que les envías y tienen sus propias
@@ -32,8 +31,7 @@ por MCP recibe primero la pregunta con el costo y la orden de hacértela, y solo
 uso de esa pregunta, que vale solo para ese trabajo y ese costo (topes de 15 escenas con voz por video y de 15 clips de
 pago por trabajo). La app no puede ver si el agente de verdad te preguntó: el control final es la aprobación de
 herramientas de tu cliente MCP. Si eliges otra IA de pago en «Claves de IA» con un trabajo en marcha, ese trabajo no la
-usa: vale para el siguiente, que te vuelve a preguntar. Esas
-cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
+usa: vale para el siguiente, que te vuelve a preguntar. Esas cuentas, sus condiciones y lo que cobren son entre tú y cada proveedor. En imágenes y video la app prueba primero las
 opciones gratis; para el texto y la transcripción usa el proveedor que conectes. Tiene topes para no gastar de más, pero eres
 responsable de vigilar el uso y los límites de tus cuentas. Puedes quitar una clave cuando quieras.
 
@@ -91,7 +89,7 @@ lo importante.
 
 ## 8. Limitación de responsabilidad
 
-En la medida que permita la ley, el titular no responde de daños indirectos ni de pérdidas de datos, ingresos o
+En la medida en que lo permita la ley, el titular no responde de daños indirectos ni de pérdidas de datos, ingresos o
 cuentas. Tampoco responde de cobros de servicios de terceros ni del contenido que crees o publiques. Si alguna parte
 de estos términos no fuera válida en tu país, el resto sigue vigente.
 

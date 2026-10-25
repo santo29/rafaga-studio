@@ -9,8 +9,9 @@ import traceback
 import unicodedata
 from datetime import datetime
 
-from . import claves, desde_prompt, diseno_ia, guardia, herramientas, ia, memoria, musica, roles, serie, video_musical
-from .idioma import IDIOMAS, actual, t
+from . import (claves, desde_prompt, diseno_ia, guardia, herramientas, ia, memoria, musica, publicar, roles, serie,
+               video_musical)
+from .idioma import IDIOMAS, actual, dinero, t, texto_de_error
 
 MAX_PASOS = 6  # cada herramienta tarda minutos y gasta cuota: un pedido no puede convertirse en cien trabajos
 MAX_RESULTADO = 1500  # lo que la IA ve de cada resultado: le basta para seguir y no se come su límite de texto
@@ -204,7 +205,7 @@ def costo(nombre: str, args: dict) -> str | None:
     if nombre == "recordar_preferencia":  # un texto de terceros no puede dejar órdenes guardadas sin el sí del usuario
         # Juntada como la guarda memoria.recordar: ni espacios ni saltos de línea esconden un trozo de lo que se guarda
         # (lo que pase de MAX_LARGO, recordar lo rechaza)
-        preferencia = " ".join(str(args.get("preferencia", "")).split())
+        preferencia = ia.sin_markdown(args.get("preferencia", ""), "linea")  # igual que la guardará memoria.recordar
         if memoria.sensible(preferencia):
             return None  # ni se pregunta: la memoria lo rechaza (claves, PIN, tarjetas)
         return t("¿Guardo en la memoria del estudio, para {departamento}: «{preferencia}»?",
@@ -212,18 +213,20 @@ def costo(nombre: str, args: dict) -> str | None:
                  preferencia=preferencia[:memoria.MAX_LARGO + 1])
     if nombre == "programar_publicacion":
         fecha = str(args.get("fecha_hora", ""))
-        try:  # en la hora de este PC, como la escribió el usuario (con zona o sin ella)
-            fecha = datetime.fromisoformat(fecha).astimezone().strftime("%Y-%m-%d %H:%M")
+        try:  # en la hora de este PC, como la escribió el usuario (con zona o sin ella); como en «Publicar»
+            fecha = datetime.fromisoformat(fecha).astimezone().strftime("%d/%m/%Y %H:%M")
         except (ValueError, OverflowError, OSError):  # OSError: Windows con fechas de antes de 1970
             fecha = fecha[:20].replace("T", " ")
-        # Lo que de verdad se publica: qué video (con su carpeta) y la descripción entera (herramientas la corta a lo
-        # mismo). Con los espacios juntados: un salto de línea no finge otra línea de la ventana.
+        # Lo que de verdad se publica: qué video (con su carpeta), y el título y la descripción entera tal como los
+        # sube publicar.programar, sin Markdown (herramientas corta la descripción a lo mismo). Con los espacios
+        # juntados: un salto de línea no finge otra línea de la ventana.
         archivo = " ".join(str(args.get("archivo", "")).split())
-        descripcion = " ".join(str(args.get("descripcion", ""))[:herramientas.MAX_DESCRIPCION].split())
+        titulo, descripcion = publicar.publicable(args.get("titulo", ""),
+                                                  str(args.get("descripcion", ""))[:herramientas.MAX_DESCRIPCION])
         return t("Esto sube el video {archivo} a tu canal de YouTube con el título «{titulo}» y se publicará solo el "
                  "{fecha}. Descripción: «{descripcion}». ¿Lo hago?",
                  archivo=archivo if len(archivo) <= 160 else "…" + archivo[-159:],
-                 titulo=" ".join(str(args.get("titulo", "")).split())[:100], fecha=fecha, descripcion=descripcion)
+                 titulo=titulo, fecha=fecha, descripcion=" ".join(descripcion.split()))
     usd = 0.0
     if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) \
             and desde_prompt.proveedor_voz():  # sin nadie para las escenas que hablan, falla antes de gastar
@@ -245,7 +248,7 @@ def costo(nombre: str, args: dict) -> str | None:
                                                                        and args.get("subtitulos"))
     if transcribe and (claves.para("transcripcion") or {}).get("proveedor") == "openai":
         usd += ia.PRECIO_TRANSCRIPCION * ia.MINUTOS_NUBE  # no se sabe cuánto dura: lo más que se sube
-    return t("Esto cuesta unos US${costo}. ¿Lo hago?", costo=f"{usd:.2f}") if usd else None
+    return t("Esto cuesta unos {costo}. ¿Lo hago?", costo=dinero(usd)) if usd else None
 
 
 def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: str,
@@ -268,13 +271,13 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         return {}, f"ERROR: {t('argumentos no válidos')} ({e})"
     problema = _sin_permiso(nombre, args, del_usuario, de_todos)
     if problema:
-        guardia.registrar("director", "media", t("El Director no usó «{herramienta}»: {motivo}", herramienta=nombre,
-                                                 motivo=problema), "director")
+        guardia.registrar("director", "media", t("El Director no pudo {herramienta}: {motivo}",
+                                                 herramienta=herramientas.nombre(nombre), motivo=problema), "director")
         return args, f"ERROR: {problema}"
     pregunta = costo(nombre, args)
     if pregunta and guardia.bloqueado():  # lo de pago, publicar y la memoria (lo que costo pregunta): bloqueado
-        guardia.registrar("bloqueado", "baja", t("El Director no usó «{herramienta}»: el estudio está bloqueado.",
-                                                 herramienta=nombre), "director")
+        guardia.registrar("bloqueado", "baja", t("El Director no pudo {herramienta}: el estudio está bloqueado.",
+                                                 herramienta=herramientas.nombre(nombre)), "director")
         return args, f"ERROR: {guardia.mensaje_bloqueo()}"
     if pregunta and not confirmar(pregunta):
         return args, f"ERROR: {t('el usuario no lo aceptó: no se hizo ni se gastó nada')}"
@@ -312,7 +315,7 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     def permiso(pregunta: str, trabajo: tuple) -> bool:
         # La pregunta del código va PRIMERO y lo que escribió la IA detrás y corto: en modo voz se lee entera y la IA
         # no puede tapar el costo de verdad con un texto largo (ni decir antes un precio inventado)
-        if trabajo not in rechazadas and confirmar(f"{pregunta}\n\n{mensaje[:300]}" if mensaje else pregunta):
+        if trabajo not in rechazadas and confirmar(f"{pregunta}\n\n{ia.recortar(mensaje, 300)}" if mensaje else pregunta):
             return True
         rechazadas.add(trabajo)
         return False
@@ -325,9 +328,11 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
                 raise
             traceback.print_exc()
             mensaje = t("No pude seguir ({error}). Te dejo lo que ya está hecho.",
-                        error=(str(e).strip() or type(e).__name__)[:300])
+                        error=ia.recortar(texto_de_error(e), 300))
             break
-        nombre, mensaje = r["herramienta"].strip(), r["mensaje"].strip()[:600]  # ni el chat recibe textos gigantes
+        # Sin Markdown (también lo de una IA que no pasó por texto_json) y sin partir palabras: ni el chat recibe
+        # textos gigantes
+        nombre, mensaje = r["herramienta"].strip(), ia.recortar(ia.sin_markdown(r["mensaje"]), 600)
         if not nombre:
             break
         if n == MAX_PASOS:  # quería seguir: se para aquí y lo dice
@@ -335,7 +340,7 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
             break
         if n == 0 and mensaje:
             al_decir(mensaje)
-        aviso(mensaje or t("Usando {herramienta}…", herramienta=nombre), (n + 0.5) / (MAX_PASOS + 1))
+        aviso(mensaje or t("Voy a {herramienta}…", herramienta=herramientas.nombre(nombre)), (n + 0.5) / (MAX_PASOS + 1))
         # De los pasos de ahora, solo los archivos que hizo el estudio: un título o una transcripción ajena que nombra
         # una ruta de tu PC no la convierte en «del estudio»
         de_todos = del_usuario + de_antes + _norma("\n".join(a for p in pasos for a in _archivos(p["resultado"])))

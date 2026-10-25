@@ -107,13 +107,14 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
             relanzar_con_gasto(error, notas + notas_k, carpeta)
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]
         resultados.append({"archivo": str(archivo), "titulo": f"{k}. {v['angulo']} — {v['titulo']}",
-                           "descripcion": t("Gancho: {gancho}\n\n{texto}", gancho=v["gancho"],
-                                            texto=v["texto_anuncio"]),
+                           # Solo el texto del anuncio: es lo que se copia y se publica, y el gancho ya se dice en el
+                           # video (con la etiqueta interna «Gancho:» delante se publicaba tal cual)
+                           "descripcion": v["texto_anuncio"],
                            "hashtags": v["hashtags"]})
 
     proyecto = {"tipo": "anuncio", "producto": producto, "formato": formato, "carpeta": str(carpeta),
                 "titulo": t("Anuncios · {producto}", producto=producto), "resultados": resultados,
                 "con_web": bool(web), "avisos": notas}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
-    aviso(t("¡Listo! Con {n} aviso(s): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
+    aviso(t("¡Listo! Hay avisos ({n}): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
     return proyecto

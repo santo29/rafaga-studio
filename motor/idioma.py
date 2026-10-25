@@ -116,6 +116,43 @@ def _textos(codigo: str) -> dict[str, str]:
     return {k: v for k, v in datos.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(datos, dict) else {}
 
 
+def dinero(usd: float) -> str:
+    """Un importe en dólares como se escribe en el idioma de la sesión: «US$0.36» (es, en), «US$ 0,36» (pt) y
+    «0,36 $ US» (fr). Así cada traducción no lo envuelve a su manera («environ 0.36 $ US»)."""
+    cifra, codigo = f"{usd:.2f}", actual()
+    if codigo == "pt":
+        return f"US$ {cifra.replace('.', ',')}"
+    if codigo == "fr":
+        return f"{cifra.replace('.', ',')}\u00a0$\u00a0US"
+    return f"US${cifra}"
+
+
+def porcentaje(fraccion: float) -> str:
+    """«45 %», con el espacio que no corta: el que piden la RAE y el francés (antes salía «45%» en unas barras y «45 %»
+    en otras)."""
+    return f"{fraccion * 100:.0f}\u00a0%"
+
+
+def texto_de_error(e: BaseException) -> str:
+    """Un error contado al usuario. Los mensajes propios de la app (ValueError, RuntimeError y los errores de motor/,
+    ya traducidos) van tal cual; los de Python y las librerías no: salía «'mensaje'» por un KeyError, «[Errno 13]
+    Acceso denegado: 'C:\\\\Users\\\\…'» con las barras dobladas o «Expecting value: line 1 column 1 (char 0)»."""
+    import httpx
+    if isinstance(e, httpx.HTTPStatusError):
+        from .ia import motivo  # aquí: ia importa este módulo
+        return t("{servicio} respondió {codigo}: {detalle}", servicio=e.request.url.host,
+                 codigo=e.response.status_code, detalle=motivo(e.response))
+    if isinstance(e, httpx.TransportError):  # sin red, el servicio no contesta, se cortó…
+        return t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
+                 servicio=e.request.url.host if getattr(e, "_request", None) else t("el servicio"))
+    if isinstance(e, OSError) and e.filename:
+        return t("No se pudo leer o guardar un archivo: {nombre}", nombre=Path(str(e.filename)).name)
+    propio = isinstance(e, (ValueError, RuntimeError)) and not isinstance(e, (json.JSONDecodeError, UnicodeError))
+    if (propio or type(e).__module__.startswith("motor.")) and str(e).strip():
+        return str(e).strip()
+    return t("Algo falló de forma inesperada. Inténtalo de nuevo.")
+
+
 def t(texto: str, /, **datos) -> str:
     """El texto en el idioma de la sesión. Con datos, rellena sus {huecos}: t("Hoy: {n} clips", n=3).
     `texto` va solo por posición: así un hueco también puede llamarse {texto}."""

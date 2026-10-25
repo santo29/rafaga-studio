@@ -80,9 +80,11 @@ def herramienta(funcion):
 
     @functools.wraps(funcion)
     def envoltura(*args, **kwargs):
+        # Lo que hace la herramienta dicho para el usuario («crear un video»), no su nombre interno «crear_video»
+        accion = herramientas.nombre(funcion.__name__)
         if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: ninguna herramienta, ni las gratis
-            guardia.registrar("bloqueado", "baja", t("Un agente MCP pidió «{herramienta}» con el estudio bloqueado.",
-                                                     herramienta=funcion.__name__))
+            guardia.registrar("bloqueado", "baja", t("Un agente MCP quiso {herramienta} con el estudio bloqueado.",
+                                                     herramienta=accion))
             raise ToolError(guardia.mensaje_bloqueo())
         try:
             datos = firma.bind(*args, **kwargs).arguments
@@ -91,19 +93,19 @@ def herramienta(funcion):
         if datos is not None:
             partes = [director.costo(funcion.__name__, datos)]
             if fuera := _de_fuera(funcion.__name__, datos):
-                guardia.registrar("mcp_fuera", "baja", t("Un agente MCP pidió usar {n} archivo(s) de fuera de su "
-                                                         "carpeta en «{herramienta}».", n=len(fuera),
-                                                         herramienta=funcion.__name__))
+                guardia.registrar("mcp_fuera", "baja", t("Un agente MCP quiso usar archivos de fuera de su carpeta "
+                                                         "({n}) para {herramienta}.", n=len(fuera),
+                                                         herramienta=accion))
                 partes.append(t("Usaría estos archivos de tu PC, de fuera de su carpeta (se envían al servicio de IA "
                                 "que toque): {archivos}", archivos="; ".join(fuera)))
                 partes += [] if partes[0] else [t("¿Lo hago?")]
             partes = [p for p in partes if p]
-            if partes and not _preguntar("\n\n".join([t("Un agente conectado por MCP pide «{herramienta}».",
-                                                          herramienta=funcion.__name__), *partes])):
+            if partes and not _preguntar("\n\n".join([t("Un agente conectado por MCP quiere {herramienta}.",
+                                                          herramienta=accion), *partes])):
                 # «baja»: un «No» suelto es una decisión tuya y no pone el escudo ámbar. La regla de Guardia
                 # cuenta por tipo: 3 «No» en 10 minutos es un agente que insiste, y se bloquea
-                guardia.registrar("mcp_no", "baja", t("Dijiste «No» a un agente MCP que pedía «{herramienta}».",
-                                                       herramienta=funcion.__name__))
+                guardia.registrar("mcp_no", "baja", t("Dijiste «No» a un agente MCP que quería {herramienta}.",
+                                                       herramienta=accion))
                 raise ToolError(t("el usuario no lo aceptó: no se hizo ni se gastó nada"))
         try:
             return funcion(*args, **kwargs)

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox,
                                QToolButton, QVBoxLayout, QWidget)
 
 from motor import claves, diseno, ia, marca, recursos, seguro
-from motor.idioma import t
+from motor.idioma import dinero, t
 from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, REFLEJO_FINO, resumen_avisos, Tarea
 from ui.iconos import COLOR, icono
 
@@ -47,7 +47,7 @@ IDEAS = [(t("Pareja zombi con gorras y luces neón verde y morado, portada de á
 FORMATOS = {"png": "PNG (*.png)", "jpg": "JPG (*.jpg)", "pdf": "PDF (*.pdf)", "svg": "SVG (*.svg)"}
 # PNG y JPG; PDF y SVG salen en vectores. Los de texto son los tamaños fijos de diseno.TAMANOS_EXPORTAR, con nombre
 # corto: el combo no tiene ancho fijo (la portada de música se explica en su ayuda)
-ESCALAS = {1: "1x", 2: "2x", 4: "4x", "4k": t("4K (3840 px)"), "portada": t("Portada 3000²")}
+ESCALAS = {1: "1x", 2: "2x", 4: "4x", "4k": t("4K (3840 px)"), "portada": t("Portada 3000×3000")}
 FILTRO_IMAGENES = t("Imágenes ({tipos})", tipos=" ".join("*" + e for e in sorted(seguro.IMAGENES)))
 # ESTILO no pinta diálogos ni menús: con Windows en modo claro saldrían claros con el texto claro de la app
 OSCURO = ("QDialog, QMenu { background: #17171D; } QMenu { border: 1px solid #2C2C36; padding: 4px; }"
@@ -351,7 +351,7 @@ class DialogoMarca(QDialog):
         self.nombre, self.eslogan, self.tono = QLineEdit(m["nombre"]), QLineEdit(m["eslogan"]), QLineEdit(m["tono"])
         for campo, maximo in ((self.nombre, 120), (self.eslogan, 300), (self.tono, 500)):
             campo.setMaxLength(maximo)
-        self.tono.setPlaceholderText(t("Ej: cercano y divertido"))
+        self.tono.setPlaceholderText(t("Ej.: cercano y divertido"))
         self.colores = QLineEdit(" ".join(m["colores"]))
         self.colores.setPlaceholderText(t("#FF4D8D #0F0F13 … (hasta 8; el primero es el fondo de los diseños nuevos)"))
         mas = boton(t("+ Color…"))
@@ -727,16 +727,16 @@ class PaginaDiseno(QWidget):
         if not gemini:
             self.calidad.setCurrentIndex(0)
         self.calidad.setToolTip(t("Resolución de las fotos de la IA: 2K y 4K cuestan más (se avisa antes)") if gemini
-                                else t("Elige Gemini en Claves de IA para 2K y 4K"))
+                                else t("Elige Gemini en «Claves de IA» para 2K y 4K"))
 
     def _calidad(self, fotos: int) -> str | None:
         """La calidad elegida; 2K y 4K, solo si el usuario acepta su costo aproximado. None si no lo acepta."""
         calidad = self.calidad.currentData()
         precio = ia.precio_imagen_gemini((claves.para("imagen") or {}).get("clave", ""), calidad)
         if calidad == "1K" or QMessageBox.question(self, CALIDADES[calidad], t(
-                "Calidad {calidad} con Gemini: hasta {fotos} foto(s) a unos US${precio} cada una, hasta unos "
-                "US${costo} según el precio de Google. ¿Seguir?", calidad=calidad, fotos=fotos,
-                precio=f"{precio:.2f}", costo=f"{fotos * precio:.2f}")) == QMessageBox.Yes:
+                "Calidad {calidad} con Gemini: fotos de la IA, hasta {fotos}, a unos {precio} cada una; en total, "
+                "hasta unos {costo} según el precio de Google. ¿Seguir?", calidad=calidad, fotos=fotos,
+                precio=dinero(precio), costo=dinero(fotos * precio))) == QMessageBox.Yes:
             return calidad
         self.estado.setText(t("Cancelado: no se gastó ninguna imagen."))
         return None
@@ -774,7 +774,7 @@ class PaginaDiseno(QWidget):
         col.addLayout(self.form)
         self.w, self.filas = {}, []
         self._fila(t("Posición"), "X", self._numero("x", -LIMITE, LIMITE), "Y", self._numero("y", -LIMITE, LIMITE))
-        self._fila(t("Tamaño"), t("An"), self._numero("ancho", 1, 20000), t("Al"), self._numero("alto", 1, 20000))
+        self._fila(t("Tamaño"), t("Ancho"), self._numero("ancho", 1, 20000), t("Alto"), self._numero("alto", 1, 20000))
         self._fila(t("Giro"), self._numero("rotacion", -360, 360, "°"))
         self._fila(t("Opacidad"), self._numero("opacidad", 0, 100, " %"))
         self._fila(t("Fusión"), self._opciones("fusion", FUSIONES))
@@ -784,7 +784,7 @@ class PaginaDiseno(QWidget):
         texto.textChanged.connect(lambda: self._cambiar("texto", texto=texto.toPlainText()[:2000]))
         self._fila(t("Texto"), texto)
         self._fila(t("Fuente"), self._opciones("fuente", fuentes()))
-        self._fila(t("Letra"), self._numero("tamano", 1, 2000, " px"))
+        self._fila(t("Tamaño de letra"), self._numero("tamano", 1, 2000, " px"))
         self._fila(t("Color"), self._color("color"))
         self._fila(t("Estilo"), self._casilla("negrita", t("Negrita")), self._casilla("cursiva", t("Cursiva")),
                    self._casilla("sombra", t("Sombra")))
@@ -814,7 +814,7 @@ class PaginaDiseno(QWidget):
             b.clicked.connect(accion)
         self._fila(t("Imagen"), editar, campos=["archivo"])
         self._fila("", quitar, campos=["archivo"])
-        col.addWidget(etiqueta(t("Alinear a la mesa"), "seccion"))
+        col.addWidget(etiqueta(t("Alinear al lienzo"), "seccion"))
         col.addWidget(_botonera([(nombre, ayuda, lambda _=False, c=c: self.alinear(c))
                                  for c, (nombre, ayuda) in ALINEAR.items()]))
         col.addWidget(etiqueta(t("Capas (la de arriba se ve encima)"), "seccion"))
@@ -896,7 +896,7 @@ class PaginaDiseno(QWidget):
             self.vista.centerOn(centro)  # con zoom, añadir o deshacer no mueve la vista
         if self.nombre.text() != self.diseno["nombre"]:
             self.nombre.setText(self.diseno["nombre"])
-        self.mesa.setText(t("Mesa: {ancho} × {alto} px", ancho=self.diseno["ancho"], alto=self.diseno["alto"]))
+        self.mesa.setText(t("Lienzo: {ancho} × {alto} px", ancho=self.diseno["ancho"], alto=self.diseno["alto"]))
         self._cargando = True
         self.capas.clear()
         for capa in reversed(self.diseno["capas"]):  # arriba, la que se ve encima
@@ -1388,11 +1388,11 @@ class PaginaDiseno(QWidget):
         hacer `que`; None si no (ya avisado)."""
         c, calidad = claves.para("imagen") or {}, self.calidad.currentData()
         if c.get("proveedor") == "gemini":
-            costo = t("unos US${precio} con Gemini (calidad {calidad}, según el precio de Google)", calidad=calidad,
-                      precio=f"{ia.precio_imagen_gemini(c['clave'], calidad):.2f}")
+            costo = t("unos {precio} con Gemini (calidad {calidad}, según el precio de Google)", calidad=calidad,
+                      precio=dinero(ia.precio_imagen_gemini(c['clave'], calidad)))
         elif c.get("proveedor") == "openai":
-            costo = t("unos US${precio} con OpenAI (calidad media, según el precio de OpenAI)",
-                      precio=f"{ia.PRECIO_EDITAR_OPENAI:.2f}")
+            costo = t("unos {precio} con OpenAI (calidad media, según el precio de OpenAI)",
+                      precio=dinero(ia.PRECIO_EDITAR_OPENAI))
         else:
             costo = t("una imagen del saldo (pollen) de tu cuenta de Pollinations")
         if QMessageBox.question(self, t("Antes de gastar"), t("{que}\n\nCuesta {costo}. ¿Seguir?", que=que,

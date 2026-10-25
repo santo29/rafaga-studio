@@ -14,7 +14,7 @@ class PaginaMusica(PaginaTrabajo):
         super().__init__(t("Estudio de música"), t("Describe la canción. La IA escribe la letra y produce la canción "
                                                    "con voz o solo la pista, en cualquier género."))
         self.idea = QTextEdit()
-        self.idea.setPlaceholderText(t("Ej: un dembow de calle sobre salir el viernes con los panas, coro pegajoso"))
+        self.idea.setPlaceholderText(t("Ej.: un dembow de calle sobre salir el viernes con los panas, coro pegajoso"))
         self.idea.setFixedHeight(90)
         self.genero = QComboBox()
         self.genero.setEditable(True)  # se puede escribir cualquier otro género
@@ -34,9 +34,10 @@ class PaginaMusica(PaginaTrabajo):
         self.iniciar.clicked.connect(self._iniciar)
         self.form_lay.addWidget(self.idea)
         self.form_lay.addLayout(fila)
-        self.form_lay.addWidget(etiqueta(t("Necesita una clave de música. Por defecto usa Gemini (Lyria 3.5, ~$0.08 "
-                                           "por canción; necesita la facturación de Gemini activada); la segunda "
-                                           "opción es ElevenLabs (plan de pago, ~$0.30-0.45 por canción)."), "sub"))
+        self.form_lay.addWidget(etiqueta(t("Necesita una clave de música. Por defecto usa Gemini (Lyria 3.5, unos "
+                                           "US$0.08 por canción; necesita la facturación de Gemini activada); la "
+                                           "segunda opción es ElevenLabs (plan de pago, unos US$0.30 a 0.45 por "
+                                           "canción)."), "sub"))
         self.form_lay.addWidget(etiqueta(t("¿Hiciste tu canción en Suno u otra app? Elígela en «Video musical» o "
                                            "llévala a la Cabina para mezclarla y masterizarla.")))
         self.form_lay.addWidget(self.iniciar, 0, Qt.AlignRight)
@@ -56,7 +57,7 @@ class PaginaMusica(PaginaTrabajo):
         fila_archivo.addWidget(self.cancion, 1)
         fila_archivo.addWidget(examinar)
         self.idea_video = QLineEdit()
-        self.idea_video.setPlaceholderText(t("Idea para el video (opcional). Ej: discoteca de los 90 con luces de "
+        self.idea_video.setPlaceholderText(t("Idea para el video (opcional). Ej.: discoteca de los 90 con luces de "
                                              "neón"))
         self.formato_video = SelectorFormato()
         self.hacer_video = boton(f"🎬  {t('Hacer video musical')}", "principal")

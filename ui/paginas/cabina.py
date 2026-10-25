@@ -24,7 +24,7 @@ class PaginaCabina(PaginaTrabajo):
         fila, self.pista = campo_archivo(t("La pista (beat) sobre la que vas a cantar"), AUDIO)
         self.form_lay.addLayout(fila)
 
-        self.form_lay.addWidget(etiqueta(t("2 · Graba tu voz (usa audífonos para que la pista no se cuele en el "
+        self.form_lay.addWidget(etiqueta(t("2 · Graba tu voz (usa auriculares para que la pista no se cuele en el "
                                            "micro)"), "sub"))
         fila = QHBoxLayout()
         self.micro = QComboBox()
@@ -69,7 +69,7 @@ class PaginaCabina(PaginaTrabajo):
         self.form_lay.addLayout(fila)
 
         separar_caja, separar_lay = tarjeta()
-        separar_lay.addWidget(etiqueta(f"✂️  {t('Separar voz y pista de cualquier canción (acapella + instrumental)')}",
+        separar_lay.addWidget(etiqueta(f"✂️  {t('Separar voz y pista de cualquier canción (voz a capela + instrumental)')}",
                                        "sub"))
         fila, self.para_separar = campo_archivo(t("Canción a separar"), AUDIO)
         self.separar_btn = boton(t("Separar"))

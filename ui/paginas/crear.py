@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QSpinBox, QTextEdit
 
 from motor import desde_prompt, ia, seguro, serie
-from motor.idioma import t
+from motor.idioma import dinero, t
 from ui.comun import (archivo_valido, boton, campo_archivo, etiqueta, mensaje, PaginaTrabajo, SelectorFormato,
                       SelectorVoz)
 
@@ -13,7 +13,7 @@ class PaginaCrear(PaginaTrabajo):
         super().__init__(t("Crear video con IA"), t("Describe el video que quieres. La IA escribe el guion, crea las "
                                                     "imágenes, pone la voz y los subtítulos."))
         self.prompt = QTextEdit()
-        self.prompt.setPlaceholderText(t("Ej: 5 datos impactantes sobre el océano profundo, tono misterioso"))
+        self.prompt.setPlaceholderText(t("Ej.: 5 datos impactantes sobre el océano profundo, tono misterioso"))
         self.prompt.setFixedHeight(100)
         self.formato = SelectorFormato()
         self.voz = SelectorVoz()
@@ -44,7 +44,7 @@ class PaginaCrear(PaginaTrabajo):
         self.form_lay.addLayout(fila_foto)
         self.form_lay.addWidget(etiqueta(t("Privacidad: para animar con IA gratis, las imágenes se suben a un Space "
                                            "público de Hugging Face. Si no quieres, pon «Animar escenas con IA de "
-                                           "video» en «No usar» en Claves de IA."), "sub"))
+                                           "video» en «No usar» en «Claves de IA»."), "sub"))
         self.form_lay.addLayout(fila)
         self.animado = QCheckBox()
         self._texto_animado()
@@ -62,7 +62,7 @@ class PaginaCrear(PaginaTrabajo):
         except ImportError:  # eligió Kling o Seedance y esta versión todavía no los trae
             nombre, costo = quien.capitalize(), 0.0
         self.animado.setText(t("🎬 Video animado con IA: los personajes hablan con su propia voz ({proveedor}, de pago: "
-                               "hasta ~US${costo} por escena de 8 s)", proveedor=nombre, costo=f"{costo:.2f}"))
+                               "hasta unos {costo} por escena de 8 s)", proveedor=nombre, costo=dinero(costo)))
 
     def showEvent(self, evento):  # lo eligió en Claves de IA después de abrir la app
         self._texto_animado()

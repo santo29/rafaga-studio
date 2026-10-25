@@ -555,7 +555,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not p.tareas)
     enlazado = p.proyecto["clips"][0]
     assert "falta" not in enlazado and enlazado["archivo"] == str(nuevo_sitio.resolve()) and p.reenlazar_btn.isHidden()
-    assert "No encuentro" not in p.estado.text(), p.estado.text()  # el aviso de arriba se va al enlazarlos todos
+    assert "Faltan archivos" not in p.estado.text(), p.estado.text()  # el aviso de arriba se va al enlazarlos todos
 
     # ---------- Subtítulos de 60 min: la línea de tiempo pinta solo las palabras que se ven ----------
     larga = pe.LineaTiempo()

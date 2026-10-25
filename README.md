@@ -126,8 +126,8 @@ yourself: `ISCC instalador\rafaga.iss` ([Inno Setup](https://jrsoftware.org/isin
 |---|---|---|
 | Text / scripts | Groq, Gemini, Pollinations (no key) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
 | Images | Cloudflare Workers AI (~100/day), Pollinations, FLUX on Hugging Face | OpenAI, Replicate, Gemini Nano Banana (only if you choose it: ~US$0.07 per image, keeps characters and products identical) |
-| Image → video | Hugging Face ZeroGPU (Wan 2.2) | Your own Modal cloud ($30 free/month), Pollinations, Kling and Seedance (only if you choose them: ~US$0.02-0.24 per second, the maximum cost is shown before each job and there is a cap of 15 paid clips per job) |
-| Talking video with lip sync | — | Gemini Omni (~US$0.10 per second), or Kling or Seedance if you choose them for «Talking scenes» (Create shows the cost first and the Director asks before using it) |
+| Image → video | Hugging Face ZeroGPU (Wan 2.2) | Your own Modal cloud (US$30 free/month), Pollinations, Kling and Seedance (only if you choose them: ~US$0.02-0.24 per second, the maximum cost is shown before each job and there is a cap of 15 paid clips per job) |
+| Talking video with lip sync | — | Gemini Omni (~US$0.10 per second), or Kling or Seedance if you choose them for “Talking scenes” (Create shows the cost first and the Director asks before using it) |
 | Voice | Microsoft Edge voices | ElevenLabs |
 | Transcription | Your PC (Whisper), Groq | OpenAI |
 | Stem separation | Your PC (Demucs) | — |
@@ -157,7 +157,7 @@ free no-key services. Every data flow is listed, one by one, in the [privacy not
 issue? See [SECURITY.md](SECURITY.md).
 
 **🛡️ Ráfaga Guardia**, the guardian inside the app, logs on your PC what the app stops (network paths, links to your
-local network, fake files, MCP agents that insist after your «No», keys of another service…), checks that the app's
+local network, fake files, MCP agents that insist after your “No”, keys of another service…), checks that the app's
 code is the one you installed, and locks paid video, images, music and voice, publishing, the memory and MCP until you
 unlock it on its page. The rules decide; the AI only explains an event if you ask. It protects the app and what it holds (your keys,
 money and data), not your whole PC: details and limits in [SECURITY.md](SECURITY.md#ráfaga-guardia--el-vigilante-de-la-app).

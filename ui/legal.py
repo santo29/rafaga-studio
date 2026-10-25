@@ -18,7 +18,8 @@ VERSION = "10"  # súbela cuando cambien PRIVACIDAD.md o TERMINOS.md: la app los
 ARCHIVO = RAIZ / "datos" / "legal.json"
 TITULAR, ANIO = "Santo Montilla", 2026
 DOCUMENTOS = {"PRIVACIDAD.md": t("Aviso de privacidad"), "TERMINOS.md": t("Términos de uso"),
-              "AVISOS_DE_TERCEROS.md": t("Avisos de terceros"), "LICENSE": t("Licencia")}
+              "AVISOS_DE_TERCEROS.md": t("Avisos de terceros"), "LICENSE": t("Licencia"),
+              "SECURITY.md": t("Política de seguridad")}  # sin botón propio: se abre desde sus enlaces
 
 
 def marca() -> str:
@@ -44,15 +45,13 @@ def ver_documento(padre, archivo: str) -> QDialog:
     ventana.resize(820, 640)
     lay = QVBoxLayout(ventana)
     texto = QTextBrowser()
-    texto.setOpenLinks(False)  # los enlaces del documento no navegan a ningún sitio
+    texto.setOpenLinks(False)  # nada navega a internet: un enlace a otro documento legal lo abre en su ventana
+    texto.anchorClicked.connect(lambda url: url.path() in DOCUMENTOS and ver_documento(padre, url.path()))
     try:
         contenido = (RAIZ / archivo).read_text(encoding="utf-8")
     except OSError:
         contenido = t("No encuentro {archivo} en la carpeta de la app.", archivo=archivo)
-    if archivo.endswith(".md"):
-        texto.setMarkdown(contenido)
-    else:
-        texto.setPlainText(contenido)
+    texto.setMarkdown(contenido)  # LICENSE también es Markdown: sin `comillas` ni líneas cortadas a 80 columnas
     lay.addWidget(texto)
     cerrar = boton(t("Cerrar"))
     cerrar.clicked.connect(ventana.accept)
@@ -69,6 +68,14 @@ def _botones_documentos(padre, lay, cuales):
         b.clicked.connect(lambda _=False, a=archivo: ver_documento(padre, a))
         fila.addWidget(b)
     fila.addStretch()
+    lay.addLayout(fila)
+
+
+def _vineta(lay, punto: str):
+    """«•» y el texto en dos etiquetas: lo que salta de línea queda alineado con el texto, no debajo de la viñeta."""
+    fila = QHBoxLayout()
+    fila.addWidget(etiqueta("•"), 0, Qt.AlignTop)
+    fila.addWidget(etiqueta(punto), 1)
     lay.addLayout(fila)
 
 
@@ -104,7 +111,7 @@ def aviso_inicial(padre=None) -> bool:
     _cabecera(lay, t("Bienvenido a Ráfaga Studio"))
     lay.addWidget(etiqueta(t("Antes de empezar, lo importante sobre tu privacidad:"), "sub"))
     for punto in PUNTOS:
-        lay.addWidget(etiqueta(f"•  {punto}"))
+        _vineta(lay, punto)
     _botones_documentos(ventana, lay, ("PRIVACIDAD.md", "TERMINOS.md"))
     lay.addWidget(etiqueta(t("Al continuar aceptas el aviso de privacidad y los términos de uso."), "sub"))
     fila = QHBoxLayout()
@@ -136,8 +143,8 @@ def acerca_de(padre) -> QDialog:
     _cabecera(lay, "Ráfaga Studio™")
     lay.addWidget(etiqueta(marca(), "sub"))
     for punto in PUNTOS[:3]:
-        lay.addWidget(etiqueta(f"•  {punto}"))
-    _botones_documentos(ventana, lay, tuple(DOCUMENTOS))
+        _vineta(lay, punto)
+    _botones_documentos(ventana, lay, ("PRIVACIDAD.md", "TERMINOS.md", "AVISOS_DE_TERCEROS.md", "LICENSE"))
     cerrar = boton(t("Cerrar"))
     cerrar.clicked.connect(ventana.accept)
     lay.addWidget(cerrar, 0, Qt.AlignRight)

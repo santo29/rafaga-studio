@@ -67,7 +67,7 @@ class PaginaSerie(PaginaTrabajo):
         self.titulo = QLineEdit()
         self.titulo.setPlaceholderText(t("Título (opcional: si no, lo elige la IA)"))
         self.idea = QTextEdit()
-        self.idea.setPlaceholderText(t("Ej: Un gato pirata miedoso y su loro sabelotodo buscan tesoros en islas raras; "
+        self.idea.setPlaceholderText(t("Ej.: Un gato pirata miedoso y su loro sabelotodo buscan tesoros en islas raras; "
                                        "para niños, divertido"))
         self.idea.setFixedHeight(90)
         self.estilo = QComboBox()
@@ -189,7 +189,7 @@ class PaginaSerie(PaginaTrabajo):
         con_ia = claves.ajustes().get("video", "auto") != "ninguno" and bool(nubes.orden("video"))  # como Inicio
         self.movimiento.setText(t("Movimiento: {valor}", valor=t("IA de video") if con_ia else t("Zoom suave")))
         self.movimiento.setToolTip("" if con_ia else t(
-            "Cada plano es su dibujo con un zoom suave. Para animarlos, elige una IA de video en Claves de IA."))
+            "Cada plano es su dibujo con un zoom suave. Para animarlos, elige una IA de video en «Claves de IA»."))
 
     # ---------- Series ----------
 

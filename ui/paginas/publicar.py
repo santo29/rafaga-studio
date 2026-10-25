@@ -8,7 +8,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDateTimeEdit, QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QProgressBar,
                                QTextEdit, QVBoxLayout, QWidget)
 
-from motor import claves, publicar, seguro, shorts
+from motor import claves, ia, publicar, seguro, shorts
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 
@@ -125,8 +125,7 @@ class PaginaPublicar(QWidget):
                 hora = datetime.fromisoformat(h["hora"]).astimezone().strftime("%d/%m/%Y %H:%M")
             except (KeyError, TypeError, ValueError):
                 hora = "?"
-            self.programados.addItem(f"{hora}  ·  YouTube  ·  {str(h.get('titulo', ''))[:70]}  ·  "
-                                     f"youtu.be/{h.get('id', '')}")
+            self.programados.addItem(f"{hora} · YouTube · {str(h.get('titulo', ''))[:70]} · youtu.be/{h.get('id', '')}")
         minimo = QDateTime.currentDateTime().addSecs(16 * 60)
         self.hora.setMinimumDateTime(minimo)
         if self.hora.dateTime() <= minimo:
@@ -137,9 +136,8 @@ class PaginaPublicar(QWidget):
             return
         r = self.items[fila]
         self.titulo.setText(str(r.get("titulo") or ""))
-        self.descripcion.setPlainText(str(r.get("descripcion") or ""))
-        self.hashtags.setText(" ".join(h if h.startswith("#") else f"#{h}" for h in r.get("hashtags") or []
-                                       if isinstance(h, str)))
+        self.descripcion.setPlainText(ia.sin_markdown(r.get("descripcion")))  # los de antes, con el Markdown de la IA
+        self.hashtags.setText(" ".join(ia.hashtag(h) for h in r.get("hashtags") or [] if isinstance(h, str)))
 
     def _ocupado(self) -> bool:
         if self.tarea and self.tarea.isRunning():  # soltar un hilo que corre tumba la app cuando termina

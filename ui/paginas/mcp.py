@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
 
-from motor import conexion_mcp
+from motor import conexion_mcp, herramientas
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje_error, Tarea, tarjeta
 
@@ -16,7 +16,7 @@ class PaginaMCP(QWidget):
         lay.setContentsMargins(32, 28, 32, 28)
         lay.setSpacing(14)
         lay.addWidget(etiqueta(t("Conexión MCP"), "titulo"))
-        lay.addWidget(etiqueta(t("Con MCP, Claude puede usar Ráfaga Studio: le pides \"hazme 5 shorts de este enlace\" "
+        lay.addWidget(etiqueta(t("Con MCP, Claude puede usar Ráfaga Studio: le pides «hazme 5 shorts de este enlace» "
                                  "en el chat y él lo hace aquí. Después de conectar, abre una sesión nueva de Claude."),
                                "sub"))
         caja, self.caja_lay = tarjeta()
@@ -35,7 +35,7 @@ class PaginaMCP(QWidget):
             self.filas[cliente] = (estado, accion)
         lay.addWidget(caja)
         prueba, prueba_lay = tarjeta()
-        self.resultado = etiqueta(t("Pulsa \"Probar\" para comprobar que el servidor responde."), "sub")
+        self.resultado = etiqueta(t("Pulsa «Probar conexión» para comprobar que el servidor responde."), "sub")
         self.probar = boton(t("Probar conexión"), "principal")
         self.probar.clicked.connect(self._probar)
         prueba_lay.addWidget(self.resultado)
@@ -72,7 +72,7 @@ class PaginaMCP(QWidget):
         self.resultado.setText(t("Arrancando el servidor…"))
         self.tarea = Tarea(lambda aviso: {"herramientas": conexion_mcp.probar()})
         self.tarea.listo.connect(lambda r: self.resultado.setText("✅ " + t(
-            "Responde. Herramientas que Claude puede usar: {lista}", lista=", ".join(r["herramientas"]))))
+            "Responde. Desde Claude puedes: {lista}.", lista=", ".join(map(herramientas.nombre, r["herramientas"])))))
         self.tarea.fallo.connect(lambda e: self.resultado.setText("❌ " + t("No responde: {error}", error=e)))
         self.tarea.finished.connect(lambda: self.probar.setEnabled(True))
         self.tarea.start()

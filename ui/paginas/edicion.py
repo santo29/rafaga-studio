@@ -173,7 +173,7 @@ def _propiedades() -> dict:
         return campo, "num", minimo, maximo, sufijo, factor, decimales
     return {
         "proyecto": [(t("Nombre"), [("nombre", "linea")]), (t("Formato"), [("formato", "opc", NOMBRES_FORMATO)]),
-                     (t("Encaje"), [("ajuste", "opc", {"recortar": t("Recortar para llenar"),
+                     (t("Encuadre"), [("ajuste", "opc", {"recortar": t("Recortar para llenar"),
                                                        "difuminar": t("Entero, con fondo borroso")})]),
                      (t("Fotogramas"), [("fps", "opc", {f: t("{n} por segundo", n=f) for f in edicion.FPS})]),
                      (t("Fondo"), [("fondo", "color")])],
@@ -184,7 +184,7 @@ def _propiedades() -> dict:
                   (t("Saturación"), [numero("saturacion", -100, 100)]),
                   (t("Movimiento"), [("movimiento", "opc", edicion.MOVIMIENTOS)]),
                   (t("Transición"), [("transicion", "opc", edicion.TRANSICIONES)]),
-                  (t("Dura"), [numero("duracion_transicion", 0.2, 2, " s", 1, 1)])],
+                  (t("Duración"), [numero("duracion_transicion", 0.2, 2, " s", 1, 1)])],
         "capas": [(t("Posición"), [numero("x", -pd.LIMITE, pd.LIMITE), numero("y", -pd.LIMITE, pd.LIMITE)]),
                   (t("Tamaño"), [numero("ancho", 1, 20000), numero("alto", 1, 20000)]),
                   (t("Forma"), [("forma", "opc", edicion.FORMAS_VIDEO)]),  # las de las capas de video (tu cara)
@@ -193,7 +193,7 @@ def _propiedades() -> dict:
                   (t("Giro"), [numero("rotacion", -360, 360, "°"), numero("opacidad", 0, 1, " %", 100)]),
                   (t("Texto"), [("texto", "texto")]),
                   (t("Fuente"), [("fuente", "opc", pd.fuentes())]),
-                  (t("Letra"), [numero("tamano", 1, 2000, " px")]), (t("Color"), [("color", "color")]),
+                  (t("Tamaño de letra"), [numero("tamano", 1, 2000, " px")]), (t("Color"), [("color", "color")]),
                   (t("Estilo"), [("negrita", "si", t("Negrita")), ("cursiva", "si", t("Cursiva")),
                                  ("sombra", "si", t("Sombra"))]),
                   (t("Alineación"), [("alineacion", "opc", {"izquierda": t("Izquierda"), "centro": t("Centro"),
@@ -526,7 +526,7 @@ class PaginaEdicion(QWidget):
         crear = self.avatar_btn = boton(t("Crear mi avatar"))
         crear.setIcon(iconos.icono("scan-face", "#5A5A66"))
         crear.setEnabled(False)
-        return self._panel(etiqueta(t("Próximamente: una foto tuya que habla con tu voz. Necesita una GPU en la nube "
+        return self._panel(etiqueta(t("Próximamente: una foto tuya que habla con tu voz. Necesita un servidor de IA en la nube "
                                       "(Modal o Hugging Face)."), "sub"), crear)
 
     def _centro(self):
@@ -1483,8 +1483,8 @@ class PaginaEdicion(QWidget):
     def _avisar_faltan(self) -> int:
         """Avisa arriba de los archivos del video que no encuentro (o quita el aviso si ya no falta ninguno)."""
         faltan = len({e["archivo"] for e in edicion._medios(self.proyecto) if e.get("falta")})
-        aviso = t("No encuentro {n} archivo(s) del video (se movieron o se borraron): están en rojo; elige uno y "
-                  "pulsa «Volver a enlazar…».", n=faltan)
+        aviso = t("Faltan archivos del video ({n}): se movieron o se borraron. Están en rojo; elige uno y pulsa "
+                  "«Volver a enlazar…».", n=faltan)
         self.estado.setText(f"⚠️ {aviso}" if faltan else "")
         return faltan
 
@@ -1513,8 +1513,8 @@ class PaginaEdicion(QWidget):
         # ▶ borra el aviso de arriba: sin esto se sube un video con huecos del color de fondo sin darse cuenta
         faltan = self._avisar_faltan()
         if faltan and QMessageBox.question(
-                self, t("Faltan archivos"), t("No encuentro {n} archivo(s) del video (están en rojo): esos trozos "
-                                              "saldrán con el color de fondo y en silencio. ¿Exportar igual?",
+                self, t("Faltan archivos"), t("Faltan archivos del video ({n}, en rojo): esos trozos saldrán con el "
+                                              "color de fondo y en silencio. ¿Exportar igual?",
                                               n=faltan)) != QMessageBox.Yes:
             return
         destino = destino_libre(self.proyecto["nombre"])

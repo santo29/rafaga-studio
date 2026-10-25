@@ -464,7 +464,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.disenar_con_ia()
     assert len(pedidos) == 5 and p.disenar.isEnabled() and "Cancelado" in p.estado.text()
     # Aún no se sabe qué modelo tiene la clave: el precio más alto conocido (Flash Image), nunca uno menor
-    assert "4K" in costos[-1] and "hasta 2 foto(s)" in costos[-1] and "US$0.30" in costos[-1], costos  # 2 × 0,151
+    assert "4K" in costos[-1] and "hasta 2," in costos[-1] and "US$0.30" in costos[-1], costos  # 2 × 0,151
     elegido = ("AIzaPrueba", claves.elegir_modelo_imagen_gemini)
     pd.ia._elegidos[elegido] = pd.ia.IMAGEN_GEMINI  # la clave tiene Nano Banana
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a: costos.append(texto) or QMessageBox.Yes)
@@ -504,7 +504,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
     # ---------- Lienzo: zoom, mano, flechas y alinear ----------
     p.nuevo("post")
-    assert p.vista.ajustar and "Ajustar" in p.zoom_btn.text() and p.mesa.text() == "Mesa: 1080 × 1080 px"
+    assert p.vista.ajustar and "Ajustar" in p.zoom_btn.text() and p.mesa.text() == "Lienzo: 1080 × 1080 px"
     ajustado = p.vista.transform().m11()
     rueda(2)  # Ctrl+rueda: zoom
     zoom = p.vista.transform().m11()

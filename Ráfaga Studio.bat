@@ -1,4 +1,6 @@
 @echo off
+rem UTF-8: los textos llevan tildes y sin esto cmd las enseña rotas
+chcp 65001 >nul
 cd /d "%~dp0"
 rem La copia instalada con instalador\rafaga.iss lleva su Python en python\tools
 if exist python\tools\pythonw.exe (
@@ -7,9 +9,9 @@ if exist python\tools\pythonw.exe (
 )
 if not exist .venv (
   rem Dentro de este bloque, un parentesis en un echo lo cierra antes de tiempo y el .bat no arranca: van con ^
-  echo Rafaga Studio - ^(c^) 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones
+  echo Ráfaga Studio · © 2026 Santo Montilla. Tus proyectos y claves se guardan en tu PC; las funciones
   echo de IA usan servicios de internet ^(lee PRIVACIDAD.md^).
-  echo Lee PRIVACIDAD.md y TERMINOS.md: al abrir la app veras el aviso de privacidad.
+  echo Lee PRIVACIDAD.md y TERMINOS.md: al abrir la app verás el aviso de privacidad.
   echo Instalando por primera vez, espera unos minutos...
   py -3 -m venv .venv
   rem Versiones exactas ya probadas y el hash de cada archivo: nada distinto de lo probado entra solo. Solo archivos
@@ -28,7 +30,7 @@ exit /b 0
 rem Si un archivo no coincide con su hash (o se corta la red), no se deja una instalacion a medias: se borra y
 rem se reintenta en el proximo arranque.
 echo.
-echo La instalacion fallo: revisa el mensaje de arriba (sin internet, o un archivo distinto del probado).
+echo La instalación falló: revisa el mensaje de arriba (sin internet, o un archivo distinto del probado).
 rmdir /s /q .venv
 pause
 exit /b 1

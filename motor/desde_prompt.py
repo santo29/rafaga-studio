@@ -1,6 +1,7 @@
 """Crea un video completo a partir de un prompt: guion con IA, imágenes, voz, subtítulos y montaje."""
 import asyncio
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Callable
 import edge_tts
 
 from . import claves, ia, memoria, seguro, video
-from .idioma import actual, IDIOMAS, t
+from .idioma import actual, dinero, IDIOMAS, t
 from .shorts import PROYECTOS
 
 # Voces gratuitas de Microsoft Edge. ponytail: no es un modelo abierto; cambiar por Kokoro/Piper si se quiere 100% local.
@@ -57,7 +58,7 @@ FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.
 INSTRUCCIONES = """Eres guionista de videos virales para YouTube, TikTok, Instagram y Facebook.
 Con el pedido del usuario escribe un guion narrado dividido en escenas.
 - """ + FALTAS + """
-- entendido: una frase corta, en el idioma del usuario, con lo que entendiste del pedido.
+- entendido: una frase corta, en el idioma del usuario, con lo que entendiste del pedido (sin empezar por «Entendí»).
 - La primera escena es un gancho que atrapa en 3 segundos. La última cierra con fuerza o invita a seguir.
 - Cada escena: 1 o 2 frases de narración (lo que dice la voz) y una descripción de la imagen.
 - La descripción de imagen va en inglés, muy visual y concreta, sin texto escrito dentro de la imagen.
@@ -88,6 +89,9 @@ def voces() -> dict[str, str]:
 
 def narrar(texto: str, voz: str, destino: Path) -> list[dict]:
     """Genera la voz y devuelve los tiempos por palabra. voz = id de Edge o 'eleven:<voice_id>'."""
+    # El único paso de texto a voz (videos, anuncios, serie, el Director hablando y la voz del editor): sin esto se
+    # oía «asterisco», «almohadilla» o la URL entera, y salía igual en los subtítulos quemados
+    texto = ia.sin_markdown(texto, "voz")
     if voz.startswith("eleven:"):
         return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino)
     return asyncio.run(_voz(texto, voz, destino))
@@ -181,7 +185,9 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     if estilo:  # lo impone el código: la IA a veces lo mezcla con otro
         guion["estilo_visual"] = estilo
     if guion.get("entendido"):  # se ve mientras trabaja, antes de gastar imágenes y voz
-        notas.append(t("La IA entendió: {x}", x=guion["entendido"]))
+        # sin un «Entendí:» de la IA delante: salía «La IA entendió: Entendí: un gato que habla»
+        entendido = re.sub(r"^\s*entend[ií]\w*\s*(que\s+)?[:,.]?\s*", "", guion["entendido"], flags=re.I)
+        notas.append(t("La IA entendió: {x}", x=entendido or guion["entendido"]))
         aviso(notas[-1], 0.05)
     if len(escenas) > tope:
         guion["escenas"] = escenas[:tope - 1] + escenas[-1:]
@@ -190,7 +196,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-video")
     carpeta.mkdir(parents=True)
     for e in guion["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
-        e["narracion"] = e["narracion"][:400]
+        # Solo palabras, una sola vez: guion.json, el clip de pago que habla y la pista de Whisper llevan el mismo texto
+        e["narracion"] = ia.recortar(ia.sin_markdown(e["narracion"], "voz"), 400)
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:
@@ -215,7 +222,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
                 "resultados": [{"archivo": str(final), "titulo": guion["titulo"],
                                 "descripcion": guion["descripcion"], "hashtags": guion["hashtags"]}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
-    aviso(t("¡Listo! Con {n} aviso(s): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
+    aviso(t("¡Listo! Hay avisos ({n}): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
     return proyecto
 
 
@@ -274,7 +281,7 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     # Las escenas que ya están hechas en la carpeta (un reintento de ejemplos/crear.py) no se vuelven a pagar
     # (nombre propio: «video_final_escena_XX» también lo usa la escena de respaldo con imagen y narración)
     hechos = {i: p for i in range(n) if (p := carpeta / f"video_final_hablada_{i:02d}.mp4").is_file()}
-    aviso(t("Creando {n} escena(s) animadas con voz…", n=n - len(hechos)), 0.08)
+    aviso(t("Creando las escenas animadas con voz ({n})…", n=n - len(hechos)), 0.08)
     with ThreadPoolExecutor(3) as grupo:
         trabajos = {grupo.submit(uno, i, e): i for i, e in enumerate(guion["escenas"][:n]) if i not in hechos}
         for listo in as_completed(trabajos):  # los avisos, desde este hilo
@@ -301,9 +308,9 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     if pagados:  # Gemini cobra los segundos que salen; Kling y Seedance, los que se piden (por lo alto)
         costo = ia.precio_video(quien, segundos, voz=True) if quien == "gemini" else \
             pagados * ia.precio_video(quien, voz=True)
-        notas.append(t("{proveedor} hizo {n} escena(s) animadas con voz: {segundos} s de video, unos US${costo} según "
+        notas.append(t("{proveedor} hizo escenas animadas con voz ({n}): {segundos} s de video, unos {costo} según "
                        "su precio.", proveedor=ia.nombre_video(quien), n=pagados, segundos=round(segundos),
-                       costo=f"{costo:.2f}"))
+                       costo=dinero(costo)))
     return hechos
 
 
@@ -331,7 +338,7 @@ def escena_hablada(clip: Path, texto: str, formato: str, destino: Path) -> Path:
 def relanzar_con_gasto(error: Exception, notas: list, carpeta: Path):
     """Relanza el error de un trabajo con lo ya pagado (sus notas de gasto) y su carpeta: reintentar lo pagaría otra
     vez. Si no se pagó nada, el error tal cual."""
-    gasto = " ".join(n for n in notas if "US$" in n or "$ US" in n)  # «$ US»: las notas en francés
+    gasto = " ".join(n for n in notas if "$" in n)  # «US$0.50», «US$ 0,50» o «0,50 $ US» (ver idioma.dinero)
     if not gasto:
         raise error
     raise RuntimeError(f"{error} · {gasto} · {carpeta}") from error

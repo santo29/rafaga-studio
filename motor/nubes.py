@@ -153,8 +153,8 @@ def _causa(e: Exception, proveedor: str) -> str:
     lo lleva dentro y el mensaje acaba en pantalla y en los avisos guardados)."""
     causa = str(e).strip() or type(e).__name__  # algunos errores no traen mensaje
     if isinstance(e, httpx.HTTPStatusError):  # el código y lo que dice el servicio (p. ej. qué campo no acepta)
-        causa = (f"{e.response.status_code} {e.response.reason_phrase} — "
-                 f"{' '.join(e.response.text.split())[:200]}")
+        from .ia import motivo  # su «message», no el JSON entero: aquí, ia también carga este módulo
+        causa = f"{e.response.status_code} {e.response.reason_phrase} — {motivo(e.response)}"
     if re.search(r"\b429\b|quota|neurons", causa, re.IGNORECASE):
         return t("se acabó la cuota gratis de hoy") if proveedor in CUOTA_DIARIA else \
             t("límite de uso alcanzado: espera un poco o revisa tu saldo")

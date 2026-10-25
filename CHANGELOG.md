@@ -2,6 +2,23 @@
 
 ## Unreleased · Sin publicar
 
+- **Clean texts everywhere:** the installer shows the terms of use as formatted text (titles, bold, bullets, whole
+  paragraphs) instead of raw Markdown, with its pages in a consistent, informal Spanish and Portuguese, and its error
+  window shows only pip's errors with buttons in the installer's language. Everything an AI writes (scripts, captions,
+  ads, songs, designs, the Director's chat, Ráfaga Guardia's explanations) reaches the screen, the voice, the burned-in
+  subtitles and YouTube without `**`, `#`, list asterisks, `code`, tables or `[links](url)`; the voice no longer reads
+  symbols, links or file paths, and prices are said in words. Service errors show their reason instead of raw JSON,
+  amounts and percentages are written the way each language does, French uses «tu» throughout, and links in the legal
+  documents are readable and open the right document.
+- **Textos limpios en todas partes:** el instalador enseña los términos de uso como texto con formato (títulos,
+  negritas, viñetas y párrafos enteros) y no el Markdown crudo, con sus páginas en un español y un portugués de tú
+  coherentes, y su ventana de error enseña solo los errores de pip, con los botones en el idioma del instalador. Todo lo
+  que escribe una IA (guiones, descripciones, anuncios, canciones, diseños, el chat del Director, las explicaciones de
+  Ráfaga Guardia) llega a la pantalla, a la voz, a los subtítulos quemados y a YouTube sin `**`, `#`, asteriscos de
+  lista, `código`, tablas ni `[enlaces](url)`; la voz ya no lee símbolos, enlaces ni rutas, y dice los precios en
+  palabras. Los errores de los servicios dicen su motivo en vez del JSON crudo, el dinero y los porcentajes se escriben
+  como en cada idioma, el francés va todo en «tu» y los enlaces de los documentos legales se leen bien y abren el
+  documento que toca.
 - **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle, full
   screen or split screen (the main video moves, whole, into the other half; one click, then drag and resize it on the
   preview), or record just your voice, or import a video of your face. A 3-2-1 countdown, then the video plays from the

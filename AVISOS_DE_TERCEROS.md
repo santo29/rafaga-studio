@@ -77,7 +77,7 @@ Solo se descargan programas y modelos: no se envía tu contenido.
 
 ## Librerías de Python
 
-Las versiones exactas que instala `Ráfaga Studio.bat` (`requirements.lock` y `requirements-torch.lock`; yt-dlp y
+Las versiones exactas que instalan el instalador y `Ráfaga Studio.bat` (`requirements.lock` y `requirements-torch.lock`; yt-dlp y
 yt-dlp-ejs se actualizan solos al abrir la app), con la licencia que declara cada paquete:
 
 | Paquete | Versión | Licencia |

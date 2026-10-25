@@ -82,7 +82,7 @@ AJUSTES = ("brillo", "contraste", "saturacion", "desenfoque")  # los de una capa
 
 def color(v) -> str:
     if not isinstance(v, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
-        raise ValueError(t("color no válido ({v!r:.40}): tiene que ser #RRGGBB", v=v))
+        raise ValueError(t("color no válido («{v:.40}»): tiene que ser #RRGGBB", v=str(v)))
     return v.upper()
 
 
@@ -90,23 +90,23 @@ def nombre_imagen(v) -> str:
     """Solo el nombre de una imagen de la carpeta imagenes/: sin carpetas, «..», rutas absolutas ni de red."""
     if (not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\.[A-Za-z]{3,4}", v)
             or Path(v).suffix.lower() not in seguro.IMAGENES or v.split(".")[0].lower() in _RESERVADOS):
-        raise ValueError(t("archivo de imagen no válido ({v!r:.60}): tiene que ser una imagen de la carpeta del diseño",
-                           v=v))
+        raise ValueError(t("archivo de imagen no válido («{v:.60}»): tiene que ser una imagen de la carpeta del "
+                           "diseño", v=str(v)))
     return v
 
 
 def nombre_fuente(v) -> str:
     # Qt escribe la familia tal cual en el font-family del SVG exportado: unas comillas abrirían un <script>
     if not isinstance(v, str) or not re.fullmatch(r"[\w .-]{1,100}", v):
-        raise ValueError(t("nombre de fuente no válido ({v!r:.40})", v=v))
+        raise ValueError(t("nombre de fuente no válido («{v:.40}»)", v=str(v)))
     return v
 
 
 def _num(v, minimo, maximo):
     # NaN e infinito no pasan la comparación; True es un int para Python, pero aquí no es un número
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not minimo <= v <= maximo:
-        raise ValueError(t("tiene que ser un número entre {minimo} y {maximo} (llegó {v!r:.40})", minimo=minimo,
-                           maximo=maximo, v=v))
+        raise ValueError(t("tiene que ser un número entre {minimo} y {maximo} (llegó «{v:.40}»)", minimo=minimo,
+                           maximo=maximo, v=str(v)))
     v = round(float(v), 2)
     return int(v) if v.is_integer() else v
 
@@ -122,14 +122,14 @@ def _texto(maximo):
 def _una(*opciones):
     def regla(v):
         if v not in opciones:
-            raise ValueError(t("vale {opciones} (llegó {v!r:.40})", opciones=", ".join(opciones), v=v))
+            raise ValueError(t("vale {opciones} (llegó «{v:.40}»)", opciones=", ".join(opciones), v=str(v)))
         return v
     return regla
 
 
 def _si_no(v):
     if not isinstance(v, bool):
-        raise ValueError(t("tiene que ser true o false"))
+        raise ValueError(t("tiene que ser sí o no"))
     return v
 
 
@@ -139,7 +139,7 @@ def _color_o_nada(v):
 
 def _icono(v):
     if not isinstance(v, str) or v not in recursos.iconos():
-        raise ValueError(t("no existe el icono {v!r:.40}", v=v))
+        raise ValueError(t("no existe el icono «{v:.40}»", v=str(v)))
     return v
 
 

@@ -1,6 +1,7 @@
 """Asistente de voz del Director: escucha SOLO mientras lo activas (botón del micro o Ctrl+Espacio) y se para solo
 cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, aunque tengas Groq u
 OpenAI conectados) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
+import math
 import re
 import tempfile
 import threading
@@ -10,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from . import desde_prompt, ia
-from .idioma import actual
+from .idioma import actual, t
 
 SR = 16000  # lo que usa Whisper
 BLOQUE = 0.05  # segundos por trozo del micrófono
@@ -90,8 +91,26 @@ def si_o_no(texto: str) -> bool | None:
     return False if palabras & NO and not palabras & SI else None
 
 
+_RUTA = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|…)(?:[^\n«»\"\\/]*[\\/])+([^\\/\n«»\"]+?\.[A-Za-z0-9]{2,4})"
+                   r"(?=[\s«»\".,;:)]|$)")
+_DOLARES = re.compile(r"US\$\s?(\d+)[.,](\d\d)|(\d+)[.,](\d\d)\s?\$\s?US")
+
+
+def para_decir(texto: str) -> str:
+    """Lo que se lee en voz alta de una pregunta o respuesta del Director: de una ruta, solo el nombre del archivo
+    (se leía «C dos puntos barra Users barra…» entero), y los dólares como se dicen («unos 36 centavos de dólar», no
+    «U S dólar cero punto treinta y seis»). En la ventana sigue todo tal cual."""
+    def dolares(m):
+        usd = int(m[1] or m[3]) + int(m[2] or m[4]) / 100
+        if usd < 1:
+            return t("{n} centavos de dólar", n=round(usd * 100))
+        return t("un dólar") if usd == 1 else t("{n} dólares", n=math.ceil(usd))  # por lo alto, como la ventana
+    return _DOLARES.sub(dolares, _RUTA.sub(lambda m: m[1], str(texto)))
+
+
 def hablar(texto: str) -> Path:
     """La respuesta en voz alta (MP3 con la voz gratis del idioma de la app)."""
+    texto = para_decir(texto)
     CARPETA.mkdir(exist_ok=True)
     for viejo in CARPETA.glob("respuesta-*.mp3"):  # las de antes; la que suena ahora puede estar abierta
         try:

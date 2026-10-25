@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QTextEdit,
                                QVBoxLayout, QWidget)
 
-from motor import idioma, nichos
+from motor import ia, idioma, nichos
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje_error, Tarea, tarjeta
 
@@ -28,7 +28,7 @@ class PaginaNichos(QWidget):
         caja, caja_lay = tarjeta()
         fila = QHBoxLayout()
         self.tema = QLineEdit()
-        self.tema.setPlaceholderText(t("Tema o palabra clave (vacío = lo más viral). Ej: finanzas, dembow"))
+        self.tema.setPlaceholderText(t("Tema o palabra clave (si lo dejas vacío, busca lo más viral). Ej.: finanzas, dembow"))
         self.pais = QComboBox()
         for pais in PAISES:
             self.pais.addItem(t(pais), pais)
@@ -81,7 +81,7 @@ class PaginaNichos(QWidget):
         self.nichos = r["nichos"]
         self.lista.clear()
         for n in self.nichos:
-            self.lista.addItem(t("{potencial}/100  ·  {nombre}\n      competencia {competencia}",
+            self.lista.addItem(t("{potencial}/100 · {nombre}\ncompetencia {competencia}",
                                  potencial=n["potencial"], nombre=n["nombre"], competencia=n["competencia"]))
         if self.nichos:
             self.lista.setCurrentRow(0)
@@ -91,14 +91,14 @@ class PaginaNichos(QWidget):
             return
         n = self.nichos[fila]
         self.detalle.setPlainText(
-            t("{nombre}  ({potencial}/100, competencia {competencia})\n\nPor qué es viral: {viral}\n\n"
+            t("{nombre} ({potencial}/100, competencia {competencia})\n\nPor qué es viral: {viral}\n\n"
               "Pruebas: {pruebas}\n\nRedes: {redes}\nFormato: {formato}\nMonetización: {monetizacion}\n\n",
               nombre=n["nombre"], potencial=n["potencial"], competencia=n["competencia"], viral=n["por_que_es_viral"],
               pruebas=n["pruebas"], redes=", ".join(n["redes"]), formato=n["formato"], monetizacion=n["monetizacion"])
-            + " ".join(h if h.startswith("#") else f"#{h}" for h in n["hashtags"]))
+            + " ".join(map(ia.hashtag, n["hashtags"])))
         self.ideas.clear()
         for idea in n["ideas"]:
-            item = QListWidgetItem(t("{titulo}\n      Gancho: {gancho}", titulo=idea["titulo"], gancho=idea["gancho"]))
+            item = QListWidgetItem(t("{titulo}\nGancho: {gancho}", titulo=idea["titulo"], gancho=idea["gancho"]))
             item.setData(Qt.UserRole, idea["prompt"])
             self.ideas.addItem(item)
 

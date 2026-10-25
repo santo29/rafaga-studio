@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             musica.crear("un dembow de viernes", "Dembow moderno")
             raise AssertionError("debió fallar")
         except RuntimeError as e:
-            assert "Lyria no está en el plan gratis de Gemini (403)" in str(e) and "Claves de IA → Música" in str(e), e
+            assert "Lyria no está en el plan gratis de Gemini (403)" in str(e) and "«Claves de IA» → «Música»" in str(e), e
             assert len(llamadas) == 1, llamadas
         claves.elegir_por_defecto("musica", "auto")
         # Si también ElevenLabs rechaza (su plan gratis no hace música), el error trae los dos motivos

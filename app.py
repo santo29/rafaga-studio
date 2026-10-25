@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCo
                                QMessageBox,
                                QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
 
-from motor import claves, idioma
+from motor import claves, guardia, idioma
 from motor.idioma import t
 from ui import iconos, legal
 from ui.brillo import Brillo
@@ -23,7 +23,7 @@ from ui.paginas.crear import PaginaCrear
 from ui.paginas.director import PAGINA, PaginaDirector
 from ui.paginas.diseno import PaginaDiseno
 from ui.paginas.edicion import PaginaEdicion
-from ui.paginas.guardia import COLORES, ESCUDOS, PaginaGuardia, TITULOS
+from ui.paginas.guardia import BLOQUEADO, COLORES, ESCUDOS, PaginaGuardia, TITULOS
 from ui.paginas.inicio import PaginaInicio
 from ui.paginas.mcp import PaginaMCP
 from ui.paginas.musica import PaginaMusica
@@ -141,7 +141,7 @@ class Ventana(QMainWindow):
         """El escudo de Ráfaga Guardia en el menú, del color de su estado."""
         self.escudo.setIcon(iconos.icono(ESCUDOS[estado], COLORES[estado]))
         self.escudo.setProperty("icono", ESCUDOS[estado])  # como poner(): qué icono lleva
-        self.escudo.setToolTip(f"{t('Ráfaga Guardia')}: {TITULOS[estado]}")
+        self.escudo.setToolTip(f"{t('Ráfaga Guardia')}: {BLOQUEADO if guardia.bloqueado() else TITULOS[estado]}")
 
     def _abrir_guardia(self):
         """La notificación de Ráfaga Guardia pulsada: la ventana delante, en su página."""

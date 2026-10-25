@@ -394,21 +394,39 @@ def _carpeta() -> dict | None:
 _ENV_APP = {"PYTHONIOENCODING", "HF_HUB_DISABLE_SYMLINKS_WARNING", "PYTHONNOUSERSITE"}  # el env que escribió la app
 
 
+def _otra_copia(servidor) -> Path | None:
+    """La carpeta de OTRA copia de Ráfaga Studio a la que apunta el registro (la de desarrollo y la instalada, p. ej.):
+    su propio Python y su mcp_server.py, dentro de una carpeta que tiene la app. ponytail: quien puede crear una carpeta
+    así también puede registrarla; por eso no es «ok» sino un aviso que dice qué carpeta es."""
+    args = [str(a) for a in servidor["args"]] if isinstance(servidor.get("args"), list) else []
+    if not args or Path(args[-1]).name.lower() != "mcp_server.py":
+        return None
+    carpeta = Path(args[-1]).parent
+    try:
+        dentro = Path(str(servidor.get("command"))).resolve().is_relative_to(carpeta.resolve())
+        es_app = all((carpeta / f).is_file() for f in ("app.py", "mcp_server.py", "motor/guardia.py"))
+    except (OSError, ValueError):
+        return None
+    return carpeta if dentro and es_app and os.path.normcase(str(carpeta)) != os.path.normcase(str(RAIZ)) else None
+
+
 def _registro(servidor) -> str:
-    """ok: justo lo que escribe «Conectar»; aviso: lo que escribían versiones anteriores (sin -s -E); peligro:
-    cualquier otra cosa. No basta mirar el principio y el final: un -c o un script delante del mcp_server.py corren
-    otro código, y un env con HTTPS_PROXY pasaría tus llamadas con claves por el proxy de otro (-E solo quita las
-    PYTHON*)."""
+    """ok: justo lo que escribe «Conectar»; aviso: lo que escribían versiones anteriores (sin -s -E); otra: lo mismo, pero
+    de otra copia de Ráfaga Studio en este PC; peligro: cualquier otra cosa. No basta mirar el principio y el final: un
+    -c o un script delante del mcp_server.py corren otro código, y un env con HTTPS_PROXY pasaría tus llamadas con
+    claves por el proxy de otro (-E solo quita las PYTHON*)."""
     from . import conexion_mcp
     if not isinstance(servidor, dict):
         return "peligro"
     args = [str(a) for a in servidor["args"]] if isinstance(servidor.get("args"), list) else []
     env = servidor.get("env") or {}
-    if (os.path.normcase(str(servidor.get("command"))) != os.path.normcase(conexion_mcp.PYTHON) or not args
-            or os.path.normcase(args[-1]) != os.path.normcase(str(RAIZ / "mcp_server.py"))
-            or servidor.get("type", "stdio") != "stdio" or not isinstance(env, dict) or set(env) - _ENV_APP):
+    if (not args or servidor.get("type", "stdio") != "stdio" or not isinstance(env, dict) or set(env) - _ENV_APP
+            or tuple(args[:-1]) not in (tuple(conexion_mcp.SERVIDOR["args"][:-1]), ())):
         return "peligro"
-    return {tuple(conexion_mcp.SERVIDOR["args"][:-1]): "ok", (): "aviso"}.get(tuple(args[:-1]), "peligro")
+    if (os.path.normcase(str(servidor.get("command"))) != os.path.normcase(conexion_mcp.PYTHON)
+            or os.path.normcase(args[-1]) != os.path.normcase(str(RAIZ / "mcp_server.py"))):
+        return "otra" if _otra_copia(servidor) else "peligro"
+    return "ok" if args[:-1] else "aviso"
 
 
 def _mcp() -> list[dict]:
@@ -424,6 +442,7 @@ def _mcp() -> list[dict]:
                 servidores += [(p.get("mcpServers") or {}).get(conexion_mcp.NOMBRE)
                                for p in (datos.get("projects") or {}).values()]
             estados = {_registro(s) for s in servidores if s is not None}
+            otras = {str(_otra_copia(s)) for s in servidores if s is not None and _registro(s) == "otra"}
         except Exception:  # una config de Claude ilegible (o con una forma rara) no tumba la revisión
             resultados.append({"estado": "aviso", "texto": t("No se pudo leer la configuración de {cliente}.",
                                                              cliente=cliente)})
@@ -434,6 +453,10 @@ def _mcp() -> list[dict]:
             resultados.append({"estado": "peligro", "texto": t(
                 "{cliente} arranca «{nombre}» con otro programa o desde otra carpeta: pulsa «Desconectar» y «Conectar» "
                 "en «Conexión MCP».", cliente=cliente, nombre=conexion_mcp.NOMBRE)})
+        elif "otra" in estados:
+            resultados.append({"estado": "aviso", "texto": t(
+                "{cliente} usa otra copia de Ráfaga Studio ({carpeta}). Si quieres que use esta, pulsa «Desconectar» "
+                "y «Conectar» en «Conexión MCP».", cliente=cliente, carpeta=", ".join(sorted(otras)))})
         elif "aviso" in estados:
             resultados.append({"estado": "aviso", "texto": t(
                 "{cliente}: la conexión MCP no arranca en modo seguro (-s -E): pulsa «Desconectar» y «Conectar» en "

@@ -18,7 +18,8 @@ from ui.iconos import icono, poner
 
 COLORES = {"ok": "#3DDC97", "aviso": "#FFB454", "peligro": "#FF4D8D"}
 ESCUDOS = {"ok": "shield-check", "aviso": "shield-alert", "peligro": "shield-x"}
-TITULOS = {"ok": t("Todo en orden"), "aviso": t("Revisa esto"), "peligro": t("Bloqueado o en peligro")}
+TITULOS = {"ok": t("Todo en orden"), "aviso": t("Revisa esto"), "peligro": t("En peligro")}
+BLOQUEADO = t("Bloqueado")  # en vez del título del estado: «en peligro» sin bloqueo no debe decir «bloqueado»
 DESCRIPCIONES = {"ok": t("Ráfaga Guardia vigila la app, tus claves y tu dinero. No hay nada que revisar."),
                  "aviso": t("Hay avisos o eventos nuevos: léelos abajo. Si todo está bien, pulsa «Revisar ahora»."),
                  "peligro": t("Hay algo en peligro o un evento grave sin revisar: léelo abajo.")}
@@ -364,7 +365,7 @@ class PaginaGuardia(QWidget):
         estado = guardia.estado(self.resultados)
         color = COLORES[estado]
         self.escudo.poner(estado)
-        self.titulo_estado.setText(TITULOS[estado])
+        self.titulo_estado.setText(BLOQUEADO if self._bloqueo else TITULOS[estado])
         self.titulo_estado.setStyleSheet(f"color: {color};")
         self.texto_estado.setText(t("Bloqueado: {motivo}", motivo=self._bloqueo["motivo"]) + "\n" + t(
             "No empieza ningún video, imagen, canción ni voz de pago, ni se publica, ni se guarda en la memoria, ni "

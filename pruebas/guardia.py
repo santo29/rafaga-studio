@@ -450,6 +450,22 @@ assert "aviso" in {r["estado"] for r in guardia._mcp()}
 config["mcpServers"][conexion_mcp.NOMBRE] = {"command": "C:\\malo\\python.exe", "args": ["-s", "-E", "C:\\malo\\x.py"]}
 conexion_mcp.CLIENTES[cliente].write_text(json.dumps(config), encoding="utf-8")
 assert [r["estado"] for r in guardia._mcp()] == ["peligro"]
+# Otra copia de Ráfaga Studio en este PC (la de desarrollo y la instalada): aviso que dice cuál, no peligro
+copia = Path(tempfile.mkdtemp())
+for f in ("app.py", "mcp_server.py", "motor/guardia.py", "python/tools/pythonw.exe"):
+    (copia / f).parent.mkdir(parents=True, exist_ok=True)
+    (copia / f).write_text("", encoding="utf-8")
+otra = {"command": str(copia / "python" / "tools" / "pythonw.exe"), "args": [str(copia / "mcp_server.py")]}
+for estado, servidor_copia in (("aviso", otra), ("aviso", {**otra, "args": [*conexion_mcp.SERVIDOR["args"][:-1], otra["args"][0]]}),
+                               ("peligro", {**otra, "command": "C:\malo\python.exe"}),  # su Python, fuera de la copia
+                               ("peligro", {**otra, "args": ["-c", "x", otra["args"][0]]})):
+    conexion_mcp.CLIENTES[cliente].write_text(json.dumps({"mcpServers": {conexion_mcp.NOMBRE: servidor_copia}}),
+                                              encoding="utf-8")
+    assert [r["estado"] for r in guardia._mcp()] == [estado], servidor_copia
+    assert estado == "peligro" or str(copia) in guardia._mcp()[0]["texto"]
+(copia / "motor" / "guardia.py").unlink()  # una carpeta sin la app no es «otra copia»
+conexion_mcp.CLIENTES[cliente].write_text(json.dumps({"mcpServers": {conexion_mcp.NOMBRE: otra}}), encoding="utf-8")
+assert [r["estado"] for r in guardia._mcp()] == ["peligro"]
 conexion_mcp.CLIENTES[cliente].write_text("{roto", encoding="utf-8")
 assert [r["estado"] for r in guardia._mcp()] == ["aviso"]
 # Un registro secuestrado que empieza y acaba como el bueno también es peligro: un -c o un script delante del
@@ -718,7 +734,7 @@ assert ventana.escudo.property("icono") == "shield-check" and "Todo en orden" in
 guardia.registrar("integridad", "alta", "plantado")
 ventana.guardia._notificar = lambda e: None
 ventana.guardia._comprobar_cambios()
-assert ventana.escudo.property("icono") == "shield-x" and "Bloqueado o en peligro" in ventana.escudo.toolTip()
+assert ventana.escudo.property("icono") == "shield-x" and "Bloqueado" in ventana.escudo.toolTip()  # se bloquea solo
 ventana.guardia.abrir.emit()  # la notificación pulsada lleva a la página
 assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.guardia) and ventana.escudo.isChecked()
 ventana.guardia._bloqueo = None

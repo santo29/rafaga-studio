@@ -24,7 +24,8 @@ pantalla con un fotograma clave cada 8 s cuesta 1–2 s por fotograma; en el pro
 Capas de video (Grabarte: tu cara encima del video): cada una es un tramo más (el de un clip sin filtros, al tamaño de
 su caja: fps, encaje y sonido normalizados igual, así una webcam de tasa variable no se desfasa) que se pone encima con
 la máscara de su forma (alphamerge) y su borde (dos PNG pintados con edicion.forma_video, como en el lienzo), en su
-sitio entre las demás capas; su sonido entra en la mezcla. Con «bajar_musica», la música baja mientras suena una voz
+sitio entre las demás capas; su sonido entra en la mezcla. En «pantalla dividida» (edicion.otra_mitad), mientras dura,
+el video principal se recorta desde el centro y pasa a la otra mitad. Con «bajar_musica», la música baja mientras suena una voz
 (los audios «voz» y las capas de video): sidechaincompress con la voz como señal de control.
 """
 import atexit
@@ -518,10 +519,12 @@ def _salida_tramo(final: bool) -> list:
 
 
 def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: bool, avance,
-           fondo: str = "#000000", golpe: tuple | None = None, brillo: str = "", alto: int | None = None) -> Path:
+           fondo: str = "#000000", golpe: tuple | None = None, brillo: str = "", alto: int | None = None,
+           solo_nombre: bool = False) -> Path:
     """El clip normalizado (H.264 + PCM en .mov), del caché si ya estaba hecho con estos mismos parámetros. Si su
     archivo falta, el color de fondo y silencio. golpe y brillo: los de su efecto (ver _efecto). alto: el del video,
-    si no es h (el tramo de una capa de video): con él en el nombre, la limpieza de los de ese tamaño lo encuentra."""
+    si no es h (el tramo de una capa de video): con él en el nombre, la limpieza de los de ese tamaño lo encuentra.
+    solo_nombre: dónde va, sin hacerlo (el de una capa que no sale en esta vista previa: que _limpiar no lo borre)."""
     falta = c.get("falta", False)
     entrada = None if falta else _entrada(c, cache)
     n = _cuadros_tramo(c, fps)
@@ -529,7 +532,7 @@ def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: b
     datos = {k: v for k, v in c.items() if k not in _SIN_TRAMO}
     clave = _hash(VERSION, fondo if falta else _huella(entrada), datos, w, h, fps, ajuste, preset, crf, golpe)
     destino = cache / f"tramo-{'exp' if final else 'vista'}{alto or h}-{clave}.mov"
-    if destino.is_file():
+    if solo_nombre or destino.is_file():
         return destino
     muestras = n * _R // fps
     if falta:
@@ -628,14 +631,16 @@ def _capa_png(capa: dict, carpeta: Path, cache: Path, w: int, h: int, escala: fl
     return destino, x0, y0, x1 - x0, y1 - y0
 
 
-def _pip(capa: dict, cache: Path, escala: float, fps: int, final: bool, alto: int, avance) -> tuple:
+def _pip(capa: dict, cache: Path, escala: float, fps: int, final: bool, alto: int, avance,
+         solo_nombre: bool = False) -> tuple:
     """Una capa de video como tramo: su archivo como un clip sin filtros (tamaño, fps y sonido normalizados como los de
     un clip: también una webcam de tasa variable queda a fps fijos por sus tiempos, sin desfase con el sonido),
     recortado para llenar su caja. Devuelve (tramo, x, y, ancho, alto) en píxeles de salida (ancho y alto pares)."""
     cw, ch = (max(2, round(capa[k] * escala / 2) * 2) for k in ("ancho", "alto"))
     clip = {**edicion._CLIP, "tipo": "video", **{k: capa[k] for k in ("archivo", "desde", "hasta", "duracion_archivo",
                                                                      "volumen", "silencio")}}
-    return (_tramo(clip, cache, cw, ch, fps, "recortar", final, avance, alto=alto), round(capa["x"] * escala),
+    return (_tramo(clip, cache, cw, ch, fps, "recortar", final, avance, alto=alto, solo_nombre=solo_nombre),
+            round(capa["x"] * escala),
             round(capa["y"] * escala), cw, ch)
 
 
@@ -741,7 +746,13 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
         return round(capa["inicio"] * fps), min(entero, round((capa["inicio"] + capa["duracion"]) * fps))
     for capa in p["capas"]:
         ini, fin = cuadros_capa(capa)
-        if capa["tipo"] == "video" and not capa.get("falta") and fin > max(ini, d0) and ini < d1:
+        if capa["tipo"] == "video" and not capa.get("falta"):
+            # Su proxy (lo encarga la miniatura) y, si no sale en esta vista previa, su tramo sin hacerlo, también en
+            # usados: si no, _limpiar los borra y la próxima vez se recodifica la grabación entera
+            usados.add(_proxy(_entrada({"tipo": "video", "archivo": capa["archivo"]}, cache), cache).name)
+            if not (fin > max(ini, d0) and ini < d1):
+                usados.add(_pip(capa, cache, escala, fps, final, h, None, solo_nombre=True)[0].name)
+                continue
             texto = t("Preparando tu grabación…")
             aviso(texto, 0.5)
             pips[capa["id"]] = _pip(capa, cache, escala, fps, final, h, lambda f, x=texto: aviso(f"{x} {f:.0%}", 0.5))
@@ -833,6 +844,14 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
         entradas.append(["-f", "concat", "-i", f"lista-{sello}-capas.txt"])
         grafo.append(f"[{len(entradas) - 1}:v]split={len(visibles)}" + "".join(f"[p{j}]" for j in range(len(visibles))))
     ultimo = "o"
+    for j, (capa, ini, fin, k) in enumerate(orden):  # «pantalla dividida»: antes de las capas, el principal a su mitad
+        mitad = k is None and edicion.otra_mitad(p["formato"], capa)
+        if mitad:  # crop sin x:y recorta desde el centro; enable por número de fotograma: solo mientras dura la capa
+            ve, deja = max(ini, d0) - d0, min(fin, d1) - d0
+            grafo += [f"[{ultimo}]split[md{j}][mc{j}]",
+                      f"[mc{j}]crop={round(mitad['ancho'] * escala)}:{round(mitad['alto'] * escala)}[mr{j}]",
+                      f"[md{j}][mr{j}]overlay=x=0:y=0:enable='between(n,{ve},{deja - 1})'[mo{j}]"]
+            ultimo = f"mo{j}"
     for j, (capa, ini, fin, k) in enumerate(orden):
         dura = min(_ANIMACION, (fin - ini) / fps / 2)
         t0, t1 = (ini - d0) / fps, (fin - d0) / fps  # en una ventana pueden caer antes de 0: la animación sigue bien
@@ -994,7 +1013,19 @@ def fotograma(proyecto: dict, carpeta: Path, momento: float, alto_max: int = 640
                 brillo = str(cache / (patron % (j % k)))
             imagen = _cuadro(str(entrada), _huella(entrada), datos, p["ajuste"], fps, w, h, j,
                              _efecto(c, w, h, fps, golpe, j, "1:v"), brillo)
-            return imagen if imagen is not None else _liso(w, h, p["fondo"])
+            if imagen is None:
+                return _liso(w, h, p["fondo"])
+            mitad = next((m for capa in p["capas"] if not capa.get("falta")
+                          and capa["inicio"] <= momento < capa["inicio"] + capa["duracion"]
+                          and (m := edicion.otra_mitad(p["formato"], capa))), None)
+            if mitad:  # como en _render; sobre una copia: _cuadro guarda la imagen en su lru_cache
+                k = h / video.FORMATOS[p["formato"]][1]
+                mw, mh = round(mitad["ancho"] * k), round(mitad["alto"] * k)
+                imagen, centro = imagen.copy(), imagen.copy((w - mw) // 2, (h - mh) // 2, mw, mh)
+                pintor = QPainter(imagen)
+                pintor.drawImage(0, 0, centro)
+                pintor.end()
+            return imagen
     return _liso(w, h, p["fondo"])
 
 
@@ -1120,8 +1151,12 @@ def exportar(proyecto: dict, carpeta: Path, destino: Path, calidad: str = "1080p
     destino.parent.mkdir(parents=True, exist_ok=True)
     alto = video.FORMATOS[p["formato"]][1]
     alto = alto if calidad == "1080p" else alto * 2 // 3
-    # Los tramos casi sin pérdida ocupan ~3,6 MB por segundo a 1080p: mejor avisar ya que fallar al cabo de mucho rato
-    hace_falta = sum(map(edicion.duracion_clip, p["clips"])) * (4 if calidad == "1080p" else 2) * 1.2 * 1024 ** 2
+    # Los tramos casi sin pérdida ocupan ~3,6 MB por segundo a 1080p: mejor avisar ya que fallar al cabo de mucho rato.
+    # Los de las capas de video (una grabación larga a pantalla completa), según la parte del cuadro que ocupan
+    ancho, alto_video = video.FORMATOS[p["formato"]]
+    segundos = sum(map(edicion.duracion_clip, p["clips"])) + sum(
+        c["duracion"] * c["ancho"] * c["alto"] / (ancho * alto_video) for c in p["capas"] if c["tipo"] == "video")
+    hace_falta = segundos * (4 if calidad == "1080p" else 2) * 1.2 * 1024 ** 2
     if shutil.disk_usage(_cache(carpeta)).free < hace_falta:
         cuanto = f"{hace_falta / 1024 ** 3:.1f} GB" if hace_falta >= 1024 ** 3 else f"{hace_falta / 1024 ** 2:.0f} MB"
         raise ValueError(t("Hacen falta unos {cuanto} libres en el disco para exportar: libera espacio y vuelve a "

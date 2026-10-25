@@ -15,6 +15,7 @@ Las piezas de Qt Multimedia salen de los atributos de la clase (Camara, Microfon
 pruebas las cambian por unas simuladas. Construir el panel no abre la cámara ni el micrófono (listar los dispositivos,
 sí: Windows no los enciende por eso)."""
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -66,7 +67,17 @@ def permiso_denegado(que: str) -> bool:
 
 
 def aviso_privacidad(que: str) -> str:
-    """Dónde se activa en Windows lo que falta (que: "webcam" o "microphone")."""
+    """Dónde se activa en Windows lo que falta (que: "webcam" o "microphone"). Windows 10 llama de otra forma a la
+    página y a sus interruptores que Windows 11 (compilación 22000 o más)."""
+    win10 = sys.platform == "win32" and sys.getwindowsversion().build < 22000
+    if que == "webcam" and win10:
+        return t("Windows no deja a Ráfaga Studio usar la cámara. Actívala en Configuración → Privacidad → Cámara "
+                 "(«Permitir el acceso a la cámara en este dispositivo» y «Permitir que las aplicaciones de escritorio "
+                 "accedan a la cámara») y vuelve a intentarlo.")
+    if win10:
+        return t("Windows no deja a Ráfaga Studio usar el micrófono. Actívalo en Configuración → Privacidad → Micrófono "
+                 "(«Permitir el acceso al micrófono en este dispositivo» y «Permitir que las aplicaciones de escritorio "
+                 "accedan al micrófono») y vuelve a intentarlo.")
     if que == "webcam":
         return t("Windows no deja a Ráfaga Studio usar la cámara. Actívala en Configuración → Privacidad y seguridad → "
                  "Cámara («Acceso a la cámara» y «Permitir que las aplicaciones de escritorio accedan a la cámara») y "
@@ -157,6 +168,10 @@ class PanelGrabarte(QWidget):
         self.sesion = self.camara = self.micro = self.grabador = None
         self._ruta, self._inicio, self._previa, self._cuenta, self._empezo = None, 0.0, None, 0, 0.0
         self._apagar_luego, self._esperando, self._despertar = False, False, None
+        # _retraso: lo grabado antes de que arrancara el video del editor (None: aún no se sabe), que la toma no usa.
+        # _pedido: el testigo del último «Grabar» (el montaje de un intento cancelado no vale para el siguiente).
+        # _elegida: hay una capa de video elegida (los mosaicos y la forma la cambian a ella)
+        self._retraso, self._pedido, self._elegida = 0.0, None, False
         self.setObjectName("grabarte")
         self.setStyleSheet(ESTILO_PANEL)
         lay = QVBoxLayout(self)
@@ -193,17 +208,19 @@ class PanelGrabarte(QWidget):
         bajar, self.bajar = casilla(t("Bajar la música cuando hablas"))
         self.bajar.setChecked(True)
         self.bajar.toggled.connect(lambda v: self.pagina.poner_bajar_musica(v))
-        for w in (self.grabar_btn, self.encender_btn, self.tiempo, silenciar,
-                  etiqueta(t("Usa auriculares si quieres oír el video mientras hablas: así no hay eco."), "sub"),
-                  bajar):
+        # Lo de cada toma (grabar y dónde va tu cara) arriba, a la vista; las casillas de una vez, al final
+        for w in (self.tiempo, self.grabar_btn, self.encender_btn, etiqueta(t("Dónde va tu cara"), "sub")):
             lay.addWidget(w)
-        lay.addWidget(etiqueta(t("Dónde va tu cara"), "sub"))
+        # A qué va el clic: los mosaicos y las formas cambian la grabación elegida si hay una; si no, la próxima toma
+        self.destino = etiqueta("", "sub")
+        lay.addWidget(self.destino)
         lay.addWidget(self._disposiciones())
         self.forma = Segmentos()
         for i, (clave, nombre_icono) in enumerate(ICONOS_FORMA.items()):
             b = self.forma.opcion("", i)
             b.setIcon(iconos.icono(nombre_icono))
             b.setToolTip(edicion.FORMAS_VIDEO[clave])
+            b.setAccessibleName(edicion.FORMAS_VIDEO[clave])  # solo lleva icono: el lector de pantalla dice cuál es
             b.setChecked(clave == "circulo")
         self.forma.grupo.idClicked.connect(self._elegir_forma)
         lay.addWidget(self.forma)
@@ -211,15 +228,20 @@ class PanelGrabarte(QWidget):
         self.importar_btn.setToolTip(t("Un video de tu cara que ya tengas: entra en el cursor con la disposición "
                                        "elegida"))
         self.importar_btn.clicked.connect(self.importar)
-        lay.addWidget(self.importar_btn)
+        for w in (self.importar_btn, silenciar,
+                  etiqueta(t("Usa auriculares si quieres oír el video mientras hablas: así no hay eco."), "sub"),
+                  bajar):
+            lay.addWidget(w)
         lay.addWidget(etiqueta(t("La cámara y el micrófono se usan solo en tu PC y solo con este panel abierto. Tus "
                                  "grabaciones se guardan en la carpeta del proyecto (grabaciones)."), "sub"))
         lay.addStretch()
         self._reloj = QTimer(self)
         self._reloj.setInterval(1000)
         self._reloj.timeout.connect(self._tic)
+        self._plazo = QTimer(self)  # un grabador que no confirma el cierre no deja el panel colgado en «guardando»
+        self._plazo.setSingleShot(True)
+        self._plazo.timeout.connect(self._terminar)
         self.marcar(None, pagina.proyecto)
-        self._pintar_estado()
 
     # ---------- Construcción ----------
 
@@ -269,11 +291,13 @@ class PanelGrabarte(QWidget):
             b.setIconSize(QSize(44, 44))
             b.setText(cortos.get(cual, ""))
             b.setToolTip(edicion.DISPOSICIONES[cual])
+            b.setAccessibleName(edicion.DISPOSICIONES[cual])  # las esquinas no llevan texto: sin esto, «botón» a secas
             b.setCursor(Qt.PointingHandCursor)
             b.setMinimumSize(78, 66)
             b.clicked.connect(lambda _=False, c=cual: self.pagina.aplicar_disposicion(c, self._forma))
             rejilla.addWidget(b, i // 3, i % 3)
         self.tiles["inf_der"].setChecked(True)
+        self.mosaicos = caja
         return caja
 
     def _llenar(self):
@@ -314,7 +338,10 @@ class PanelGrabarte(QWidget):
     def marcar(self, capa: dict | None, proyecto: dict) -> None:
         """Enseña lo del proyecto: las miniaturas en su formato, la disposición y la forma de la capa de video elegida
         (si lo es) y «Bajar la música». No cambia nada del proyecto."""
-        self._formato = proyecto["formato"]
+        self._formato, self._elegida = proyecto["formato"], capa is not None
+        self.destino.setText(t("Cambia la grabación elegida") if capa is not None else t("Para tu próxima grabación"))
+        self.destino.setToolTip(t("Haz clic en el fondo del video para soltarla: entonces vale para tu próxima "
+                                  "grabación.") if capa is not None else "")
         if capa is not None:
             igual = [c for c in self.tiles if all(capa[k] == edicion.disposicion(
                 proyecto["formato"], c, capa["forma"], capa["borde"])[k] for k in ("x", "y", "ancho", "alto"))]
@@ -327,6 +354,7 @@ class PanelGrabarte(QWidget):
         self.bajar.blockSignals(True)
         self.bajar.setChecked(proyecto["bajar_musica"])
         self.bajar.blockSignals(False)
+        self._pintar_estado()  # en solo voz, los mosaicos se activan solo con una grabación elegida
 
     def ocupado(self) -> bool:
         return self.estado in ("preparando", "cuenta", "grabando", "guardando")
@@ -341,6 +369,9 @@ class PanelGrabarte(QWidget):
             self._apagar_luego, self._esperando = True, esperar or self._esperando
             if self.estado == "grabando":
                 self.detener()
+            elif self.camara is not None:  # ya guardando («Detener» y luego saliste): la cámara se apaga ya igual
+                self._soltar_camara()
+                self._pintar_estado()
             if esperar and self.estado == "guardando":
                 bucle = QEventLoop()
                 self._despertar = bucle.quit
@@ -389,14 +420,17 @@ class PanelGrabarte(QWidget):
     def _apagar_camara(self):
         if self.ocupado():
             return
+        self._soltar_camara()
+        self.estado = "apagada"
+        self._pintar_estado()
+
+    def _soltar_camara(self):
         if self.camara is not None:
             camara, self.camara = self.camara, None
             camara.stop()
             if self.sesion is not None:
                 self.sesion.setCamera(None)
             camara.deleteLater()
-        self.estado = "apagada"
-        self._pintar_estado()
 
     def _otra_camara(self):
         if self.estado == "vista":  # otra cámara elegida con la vista encendida: se cambia
@@ -410,7 +444,8 @@ class PanelGrabarte(QWidget):
             aviso = aviso_privacidad("webcam")
         else:
             aviso = t("No se pudo usar la cámara: puede que otra app la esté usando (Zoom, Teams, el navegador…) o que "
-                      "se haya desconectado. Ciérrala o vuelve a conectarla y prueba otra vez.\n\nDetalle: {detalle}",
+                      "se haya desconectado. Cierra esa app o vuelve a conectar la cámara y prueba otra vez.\n\n"
+                      "Detalle: {detalle}",
                       detalle=detalle or "—")
         if self.estado == "grabando":
             self._apagar_luego = True
@@ -467,6 +502,11 @@ class PanelGrabarte(QWidget):
             return mensaje_error(self, t("Sin sitio"), t("El cursor está al final de los {minutos} minutos del "
                                                           "video: muévelo antes de grabar.",
                                                           minutos=edicion.MAX_DURACION // 60))
+        # Antes de encender nada: con el tope lleno la toma no entraría, y lo sabrías después de hablarla entera
+        if not self._solo_voz() and sum(c["tipo"] == "video" for c in self.pagina.proyecto["capas"]) >= \
+                edicion.MAX_VIDEOS:
+            return mensaje_error(self, t("Sin sitio"), t("Este video ya tiene {n} grabaciones encima: borra una o "
+                                                          "graba con «Solo voz».", n=edicion.MAX_VIDEOS))
         carpeta = self.pagina._carpeta() / "grabaciones"
         try:
             carpeta.mkdir(parents=True, exist_ok=True)
@@ -485,18 +525,23 @@ class PanelGrabarte(QWidget):
         while self._ruta.exists():  # dos tomas en el mismo segundo
             n += 1
             self._ruta = self._ruta.with_stem(f"{self._ruta.stem.split('_')[0]}_{n}")
-        # La toma va donde empieza el video que suena (el cursor de ahora, aunque se mueva mientras se monta)
-        self.estado, self._inicio = "preparando", self.pagina.cursor
+        # La toma va donde empieza el video que suena (el cursor de ahora, aunque se mueva mientras se monta).
+        # Cada «Grabar» lleva su testigo: el montaje de un intento ya cancelado no vale para el siguiente
+        self.estado, self._inicio, self._pedido = "preparando", self.pagina.cursor, object()
         self._pintar_estado()
-        self.pagina.preparar_grabacion(self._preparado)
+        self.pagina.preparar_grabacion(lambda archivo, pedido=self._pedido: pedido is self._pedido
+                                       and self._preparado(archivo))
 
     def _preparado(self, archivo):
-        """El video desde el cursor ya está montado (None: no hay nada que reproducir; False: falló)."""
+        """El video desde el cursor ya está montado (None: no hay nada que reproducir; False: falló). Se abre ya en el
+        reproductor del editor, quieto: al empezar a grabar solo falta darle a play."""
         if self.estado != "preparando":
             return  # se canceló mientras tanto
         if archivo is False:
             return self._cancelar()
         self._previa, self._cuenta = archivo, CUENTA
+        if archivo:
+            self.pagina.precargar(archivo)
         self.estado = "cuenta"
         self._pintar_estado()
         self._reloj.start()
@@ -509,6 +554,12 @@ class PanelGrabarte(QWidget):
             return self._pintar_estado()
         if self.estado != "grabando":
             return self._reloj.stop()
+        pos = self.pagina.player.position()
+        if self._retraso is None and pos >= 200:
+            # El video del editor tarda en abrir y arrancar (más con el PC cargado): lo grabado antes sobra. Con el
+            # reloj y no con grabador.duration(), que llega tarde (el codificador retiene fotogramas); el segundo 0 del
+            # archivo cae a unas centésimas de _empezo
+            self._retraso = max(0.0, time.monotonic() - self._empezo - pos / 1000)
         segundos = self._segundos()
         self._pintar_estado()
         if _libre(self._ruta.parent) < LIBRE_PARAR:
@@ -546,7 +597,7 @@ class PanelGrabarte(QWidget):
         self.grabador.recorderStateChanged.connect(self._estado_grabador)
         self.grabador.errorOccurred.connect(self._error_grabador)
         self.sesion.setRecorder(self.grabador)
-        self.estado, self._empezo = "grabando", 0.0
+        self.estado, self._empezo, self._retraso = "grabando", 0.0, 0.0
         self._pintar_estado()
         self.grabador.record()
 
@@ -554,6 +605,7 @@ class PanelGrabarte(QWidget):
         if estado == QMediaRecorder.RecorderState.RecordingState and self.estado == "grabando" and not self._empezo:
             self._empezo = time.monotonic()
             self.pagina.reproducir_grabando(self._previa, self._inicio, self.silenciar.isChecked())
+            self._retraso = None if self._previa else 0.0  # None: hasta que el video del editor arranque (_tic)
         elif estado == QMediaRecorder.RecorderState.StoppedState and self.estado in ("grabando", "guardando"):
             self._terminar()
 
@@ -584,7 +636,13 @@ class PanelGrabarte(QWidget):
         self.estado = "guardando"
         self._pintar_estado()
         self.pagina.fin_grabacion()
+        self._plazo.start(self.ESPERA)  # antes de stop(): puede avisar ahí mismo
         self.grabador.stop()
+        if self._apagar_luego and self.estado == "guardando":
+            # Saliste del panel o de la página: la cámara se apaga ya, sin esperar a que el archivo quede cerrado (tras
+            # stop() el grabador ya no necesita sus fotogramas)
+            self._soltar_camara()
+            self._pintar_estado()
 
     def _cancelar(self):
         self._reloj.stop()
@@ -593,10 +651,12 @@ class PanelGrabarte(QWidget):
         self._pintar_estado()
 
     def _terminar(self):
-        """El grabador ya cerró el archivo: el micrófono sale de la sesión y la toma va al video (si grabó algo)."""
+        """El grabador ya cerró el archivo (o no lo confirmó en ESPERA ms: _plazo): el micrófono sale de la sesión y la
+        toma va al video (si grabó algo)."""
         if self.estado not in ("grabando", "guardando"):
             return
         self._reloj.stop()
+        self._plazo.stop()
         self.pagina.fin_grabacion()
         grabador, self.grabador = self.grabador, None
         if self.sesion is not None:
@@ -606,8 +666,12 @@ class PanelGrabarte(QWidget):
             self.micro.deleteLater()
             self.micro = None
         ruta = Path(grabador.actualLocation().toLocalFile() or self._ruta) if grabador is not None else self._ruta
-        if grabador is not None:
-            grabador.deleteLater()
+        if grabador is not None:  # lo que diga después ya no es de esta toma (ni de la siguiente)
+            grabador.recorderStateChanged.disconnect(self._estado_grabador)
+            grabador.errorOccurred.disconnect(self._error_grabador)
+            # Uno que aún no confirmó el cierre se deja vivir (es hijo del panel): borrarlo a medias podría cortarlo
+            if grabador.recorderState() == QMediaRecorder.RecorderState.StoppedState:
+                grabador.deleteLater()
         self.estado = "vista" if self.camara is not None else "apagada"
         if self._apagar_luego:
             self._apagar_luego = False
@@ -619,7 +683,7 @@ class PanelGrabarte(QWidget):
         except OSError:
             hay = False
         if hay:
-            self.pagina.toma_lista(str(ruta), self._inicio, en_hilo=not esperar)
+            self.pagina.toma_lista(str(ruta), self._inicio, en_hilo=not esperar, desde=self._retraso or 0.0)
         if self._despertar:
             self._despertar()
 
@@ -639,18 +703,23 @@ class PanelGrabarte(QWidget):
         e, voz = self.estado, self._solo_voz()
         hay_camara = self.camaras.currentData() is not None
         self.encender_btn.setEnabled(e in ("apagada", "vista") and not voz and hay_camara)
-        iconos.poner(self.encender_btn, f"📷  {t('Apagar cámara') if e == 'vista' else t('Encender cámara')}")
-        iconos.poner(self.grabar_btn, f"⏹  {t('Detener')}" if self.ocupado() else f"🔴  {t('Grabar')}",
-                     "#FFFFFF")
+        encendida = self.camara is not None  # también mientras cuenta o graba: el botón no dice «Encender» entonces
+        iconos.poner(self.encender_btn, f"📷  {t('Apagar cámara') if encendida else t('Encender cámara')}")
+        # Antes de grabar (montando el video o en la cuenta atrás) aún no se graba nada: «Cancelar», no «Detener»
+        iconos.poner(self.grabar_btn, f"⏹  {t('Cancelar')}" if e in ("preparando", "cuenta") else
+                     f"⏹  {t('Detener')}" if self.ocupado() else f"🔴  {t('Grabar')}", "#FFFFFF")
         self.grabar_btn.setEnabled(e != "guardando")
         for w in (self.modo, self.camaras, self.micros, self.importar_btn):
-            w.setEnabled(not self.ocupado() and (w is not self.camaras or hay_camara)
+            w.setEnabled(not self.ocupado() and (w is not self.camaras or hay_camara and not voz)
                          and (w is not self.micros or self.micros.currentData() is not None))
+        # En solo voz no hay cara que colocar: los mosaicos y la forma, solo para una grabación ya elegida
+        for w in (self.mosaicos, self.forma):
+            w.setEnabled(not voz or self._elegida)
         self.imagen.setVisible(self.camara is not None)
         textos = {"apagada": t("Solo voz: se grabará el micrófono.") if voz else
-                  t("La cámara está apagada. Pulsa «Encender cámara» o «Grabar»."),
-                  "preparando": t("Preparando el video…")}
-        self.apagada.setPlainText(textos.get(e, "") if self.camara is None or e == "preparando" else "")
+                  t("La cámara está apagada. Pulsa «Encender cámara» o «Grabar».") if hay_camara else
+                  t("No encuentro ninguna cámara. Conecta una (o revisa que esté activada) o elige «Solo voz».")}
+        self.apagada.setPlainText(textos.get(e, "") if self.camara is None else "")
         self.apagada.setPos(12, (VISTA.height() - self.apagada.boundingRect().height()) / 2)
         self.numero.setText(str(self._cuenta) if e == "cuenta" else "")
         caja = self.numero.boundingRect()
@@ -662,4 +731,6 @@ class PanelGrabarte(QWidget):
             self.tiempo.setText(t("Empieza en {n}…", n=self._cuenta))
         elif e == "guardando":
             self.tiempo.setText(t("Guardando la grabación…"))
-        self.tiempo.setVisible(e in ("grabando", "cuenta", "guardando"))
+        elif e == "preparando":  # aquí y no encima de la cámara, donde no se lee (el progreso, arriba en el editor)
+            self.tiempo.setText(t("Preparando el video…"))
+        self.tiempo.setVisible(e in ("grabando", "cuenta", "guardando", "preparando"))

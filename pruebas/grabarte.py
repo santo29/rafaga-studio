@@ -12,8 +12,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QHideEvent, QImage, QMouseEvent  # noqa: E402
-from PySide6.QtMultimedia import QCamera, QMediaFormat, QMediaRecorder  # noqa: E402
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox  # noqa: E402
+from PySide6.QtMultimedia import QCamera, QMediaFormat, QMediaPlayer, QMediaRecorder  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton  # noqa: E402
 
 from motor import claves, diseno, edicion, marca, video  # noqa: E402
 from pruebas import camara_falsa  # noqa: E402
@@ -141,15 +141,21 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     pila, creadas = len(p.deshacer_pila), len(Camara.creadas)
     g.grabar_btn.click()
     assert g.estado == "preparando" and len(Camara.creadas) == creadas + 1  # enciende la cámara sola
+    # Montando el video aún no se graba: lo dice debajo de la cámara (no encima, donde no se lee) y el botón cancela
+    assert g.tiempo.isVisible() and "Preparando" in g.tiempo.text() and not g.apagada.toPlainText()
+    assert "Cancelar" in g.grabar_btn.text() and "Apagar" in g.encender_btn.text()
     esperar(lambda: g.estado == "cuenta")
-    assert vistas[-1] == (1.0, None) and g.numero.text() == "3" and "3" in g.tiempo.text()
-    assert "Detener" in g.grabar_btn.text() and not g.importar_btn.isEnabled() and not g.camaras.isEnabled()
+    # Solo los primeros PREVIA segundos, como ▶ (el resto se monta mientras grabas): la cuenta empieza enseguida
+    assert vistas[-1] == (1.0, pe.PREVIA) and g.numero.text() == "3" and "3" in g.tiempo.text()
+    assert Path(p.player.source().toLocalFile()) == clip  # ya abierto y quieto: al grabar solo falta play()
+    assert "Cancelar" in g.grabar_btn.text() and not g.importar_btn.isEnabled() and not g.camaras.isEnabled()
     g._tic()
     assert g.numero.text() == "2" and g.estado == "cuenta"
     g._tic()
     g._tic()
     grabador = Grabador.creados[-1]
     assert g.estado == "grabando" and grabador.estado == camara_falsa.GRABANDO and g.numero.text() == ""
+    assert "Detener" in g.grabar_btn.text() and "Apagar" in g.encender_btn.text()  # la cámara está encendida
     assert g.sesion.micro is Microfono.creados[-1] and Microfono.creados[-1].dispositivo is Dispositivos.micros[0]
     assert g.sesion.grabador is grabador and grabador.calidad == QMediaRecorder.Quality.HighQuality
     formato = grabador.formato  # MPEG-4 con H.264 y AAC
@@ -167,6 +173,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert capa["tipo"] == "video" and Path(capa["archivo"]) == salida.resolve() and capa["inicio"] == 1.0
     caja = edicion.disposicion(p.proyecto["formato"], "sup_izq", "circulo", edicion.BORDE)
     assert {k: capa[k] for k in caja} == caja and abs(capa["hasta"] - 2) < 0.05
+    assert "elegida" in g.destino.text()  # el panel dice a qué va el clic en un mosaico: a la toma que acabas de grabar
     assert g.estado == "vista" and g.sesion.micro is None and g.sesion.grabador is None  # el micrófono, fuera
     assert not p.sonido.isMuted() and p.centro.currentWidget() is p.vista  # el video ya no suena
     assert p.sel == capa["id"] and len(p.deshacer_pila) == pila + 1  # un solo «deshacer»
@@ -220,9 +227,19 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     p.deshacer()
     assert p.proyecto["bajar_musica"] and g.bajar.isChecked()
 
+    # Los mosaicos y las formas tienen nombre para el lector de pantalla (las esquinas y las formas no llevan texto)
+    assert all(b.accessibleName() for b in g.tiles.values())
+    assert [g.forma.grupo.button(i).accessibleName() for i in range(3)] == list(edicion.FORMAS_VIDEO.values())
+
     # ---------- Solo voz: .m4a sin cámara y entra como audio «voz» ----------
     g.modo.grupo.button(1).click()
-    assert not g.encender_btn.isEnabled()
+    assert not g.encender_btn.isEnabled() and not g.camaras.isEnabled()
+    # Sin cara que colocar, los mosaicos solo valen para cambiar una grabación ya elegida
+    p._elegir("")
+    assert not g.mosaicos.isEnabled() and not g.forma.isEnabled() and "próxima" in g.destino.text()
+    p._elegir(capa["id"])
+    assert g.mosaicos.isEnabled() and g.forma.isEnabled()
+    p._elegir("")
     creadas = len(Camara.creadas)
     p._al_mover_cursor(0.5)
     grabador = grabar_hasta_grabando()
@@ -237,6 +254,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # ---------- Sin cámara, sin micrófono y sin permiso de Windows ----------
     Dispositivos.cambio(camaras=[])
     assert g.camaras.currentData() is None and not g.camaras.isEnabled() and not g.encender_btn.isEnabled()
+    assert "ninguna cámara" in g.apagada.toPlainText()  # no invita a «Encender cámara», que está apagado
     n, creadas = len(avisos), len(Camara.creadas)
     g.encender()
     assert len(avisos) == n + 1 and "ninguna cámara" in avisos[-1] and len(Camara.creadas) == creadas
@@ -246,12 +264,27 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert "ningún micrófono" in avisos[-1] and g.estado == "apagada"
     g.modo.grupo.button(0).click()
     Dispositivos.cambio(micros=[Dispositivo("Micrófono de prueba", b"micro-1", True)])
-    gr.permiso_denegado = lambda que: que == "webcam"
-    g.encender()
-    assert "Configuración → Privacidad y seguridad → Cámara" in avisos[-1] and len(Camara.creadas) == creadas
-    gr.permiso_denegado = lambda que: que == "microphone"
-    g.grabar()
-    assert "Configuración → Privacidad y seguridad → Micrófono" in avisos[-1] and g.estado == "apagada"
+    sys_real = gr.sys
+
+    def windows(compilacion):  # dónde se activa el permiso depende de la versión de Windows (no de la de este PC)
+        gr.sys = types.SimpleNamespace(platform="win32",
+                                       getwindowsversion=lambda: types.SimpleNamespace(build=compilacion))
+    try:
+        windows(22631)  # Windows 11
+        gr.permiso_denegado = lambda que: que == "webcam"
+        g.encender()
+        assert "Configuración → Privacidad y seguridad → Cámara" in avisos[-1] and len(Camara.creadas) == creadas
+        gr.permiso_denegado = lambda que: que == "microphone"
+        g.grabar()
+        assert "Configuración → Privacidad y seguridad → Micrófono" in avisos[-1] and g.estado == "apagada"
+        windows(19045)  # Windows 10 (el del dueño): otra página y otros interruptores
+        g.grabar()
+        assert "Configuración → Privacidad → Micrófono" in avisos[-1] and "este dispositivo" in avisos[-1]
+        gr.permiso_denegado = lambda que: que == "webcam"
+        g.encender()
+        assert "Configuración → Privacidad → Cámara" in avisos[-1] and len(Camara.creadas) == creadas
+    finally:
+        gr.sys = sys_real
     gr.permiso_denegado = lambda que: False
 
     # El registro de Windows: «Deny» en cualquiera de sus tres interruptores es «sin permiso» (sin tocar el de verdad)
@@ -304,7 +337,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # La cámara se queda sin permiso a mitad (E_ACCESSDENIED) o la coge otra app
     grabar_y(lambda _: Camara.creadas[-1].errorOccurred.emit(QCamera.Error.CameraError,
                                                              "Access is denied (0x80070005)"),
-             "Privacidad y seguridad → Cámara")
+             "aplicaciones de escritorio accedan a la cámara")  # el texto de Windows 10 o el de 11, según este PC
     assert g.estado == "apagada" and not Camara.creadas[-1].activa
     grabar_y(lambda _: Camara.creadas[-1].errorOccurred.emit(QCamera.Error.CameraError, "Device busy"), "otra app")
     # El disco se llena (el grabador lo dice) o se va llenando (lo vigila el panel cada segundo)
@@ -361,6 +394,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
     # ---------- Importar una grabación de tu cara: entra en el cursor con la disposición elegida ----------
     p._elegir("")
+    assert "próxima" in g.destino.text()
     g.tiles["dividida"].click()  # sin capa de video elegida: para la próxima
     p._al_mover_cursor(0.5)
     antes = len(videos_capa())
@@ -377,29 +411,137 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not p.tareas)
     assert len(avisos) == n + 1 and "sk-SECRETO" not in avisos[-1] and len(videos_capa()) == antes + 1
 
-    # ---------- Con el tope de capas de video lleno: lo dice y tu grabación se queda en grabaciones/ ----------
+    # ---------- Con el tope de capas de video lleno: lo dice ANTES de encender nada (no después de hablar) ----------
     llenas = edicion.validar({**p.proyecto, "capas": [{**importada, "id": None}] * edicion.MAX_VIDEOS})
     p._aplicar(llenas)
-    n = len(avisos)
-    grabador = grabar_hasta_grabando()
-    g.detener()
+    n, camaras, grabadores, estado = len(avisos), len(Camara.creadas), len(Grabador.creados), g.estado
+    g.grabar_btn.click()
+    assert len(avisos) == n + 1 and "Solo voz" in avisos[-1] and g.estado == estado, avisos[-1]
+    assert (len(Camara.creadas), len(Grabador.creados)) == (camaras, grabadores)
+    # Si aun así una toma no entra (otro tope, un «deshacer» mientras grababas…), el aviso dice dónde quedó el archivo
+    suelta = p.carpeta / "grabaciones" / "grabacion-suelta.mp4"
+    suelta.write_bytes(cara.read_bytes())
+    p.toma_lista(str(suelta), 0.5)
     esperar(lambda: not p.tareas)
-    assert len(avisos) == n + 1 and f"hasta {edicion.MAX_VIDEOS} grabaciones" in avisos[-1], avisos[-1]
-    assert len(videos_capa()) == edicion.MAX_VIDEOS and Path(grabador.salida.toLocalFile()).is_file()
+    assert len(avisos) == n + 2 and str(suelta) in avisos[-1] and "Importar grabación" in avisos[-1], avisos[-1]
+    assert len(videos_capa()) == edicion.MAX_VIDEOS
+    p.deshacer()
+
+    # ---------- Tu voz cae sobre lo que veías: lo grabado antes de que arrancara el video del editor sobra ----------
+    p._al_mover_cursor(0.5)
+    antes = len(videos_capa())
+    grabar_hasta_grabando()
+    empezo, time_real = g._empezo, gr.time
+    p.player.position = lambda: 200  # el video del editor arrancó 0.8 s tarde: a 1 s de grabar va por 0.2 s
+    gr.time = types.SimpleNamespace(monotonic=lambda: empezo + 1.0, strftime=time.strftime)
+    try:
+        g._tic()
+    finally:
+        gr.time = time_real
+        del p.player.position
+    assert abs(g._retraso - 0.8) < 1e-6, g._retraso
+    g.detener()
+    toma = toma_entra(antes)
+    assert abs(toma["desde"] - 0.8) < 1e-3 and toma["inicio"] == 0.5 and abs(toma["hasta"] - 2) < 0.05, toma
+    p.deshacer()
+    # Sin video que reproducir (el cursor al final), no hay nada que recortar
+    p._al_mover_cursor(edicion.duracion_total(p.proyecto))
+    grabar_hasta_grabando()
+    assert g._previa is None and g._retraso == 0.0
+    g.detener()
+    assert toma_entra(antes)["desde"] == 0
+    p.deshacer()
+
+    # ---------- «Cancelar» mientras se monta y volver a grabar: el montaje del intento cancelado no vale ----------
+    vista_real, llamadas = sys.modules["motor.render_edicion"].vista_previa, []
+
+    def vista_lenta(proyecto, carpeta, aviso=lambda t, f: None, desde=0, segundos=None):
+        llamadas.append(desde)
+        time.sleep(1 if len(llamadas) == 1 else 3)  # el del intento cancelado acaba antes
+        destino = d / f"vista_desde_{desde:g}.mp4"
+        destino.write_bytes(clip.read_bytes())
+        return destino
+    sys.modules["motor.render_edicion"].vista_previa = vista_lenta
+    try:
+        p._al_mover_cursor(0.0)
+        g.grabar_btn.click()
+        assert g.estado == "preparando"
+        g.grabar_btn.click()  # «Cancelar»
+        assert not g.ocupado()
+        p._al_mover_cursor(2.0)
+        g.grabar_btn.click()
+        esperar(lambda: g.estado == "cuenta")
+        assert g._previa.endswith("vista_desde_2.mp4") and g._inicio == 2.0, g._previa
+        esperar(lambda: not p.tareas)
+        assert llamadas == [0.0, 2.0] and g._previa.endswith("vista_desde_2.mp4") and g.estado == "cuenta"
+        g.grabar_btn.click()  # cancela la cuenta atrás
+    finally:
+        sys.modules["motor.render_edicion"].vista_previa = vista_real
+
+    # ---------- Más de PREVIA segundos grabando: el trozo siguiente del video se monta mientras suena el anterior ----
+    previa_real, pe.PREVIA = pe.PREVIA, 1
+    try:
+        p._al_mover_cursor(0.0)
+        antes = len(videos_capa())
+        grabar_hasta_grabando()
+        esperar(lambda: p._siguiente is not None)
+        assert vistas[-2:] == [(0.0, 1), (1.0, 1)], vistas  # el primero antes de la cuenta; el siguiente, al grabar
+        p._estado_video(QMediaPlayer.EndOfMedia)  # acaba el primer trozo: suena el siguiente, sin parar
+        assert p._previa[1] == 1.0 and p._base == 1.0 and p.centro.currentWidget() is p.pantalla
+        esperar(lambda: not p.tareas)
+        assert vistas[-1] == (2.0, 1) and g.estado == "grabando"
+        # ⏸ mientras grabas es «Detener»: no deja la grabación siguiendo con el video parado
+        p.play_btn.click()
+        toma_entra(antes)
+        assert g.estado == "vista" and p.centro.currentWidget() is p.vista and p._siguiente is None
+    finally:
+        pe.PREVIA = previa_real
+    p.deshacer()
+    # Un clic en la regla de la línea de tiempo mientras grabas también para la grabación
+    grabar_hasta_grabando()
+    p._al_mover_cursor(1.5)
+    toma_entra(antes)
+    assert g.estado == "vista" and p.cursor == 1.5
+    p.deshacer()
+
+    # ---------- «Nuevo» (o «Abrir») mientras grabas: la toma entra en el video ANTES de preguntar ----------
+    p.guardar()
+    assert not p.sucio
+    grabar_hasta_grabando()
+    preguntas = []
+    QMessageBox.question = staticmethod(lambda _padre, _titulo, texto, *a, **k: preguntas.append(texto)
+                                        or QMessageBox.No)
+    try:
+        next(b for b in p.findChildren(QPushButton) if b.text() == "Nuevo").click()
+    finally:
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    assert len(preguntas) == 1 and len(videos_capa()) == antes + 1 and p.sucio and g.estado == "apagada"
+    assert str(p.carpeta / "grabaciones") in preguntas[0]  # y dónde se quedan tus grabaciones si descartas
     p.deshacer()
 
     # ---------- Al cerrar la app grabando: se para, se guarda y entra en el video antes de preguntar ----------
-    antes = len(videos_capa())
     grabar_hasta_grabando()
     p.parar_grabacion()
     assert len(videos_capa()) == antes + 1 and not p.tareas and g.estado == "apagada"  # aquí mismo, sin hilo
-    # Un grabador que no contesta no deja la app sin cerrar
+    p.deshacer()
+    # Un grabador que no confirma el cierre: al salir del panel la cámara se apaga ya y, pasado ESPERA, lo grabado
+    # entra igual (el panel no se queda en «guardando» ni la luz de la cámara encendida)
     Grabador.responde, gr.PanelGrabarte.ESPERA = False, 300
-    grabar_hasta_grabando()
-    t0 = time.monotonic()
-    p.parar_grabacion()
-    assert time.monotonic() - t0 < 3 and g.estado == "guardando"
-    Grabador.responde = True
+    try:
+        grabar_hasta_grabando()
+        camara = Camara.creadas[-1]
+        p.herramientas["texto"].click()
+        assert g.estado == "guardando" and not camara.activa and g.camara is None
+        esperar(lambda: g.estado == "apagada", 5)
+        toma_entra(antes)
+        p.deshacer()
+        p.herramientas["grabarte"].click()
+        grabar_hasta_grabando()  # y al cerrar la app, tampoco la deja sin cerrar
+        t0 = time.monotonic()
+        p.parar_grabacion()
+        assert time.monotonic() - t0 < 3 and g.estado == "apagada" and len(videos_capa()) == antes + 1
+    finally:
+        Grabador.responde = True
 
     # Nada de esto usó la cámara ni el micrófono de verdad
     assert gr.PanelGrabarte.Camara is Camara and gr.PanelGrabarte.Grabador is Grabador

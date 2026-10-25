@@ -445,9 +445,10 @@ with tempfile.TemporaryDirectory() as d:
                  cara(inicio=3599), cara(x=float("nan")), cara(falta="sí"), {**cara(), "archivo": None}):
         falla(edicion.validar, {"capas": [malo]})
     falla(edicion.validar, {"capas": [cara()] * (edicion.MAX_VIDEOS + 1)})
-    # Los proyectos de antes se abren igual: «Bajar la música» viene puesta
-    assert edicion.validar({})["bajar_musica"] is True
+    # «Bajar la música» viene puesta en los videos nuevos; un proyecto de antes (sin la clave) suena como siempre
+    assert edicion.nuevo()["bajar_musica"] is True and edicion.validar({})["bajar_musica"] is False
     assert edicion.validar({"bajar_musica": False})["bajar_musica"] is False
+    assert edicion.validar(edicion.nuevo())["bajar_musica"] is True  # guardado y vuelto a abrir, se queda
     falla(edicion.validar, {"bajar_musica": "sí"})
 
     # Disposiciones de un clic: dentro del cuadro en los cuatro formatos, esquinas del 28 % del lado corto
@@ -470,6 +471,12 @@ with tempfile.TemporaryDirectory() as d:
             assert (mitad["x"], mitad["y"], mitad["ancho"], mitad["alto"]) == (ancho // 2, 0, ancho // 2, alto)
         else:  # 9:16, 1:1 y 4:5: arriba y abajo
             assert (mitad["x"], mitad["y"], mitad["ancho"], mitad["alto"]) == (0, alto // 2, ancho, alto // 2)
+        # Y el video principal va a la otra mitad (a la izquierda o arriba); movida o de otro tamaño, ya no se divide
+        libre = edicion.otra_mitad(formato, {"tipo": "video", **mitad})
+        assert libre == ({"x": 0, "y": 0, "ancho": ancho // 2, "alto": alto} if ancho > alto else
+                         {"x": 0, "y": 0, "ancho": ancho, "alto": alto // 2}), (formato, libre)
+        assert edicion.otra_mitad(formato, {"tipo": "video", **mitad, "x": mitad["x"] + 1}) is None
+        assert edicion.otra_mitad(formato, {"tipo": "video", **esquinas[0]}) is None
     assert edicion.disposicion("9:16", "inf_der")["y"] < 1920 - 302 - 100  # lejos de los textos de abajo de TikTok
     for malo in (("21:9", "inf_der"), ("9:16", "centro"), ("9:16", "inf_der", "estrella"), ("9:16", "completa",
                                                                                               "circulo", "azul")):
@@ -488,6 +495,16 @@ with tempfile.TemporaryDirectory() as d:
     assert base == edicion.validar(base) and not base["capas"]  # no toca el que recibe
     q = edicion.anadir_grabacion(q, str(voz), 1)
     assert q["audios"][-1]["tipo"] == "voz" and q["audios"][-1]["inicio"] == 1 and len(q["capas"]) == 1
+    # `desde`: lo grabado antes de que arrancara el video del editor no se usa (la capa empieza igual en `inicio`)
+    recortada = edicion.anadir_grabacion(base, str(videos["clip.mp4"]), 0.5, desde=0.8)["capas"][-1]
+    assert (recortada["desde"], recortada["inicio"]) == (0.8, 0.5) and cerca(recortada["hasta"], capa["hasta"])
+    assert cerca(recortada["duracion"], capa["hasta"] - 0.8)
+    voz_recortada = edicion.anadir_grabacion(base, str(voz), 1, desde=0.3)["audios"][-1]
+    assert voz_recortada["desde"] == 0.3 and cerca(voz_recortada["hasta"], 1.5)
+    casi = edicion.anadir_grabacion(base, str(videos["clip.mp4"]), 0, desde=99)["capas"][-1]  # nunca todo el archivo
+    assert edicion.MIN_CLIP <= casi["hasta"] - casi["desde"] < edicion.MIN_CLIP + 0.003, casi
+    assert abs(casi["hasta"] - capa["hasta"]) < 0.002, casi
+    falla(edicion.anadir_grabacion, base, str(videos["clip.mp4"]), 0, "inf_der", "circulo", edicion.BORDE, -1)
     tarde = edicion.anadir_grabacion(base, str(videos["clip.mp4"]), edicion.MAX_DURACION - 1)
     assert cerca(tarde["capas"][-1]["hasta"], 1) and cerca(edicion.duracion_total(tarde), edicion.MAX_DURACION)
     for malo in (str(secreto), r"\\atacante.example\s\yo.mp4", str(d / "foto.png"), str(d / "no_existe.mp4")):

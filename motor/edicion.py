@@ -278,8 +278,9 @@ def validar(proyecto: dict) -> dict:
          "ajuste": diseno._campo(diseno._una("recortar", "difuminar"), proyecto.get("ajuste", "recortar"),
                                  t("El ajuste")),
          "fondo": diseno._campo(diseno.color, proyecto.get("fondo", "#000000"), t("El fondo")),
-         # Al render: la música baja sola mientras suena una voz (ver render_edicion._render, paso 4)
-         "bajar_musica": diseno._campo(diseno._si_no, proyecto.get("bajar_musica", True),
+         # Al render: la música baja sola mientras suena una voz (ver render_edicion._render, paso 4). Puesta en los
+         # videos nuevos (nuevo); un proyecto de antes sin la clave suena como siempre al volver a exportarlo
+         "bajar_musica": diseno._campo(diseno._si_no, proyecto.get("bajar_musica", False),
                                        t("«Bajar la música cuando hablas»")),
          "clips": [_clip(c, n, ids) for n, c in enumerate(proyecto.get("clips", []), 1)],
          "capas": [_capa(c, n, ids, ancho, alto) for n, c in enumerate(proyecto.get("capas", []), 1)],
@@ -307,7 +308,7 @@ def validar(proyecto: dict) -> dict:
 
 
 def nuevo(nombre: str = t("Mi video"), formato: str = "9:16") -> dict:
-    return validar({"nombre": nombre, "formato": formato})
+    return validar({"nombre": nombre, "formato": formato, "bajar_musica": True})
 
 
 # ---------- Tiempos ----------
@@ -488,26 +489,41 @@ def disposicion(formato: str, cual: str, forma: str = "circulo", borde: str = BO
             "y": arriba_abajo if cual.startswith("sup") else alto - lado - arriba_abajo}
 
 
+def otra_mitad(formato: str, capa: dict) -> dict | None:
+    """Si la capa de video está justo en «pantalla dividida», la otra mitad (x, y, ancho, alto): ahí va el video
+    principal, recortado desde el centro (render_edicion._render y fotograma). Si la mueves o le cambias el tamaño, el
+    principal vuelve a ocupar todo y tu cara va encima, como una capa más."""
+    caja = disposicion(formato, "dividida")
+    if capa.get("tipo") != "video" or any(capa.get(k) != caja[k] for k in ("x", "y", "ancho", "alto")):
+        return None
+    ancho, alto = video.FORMATOS[formato]
+    return {"x": 0, "y": 0, "ancho": caja["x"] or ancho, "alto": caja["y"] or alto}
+
+
 def anadir_grabacion(proyecto: dict, ruta: str, inicio: float = 0, cual: str = "inf_der", forma: str = "circulo",
-                     borde: str = BORDE) -> dict:
+                     borde: str = BORDE, desde: float = 0) -> dict:
     """Una grabación tuya (de Grabarte o importada) en el segundo `inicio` de la línea de tiempo: con imagen, una capa
-    de video con la disposición `cual` (ver disposicion); solo voz, un audio de tipo «voz». Lo que no quepa en los 60
-    minutos se recorta. El elemento creado es el último de p["capas"] o de p["audios"]."""
+    de video con la disposición `cual` (ver disposicion); solo voz, un audio de tipo «voz». `desde`: los segundos del
+    principio del archivo que no se usan (Grabarte: lo grabado antes de que arrancara el video del editor, así tu voz
+    cae sobre lo que estabas viendo). Lo que no quepa en los 60 minutos se recorta. El elemento creado es el último de
+    p["capas"] o de p["audios"]."""
     p = validar(proyecto)
     inicio = diseno._campo(_num(0, MAX_DURACION), inicio, t("El momento de la grabación"))
+    desde = diseno._campo(_num(0, _T), desde, t("El momento de la grabación"))
     caja = disposicion(p["formato"], cual, forma, borde)
     real = str(seguro.archivo_medio(ruta, seguro.VIDEOS | seguro.AUDIOS, t("grabación")))
     largo, imagen = _medir(real)
-    cabe = _abajo(min(largo, MAX_DURACION - inicio))
+    desde = _abajo(min(desde, max(0.0, largo - MIN_CLIP - 0.001)))  # siempre queda al menos MIN_CLIP de toma
+    cabe = _abajo(min(largo - desde, MAX_DURACION - inicio))
     if cabe < MIN_CLIP:
         raise ValueError(t("La grabación empezaría al final de los {minutos} minutos del video: no cabe.",
                            minutos=MAX_DURACION // 60))
-    sufijo = Path(real).suffix.lower()
+    sufijo, tramo = Path(real).suffix.lower(), {"desde": desde, "hasta": round(desde + cabe, 3)}
     if imagen and sufijo in seguro.VIDEOS:
-        p["capas"].append({"tipo": "video", "archivo": real, "hasta": cabe, "duracion_archivo": largo,
+        p["capas"].append({"tipo": "video", "archivo": real, **tramo, "duracion_archivo": largo,
                            "inicio": inicio, **caja})
     elif not imagen and sufijo in seguro.AUDIOS:
-        p["audios"].append({"tipo": "voz", "archivo": real, "hasta": cabe, "duracion_archivo": largo,
+        p["audios"].append({"tipo": "voz", "archivo": real, **tramo, "duracion_archivo": largo,
                             "inicio": inicio})
     else:
         raise ValueError(t("{nombre} no es una grabación que pueda usar: elige un video de tu cara o un audio de tu "

@@ -11,7 +11,8 @@
   app; abajo está el resto).
 - **Tu cámara y tu micrófono solo se usan cuando tú los enciendes**, en «Grabarte» del editor de video: solo en tu PC,
   solo con ese panel abierto (el micrófono, solo mientras grabas) y se apagan al salir del panel o de la página.
-  Windows enciende su luz de la cámara mientras está en uso. Lo grabado no se envía a ningún sitio.
+  Windows enciende su luz de la cámara mientras está en uso. Lo grabado no sale de tu PC, salvo su sonido si
+  pides subtítulos automáticos con Groq u OpenAI conectados (ver «Al transcribir»; sin clave, se transcribe en tu PC).
 - **Tus claves de IA se guardan cifradas** con tu cuenta de Windows y cada una se envía solo al proveedor que le
   corresponde por su formato (las de Kling y Seedance, solo al que eliges con su botón «Conectar»).
 - **Las funciones de IA usan servicios de internet.** Para crear, la app envía tus pedidos, textos, imágenes o audios
@@ -70,7 +71,7 @@ intermediarios: reenvían tu pedido al proveedor del modelo que usan (por ejempl
 | La primera vez que transcribes en tu PC o le hablas al Director | Hugging Face (`Systran/faster-whisper-small`) | Solo la descarga del modelo Whisper; tu audio no se envía |
 | Al hablarle al Director | **Nadie: tu voz se entiende en tu PC** con Whisper | Nada de tu voz (el texto que dictaste sí va a tu IA de texto, como cualquier pedido al Director) |
 | Cabina de grabación y separar voz y pista | **Nadie: se hace en tu PC** | Nada |
-| Al grabarte en el editor de video («Grabarte»: tu cámara y tu micrófono) | **Nadie: se graba en tu PC** | Nada. La cámara se enciende solo cuando pulsas «Encender cámara» o «Grabar», y el micrófono solo mientras grabas; al salir del panel o de la página se apagan |
+| Al grabarte en el editor de video («Grabarte»: tu cámara y tu micrófono) | **Nadie: se graba en tu PC** | Nada al grabar (si luego pides subtítulos automáticos con Groq u OpenAI conectados, el sonido de la grabación va a ese servicio: ver «Al transcribir»). La cámara se enciende solo cuando pulsas «Encender cámara» o «Grabar», y el micrófono solo mientras grabas; al salir del panel o de la página se apagan |
 | La primera vez que separas voz y pista | Meta (`dl.fbaipublicfiles.com`) | Solo la descarga del modelo Demucs; tu canción no se envía |
 | Al crear música | ElevenLabs o Google Gemini (Lyria) | Tu idea y la letra |
 | Al programar en YouTube | Google (YouTube) | El video, título, descripción y etiquetas; tu permiso de YouTube se guarda cifrado en tu PC |

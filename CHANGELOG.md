@@ -2,27 +2,30 @@
 
 ## Unreleased · Sin publicar
 
-- **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle,
-  full screen or split screen (one click, then drag and resize it on the preview), or record just your voice, or import
-  a video of your face. A 3-2-1 countdown, then the video plays from the playhead (muted by default: use headphones to
-  hear it without echo) while it records; «Stop» drops the take at the playhead in one undo step. The recording is a
-  new **video layer** (shape, brand-coloured border, volume) rendered the same in the preview and the export, in sync
-  even with variable-frame-rate webcams. **The music lowers by itself while you speak** (on by default) and the
-  automatic subtitles include what you say. Clear messages for no camera or mic, a device in use or unplugged, the
-  Windows privacy setting turned off (and where to turn it on), a full disk and the 60-minute limit; switching page or
-  closing the app stops and keeps the take. Camera and microphone are used only on your PC, only with the panel open
-  and only when you turn them on; recordings stay in the project's `grabaciones` folder. Privacy notice updated.
-- **Grábate en el editor de video («🎥 Grabarte»):** habla encima de tu video con tu cámara en un círculo en una
-  esquina, a pantalla completa o en pantalla dividida (un clic, y luego la mueves y le cambias el tamaño en la vista
-  previa), o graba solo tu voz, o importa un video de tu cara. Cuenta 3, 2, 1 y el video suena desde el cursor
-  (silenciado de fábrica: con auriculares lo oyes sin eco) mientras grabas; «Detener» pone la toma en el cursor en un
-  solo «deshacer». La grabación es una **capa de video** nueva (forma, borde del color de tu marca, volumen) que se ve
+- **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle, full
+  screen or split screen (the main video moves, whole, into the other half; one click, then drag and resize it on the
+  preview), or record just your voice, or import a video of your face. A 3-2-1 countdown, then the video plays from the
+  playhead (muted by default: use headphones to hear it without echo) while it records; «Stop» drops the take at the
+  playhead in one undo step, lined up with what you were watching (what was recorded before the video started is
+  trimmed). The recording is a new **video layer** (shape, brand-coloured border, volume) rendered the same in the
+  preview and the export, in sync even with variable-frame-rate webcams. **The music lowers by itself while you speak**
+  (on by default in new videos) and the automatic subtitles include what you say. Clear messages for no camera or mic, a
+  device in use or unplugged, the Windows privacy setting turned off (and where to turn it on), a full disk and the
+  60-minute limit; switching page or closing the app stops and keeps the take. Camera and microphone are used only on
+  your PC, only with the panel open and only when you turn them on; recordings stay in the project's `grabaciones`
+  folder. Privacy notice updated.
+- **Grábate en el editor de video («🎥 Grabarte»):** habla encima de tu video con tu cámara en un círculo en una esquina,
+  a pantalla completa o en pantalla dividida (el video principal pasa entero a la otra mitad; un clic, y luego la mueves
+  y le cambias el tamaño en la vista previa), o graba solo tu voz, o importa un video de tu cara. Cuenta 3, 2, 1 y el
+  video suena desde el cursor (silenciado de fábrica: con auriculares lo oyes sin eco) mientras grabas; «Detener» pone
+  la toma en el cursor en un solo «deshacer», a la par de lo que estabas viendo (lo grabado antes de que arrancara el
+  video se recorta). La grabación es una **capa de video** nueva (forma, borde del color de tu marca, volumen) que se ve
   igual en la vista previa y en lo exportado, a la par aunque la webcam grabe a tasa variable. **La música baja sola
-  mientras hablas** (puesto de fábrica) y los subtítulos automáticos incluyen lo que dices. Avisos claros sin cámara o
-  micro, con el dispositivo ocupado o desenchufado, con el permiso de privacidad de Windows apagado (y dónde
-  encenderlo), con el disco lleno y al llegar a los 60 minutos; cambiar de página o cerrar la app para la grabación y
-  la guarda. La cámara y el micrófono se usan solo en tu PC, solo con el panel abierto y solo cuando tú los enciendes;
-  las grabaciones se quedan en la carpeta `grabaciones` del proyecto. Aviso de privacidad actualizado.
+  mientras hablas** (puesto de fábrica en los videos nuevos) y los subtítulos automáticos incluyen lo que dices. Avisos
+  claros sin cámara o micro, con el dispositivo ocupado o desenchufado, con el permiso de privacidad de Windows apagado
+  (y dónde encenderlo), con el disco lleno y al llegar a los 60 minutos; cambiar de página o cerrar la app para la
+  grabación y la guarda. La cámara y el micrófono se usan solo en tu PC, solo con el panel abierto y solo cuando tú los
+  enciendes; las grabaciones se quedan en la carpeta `grabaciones` del proyecto. Aviso de privacidad actualizado.
 
 ## 1.0.0 · 2026-10-24
 

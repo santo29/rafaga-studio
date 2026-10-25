@@ -231,6 +231,7 @@ class PaginaEdicion(QWidget):
         self.proyecto, self.carpeta, self.sel, self.cursor = edicion.nuevo(), None, "", 0.0
         self.deshacer_pila, self.rehacer_pila, self._ultima, self.sucio, self._cargando = [], [], None, False, False
         self.tareas, self._previa, self._exportado, self._fuente_foto = set(), None, None, None
+        self._siguiente = None  # grabando: (proyecto, desde, archivo) del trozo de video que va detrás del que suena
         self._sin_guardar = set()  # carpetas de videos descartados sin guardar: _limpiar las borra
         self._foto_en_curso = self._foto_pendiente = False
         self._fotos_pip, self._pips_pedidos = {}, set()  # fotogramas de las capas de video: hechos y pedidos al hilo
@@ -702,7 +703,8 @@ class PaginaEdicion(QWidget):
         self.deshacer_btn.setEnabled(bool(self.deshacer_pila))
         self.rehacer_btn.setEnabled(bool(self.rehacer_pila))
         self._poner_reloj()
-        fuente = (p["clips"], p["formato"], p["ajuste"], p["fondo"], p["fps"], _musica(p))  # lo que cambia el fotograma
+        fuente = (p["clips"], p["formato"], p["ajuste"], p["fondo"], p["fps"], _musica(p),  # lo que cambia el fotograma
+                  [(c["inicio"], c["duracion"]) for c in p["capas"] if edicion.otra_mitad(p["formato"], c)])
         if fuente != self._fuente_foto:
             self._fuente_foto = fuente
             self._espera.start()
@@ -957,6 +959,8 @@ class PaginaEdicion(QWidget):
             self._elegir(self.proyecto[grupo][i + 1]["id"])
 
     def _al_mover_cursor(self, t):
+        if self.grabarte.ocupado():  # un clic en la regla para el video: también la grabación, no solo la vista
+            self.grabarte.detener()
         self.parar()
         self.cursor = t
         self.linea.poner_cursor(t)
@@ -999,8 +1003,10 @@ class PaginaEdicion(QWidget):
             return
         self._foto_en_curso = True
         # Sin capas (las pinta el lienzo, editables), voces ni subtítulos: el fotograma no los necesita. La música sí:
-        # marca el ritmo de los efectos «al ritmo» (sin ella irían a 120 por minuto y no saldría lo que se exporta)
-        solo_clips = {**self.proyecto, "capas": [], "audios": _musica(self.proyecto),
+        # marca el ritmo de los efectos «al ritmo» (sin ella irían a 120 por minuto y no saldría lo que se exporta).
+        # Las de video también: en «pantalla dividida» el fondo va a la otra mitad (render_edicion.fotograma)
+        solo_clips = {**self.proyecto, "capas": [c for c in self.proyecto["capas"] if c["tipo"] == "video"],
+                      "audios": _musica(self.proyecto),
                       "subtitulos": {"activos": False, "palabras": []}}
         self.hilo.pedir("foto", r.fotograma, solo_clips, self._carpeta(), self.cursor)
 
@@ -1025,6 +1031,8 @@ class PaginaEdicion(QWidget):
     def reproducir(self):
         """▶: la vista previa (baja resolución, con todo) de PREVIA segundos desde el cursor. Se rehace solo si el
         proyecto cambió o el cursor salió de ese trozo (pausar y seguir no la vuelve a montar)."""
+        if self.grabarte.ocupado():  # grabándote, ⏸ es «Detener»: parar solo el video dejaría la grabación siguiendo
+            return self.grabarte.detener()
         if self.centro.currentWidget() is self.pantalla:
             return self.parar()
         total = edicion.duracion_total(self.proyecto)
@@ -1055,15 +1063,31 @@ class PaginaEdicion(QWidget):
         self.estado.setText("")
         self.centro.setCurrentWidget(self.pantalla)
         self._base, self._desde = base, int(max(0, self.cursor - base) * 1000)
-        self.player.setSource(QUrl.fromLocalFile(archivo))
+        if self.player.source() != QUrl.fromLocalFile(archivo):  # ya abierto (precargar, pausa y seguir): no otra vez
+            self.player.setSource(QUrl.fromLocalFile(archivo))
         self.player.play()
-        self.player.setPosition(self._desde)  # si ya estaba cargado; si no, al cargarse (_estado_video)
+        if self.player.position() != self._desde:  # si ya estaba cargado; si no, al cargarse (_estado_video)
+            self.player.setPosition(self._desde)
         iconos.poner(self.play_btn, "⏸")
+
+    def precargar(self, archivo):
+        """Durante la cuenta atrás: el video que sonará al grabar, abierto y quieto en su principio. Así, cuando empieza
+        la grabación, solo falta play() (abrirlo entonces retrasaba el video unas décimas respecto a tu voz)."""
+        self.player.setSource(QUrl.fromLocalFile(archivo))
+        self.player.pause()
+        self.player.setPosition(0)
 
     def _estado_video(self, estado):
         if estado == QMediaPlayer.LoadedMedia and self.centro.currentWidget() is self.pantalla:
             self.player.setPosition(self._desde)
         elif estado == QMediaPlayer.EndOfMedia:
+            sig = self._siguiente if self.grabarte.estado == "grabando" else None
+            if sig and sig[0] == self.proyecto and abs(sig[1] - self._base - PREVIA) < 1e-6:
+                self.cursor, self._previa = sig[1], sig  # grabando: el trozo siguiente del video, ya montado
+                self._ver(sig[2], sig[1])
+                return self._siguiente_tramo(sig[1] + PREVIA)
+            # ponytail: si el trozo siguiente no llegó a tiempo, la vista se queda quieta y la grabación sigue; al
+            # empezar cada trozo el video puede pararse unas décimas (no se vuelve a cuadrar con tu voz)
             self.parar()
 
     def parar(self):
@@ -1233,8 +1257,10 @@ class PaginaEdicion(QWidget):
             self._cambiar(object(), forma=forma)
 
     def preparar_grabacion(self, listo):
-        """Antes de grabarte: el video montado desde el cursor hasta el final, para que suene mientras hablas.
-        listo(archivo); listo(None) si desde ahí no hay nada que reproducir (se graba igual); listo(False) si falló."""
+        """Antes de grabarte: los primeros PREVIA segundos del video desde el cursor, montados para que suenen mientras
+        hablas (como ▶: montarlo todo hasta el final tardaba minutos en un video largo; el resto se monta mientras
+        grabas, _siguiente_tramo). listo(archivo); listo(None) si desde ahí no hay nada que reproducir (se graba
+        igual); listo(False) si falló."""
         self.parar()
         r = render()
         if self.cursor >= edicion.duracion_total(self.proyecto) or not hasattr(r, "vista_previa"):
@@ -1242,51 +1268,75 @@ class PaginaEdicion(QWidget):
         self.estado.setText(t("Preparando el video para grabarte…"))
         self._trabajo(lambda aviso, **k: {"archivo": str(r.vista_previa(aviso=aviso, **k))},
                       lambda res: listo(res["archivo"]), self.play_btn, al_fallar=lambda _e: listo(False),
-                      proyecto=self.proyecto, carpeta=self._carpeta(), desde=self.cursor)
+                      proyecto=self.proyecto, carpeta=self._carpeta(), desde=self.cursor, segundos=PREVIA)
 
     def reproducir_grabando(self, archivo, desde, silenciar):
         """Empezó la grabación: el video suena desde `desde` (sin sonido si lo pediste: con altavoces se colaría en el
-        micrófono)."""
+        micrófono) y se monta el trozo siguiente."""
         self.sonido.setMuted(bool(silenciar))
         if archivo:
             self.cursor, self._previa = desde, (self.proyecto, desde, archivo)
             self._ver(archivo, desde)
+            self._siguiente_tramo(desde + PREVIA)
+
+    def _siguiente_tramo(self, desde):
+        """Grabando, el video se monta de PREVIA en PREVIA, como ▶: el trozo siguiente mientras suena este (lo pone
+        _estado_video al acabar el que suena)."""
+        self._siguiente = None
+        r = render()
+        if desde >= edicion.duracion_total(self.proyecto) or not hasattr(r, "vista_previa"):
+            return
+        proyecto = self.proyecto
+        self._trabajo(lambda aviso, **k: {"archivo": str(r.vista_previa(aviso=aviso, **k))},
+                      lambda res: setattr(self, "_siguiente", (proyecto, desde, res["archivo"])),
+                      proyecto=proyecto, carpeta=self._carpeta(), desde=desde, segundos=PREVIA)
 
     def fin_grabacion(self):
+        self._siguiente = None
         self.sonido.setMuted(False)
         self.parar()
 
-    def toma_lista(self, ruta, inicio, en_hilo=True):
+    def toma_lista(self, ruta, inicio, en_hilo=True, desde=0.0):
         """Una grabación (de Grabarte o importada) al video en el segundo `inicio`, con la disposición y la forma
-        elegidas en el panel y el borde del color de tu marca: una capa de video o, si es solo voz, un audio «voz». Se
-        mide en el hilo (en_hilo=False: aquí mismo, al cerrar la app) y entra en un solo «deshacer»."""
+        elegidas en el panel y el borde del color de tu marca: una capa de video o, si es solo voz, un audio «voz».
+        `desde`: lo que sobra al principio del archivo (lo grabado antes de que arrancara el video). Se mide en el hilo
+        (en_hilo=False: aquí mismo, al cerrar la app) y entra en un solo «deshacer»."""
         cual, forma = self.grabarte.disposicion()
         formato, carpeta = self.proyecto["formato"], self.carpeta
         datos = {"ruta": str(ruta), "inicio": round(min(max(0.0, inicio), edicion.MAX_DURACION), 3), "cual": cual,
-                 "forma": forma, "borde": _color_marca()}
+                 "forma": forma, "borde": _color_marca(), "desde": round(max(0.0, desde), 3)}
 
         def medir(aviso=None, **k):
-            q = edicion.anadir_grabacion(edicion.nuevo(formato=formato), **k)
+            try:
+                q = edicion.anadir_grabacion(edicion.nuevo(formato=formato), **k)
+            except (ValueError, OSError) as error:  # lo dice poner, con dónde quedó tu grabación
+                return {"error": str(error)}
             return {"nuevo": ("capas", q["capas"][-1]) if q["capas"] else ("audios", q["audios"][-1])}
+
+        def no_entro(error):
+            # Una toma de Grabarte no se pierde: sigue en grabaciones/ y se puede volver a meter
+            tuya = carpeta is not None and Path(ruta).parent == carpeta / "grabaciones"
+            mensaje_error(self, t("No se pudo añadir la grabación"), f"{error}\n\n" + t(
+                "El archivo sigue en {ruta}: cuando haya sitio, añádelo con «Importar grabación».", ruta=ruta)
+                          if tuya else error)
 
         def poner(r):
             if carpeta is not None and self.carpeta != carpeta:  # mientras se medía se abrió otro video
                 return self.estado.setText(f"⚠️ {t('La grabación es de otro video: está en {ruta}', ruta=ruta)}")
+            if "error" in r:
+                return no_entro(r["error"])
             clave, e = r["nuevo"]
             p = self.proyecto
             try:
                 limpio = edicion.validar({**p, clave: p[clave] + [{**e, "id": None}]})  # validar le da un id nuevo
             except ValueError as error:
-                return mensaje_error(self, t("No se pudo añadir la grabación"), error)
+                return no_entro(error)
             self._carpeta()
             self._aplicar(limpio)
             self._elegir(limpio[clave][-1]["id"])
         if en_hilo:
             return self._trabajo(medir, poner, **datos)
-        try:
-            poner(medir(**datos))
-        except (ValueError, OSError) as error:
-            mensaje_error(self, t("No se pudo añadir la grabación"), error)
+        poner(medir(**datos))
 
     def parar_grabacion(self):
         """Al cerrar la app: si estás grabando, se para, se guarda y entra en el video (luego se pregunta si
@@ -1348,6 +1398,7 @@ class PaginaEdicion(QWidget):
             diseno._leer_imagen.cache_clear()  # las fotos del proyecto anterior no se quedan en memoria
         self.proyecto, self.carpeta, self.sel, self.cursor = proyecto, carpeta, "", 0.0
         self.deshacer_pila, self.rehacer_pila, self._ultima, self.sucio, self._previa = [], [], None, False, None
+        self._siguiente = None
         self._refrescar()
 
     def _limpiar(self, carpeta=None):
@@ -1366,9 +1417,17 @@ class PaginaEdicion(QWidget):
             self._sin_guardar.clear()
 
     def _descartar_ok(self):
-        return not self.sucio or QMessageBox.question(
-            self, t("Cambios sin guardar"),
-            t("El video tiene cambios sin guardar. ¿Seguir sin guardarlos?")) == QMessageBox.Yes
+        """Antes de Nuevo, Abrir, Editar o cerrar: si el video tiene cambios, se pregunta. Una toma a medias se para y
+        entra en el video ANTES de preguntar (así cuenta como cambio y no se descarta sin aviso)."""
+        if self.grabarte.ocupado():
+            self.grabarte.apagar(esperar=True)
+        if not self.sucio:
+            return True
+        texto = t("El video tiene cambios sin guardar. ¿Seguir sin guardarlos?")
+        grabaciones = self.carpeta / "grabaciones" if self.carpeta else None
+        if grabaciones and any(grabaciones.glob("*")):  # sin guardar, esa carpeta no sale en «Abrir»
+            texto += "\n\n" + t("Tus grabaciones se quedan en {carpeta}.", carpeta=grabaciones)
+        return QMessageBox.question(self, t("Cambios sin guardar"), texto) == QMessageBox.Yes
 
     def editar_video(self, ruta, formato="9:16") -> bool:
         """«✂️ Editar» de un resultado: un proyecto nuevo con ese archivo. False si no se quieren perder los cambios."""

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 import numpy as np
@@ -630,6 +631,56 @@ with tempfile.TemporaryDirectory() as d:
     finally:
         ia.transcribir = real
     assert oido["tono"] > 0.2 and oido["silencio"] < 0.01, oido
+
+    # ---------- La caché de una grabación: una vista previa que no ve la capa no borra su tramo ni su proxy ----------
+    cara720 = hacer("cara720.mp4", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=2", "-f", "lavfi", "-i",
+                    "sine=frequency=500:duration=2", *h264)
+    g = edicion.anadir_grabacion(proyecto(prueba, prueba), str(cara720), 0, "inf_der")  # 6 s de clips; la toma, 0–2
+    capa = g["capas"][0]
+    render.miniatura(capa, carpeta)  # la de la línea de tiempo encarga su proxy (720p: más que la vista previa)
+    proxy = render._proxy(Path(capa["archivo"]), carpeta / "cache")
+    fin = time.monotonic() + 60
+    while not proxy.is_file() and time.monotonic() < fin:
+        time.sleep(0.05)
+    assert proxy.is_file()
+    render.vista_previa(g, carpeta)
+    tramos = {f.name for f in (carpeta / "cache").glob("tramo-vista640-*.mov")}
+    render.vista_previa(g, carpeta, desde=4)  # ▶ (o «Grabar») después de la toma
+    assert {f.name for f in (carpeta / "cache").glob("tramo-vista640-*.mov")} == tramos and proxy.is_file()
+    render.vista_previa({**g, "capas": []}, carpeta)  # sin la capa, su tramo y su proxy sí se limpian
+    assert len(list((carpeta / "cache").glob("tramo-vista640-*.mov"))) == len(tramos) - 1 and not proxy.is_file()
+
+    # ---------- «Pantalla dividida»: el video principal pasa a la otra mitad, entero y centrado ----------
+    for formato, (ancho, alto) in video.FORMATOS.items():
+        sw, sh = ancho // 3 // 2 * 2, alto // 3 // 2 * 2  # un disco blanco en el centro del video principal
+        disco = hacer(f"disco{sw}x{sh}.mp4", "-f", "lavfi", "-i", f"nullsrc=s={sw}x{sh}:r=30:d=4,geq=lum='if(lt("
+                      f"hypot(X-W/2,Y-H/2),{min(sw, sh) // 8}),235,16)':cb=128:cr=128", *h264[:6])
+        g = edicion.anadir_grabacion({**proyecto(disco), "formato": formato}, str(verde), 1.0, "dividida")
+        vista = render.vista_previa(g, carpeta)
+        libre, k = edicion.otra_mitad(formato, g["capas"][0]), info(vista)[1] / alto
+        x1, y1 = round(libre["ancho"] * k), round(libre["alto"] * k)  # la mitad libre: (0, 0)–(x1, y1)
+        antes, durante = cuadro(vista, 15), cuadro(vista, 45)  # a 0,5 s sin la capa; a 1,5 s con ella
+        blanco_antes, blanco = (antes > 180).all(axis=2), (durante > 180).all(axis=2)
+        ys, xs = np.nonzero(blanco)
+        assert blanco.sum() >= 0.95 * blanco_antes.sum() and xs.max() < x1 and ys.max() < y1, formato  # entero
+        assert abs(xs.mean() - x1 / 2) < 3 and abs(ys.mean() - y1 / 2) < 3, (formato, xs.mean(), ys.mean())
+        assert np.abs(cuadro(vista, 90) - antes).mean() < 2, formato  # al acabar la capa, otra vez a todo el cuadro
+        # El lienzo del editor (render.fotograma con las capas de video) enseña lo mismo en esa mitad
+        foto = de_qimage(render.fotograma(g, carpeta, 1.5))
+        bw, bh = x1 // 8, y1 // 8
+        diferencia = np.abs(reducir(foto[:y1, :x1], bw, bh) - reducir(durante[:y1, :x1], bw, bh))
+        assert foto.shape == durante.shape and diferencia.mean() < 6, (formato, diferencia.mean())
+        assert (de_qimage(render.fotograma(g, carpeta, 0.5)) > 180).all(axis=2).sum() > 0.9 * blanco_antes.sum()
+
+    # ---------- Exportar mira el disco también por las grabaciones (sus tramos casi sin pérdida) ----------
+    solo_cara = edicion.anadir_grabacion(edicion.nuevo(formato="16:9"), str(verde), 0, "completa")  # sin clips
+    uso_real = render.shutil.disk_usage
+    render.shutil.disk_usage = lambda _ruta: types.SimpleNamespace(free=3 * 1024 ** 2)  # 3 MB libres
+    try:  # 1,5 s a pantalla completa en 720p: hacen falta ~3,6 MB
+        falla(render.exportar, solo_cara, carpeta, d / "no_cabe.mp4", "720p")
+    finally:
+        render.shutil.disk_usage = uso_real
+    assert not (d / "no_cabe.mp4").exists()
 
     # ---------- Lo hostil se rechaza antes de llegar a ffmpeg ----------
     secreto = d / "claves.mp4"

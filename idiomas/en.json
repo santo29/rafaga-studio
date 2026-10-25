@@ -1375,7 +1375,6 @@
  "No hay ningún micrófono": "No microphone found",
  "No puedo escribir en la carpeta del proyecto: revisa que no sea de solo lectura.": "I can't write to the project folder: check that it isn't read-only.",
  "No se pudo añadir la grabación": "Couldn't add the recording",
- "No se pudo usar la cámara: puede que otra app la esté usando (Zoom, Teams, el navegador…) o que se haya desconectado. Ciérrala o vuelve a conectarla y prueba otra vez.\n\nDetalle: {detalle}": "Couldn't use the camera: another app may be using it (Zoom, Teams, the browser…) or it was disconnected. Close that app or plug the camera back in and try again.\n\nDetail: {detalle}",
  "Pantalla completa": "Full screen",
  "Pantalla dividida": "Split screen",
  "Permiso de cámara": "Camera permission",
@@ -1404,5 +1403,15 @@
  "capa de video": "video layer",
  "grabación": "recording",
  "{nombre} no es una grabación que pueda usar: elige un video de tu cara o un audio de tu voz.": "{nombre} isn't a recording I can use: choose a video of your face or an audio of your voice.",
- "«Bajar la música cuando hablas»": "«Lower the music when you speak»"
+ "«Bajar la música cuando hablas»": "«Lower the music when you speak»",
+ "No se pudo usar la cámara: puede que otra app la esté usando (Zoom, Teams, el navegador…) o que se haya desconectado. Cierra esa app o vuelve a conectar la cámara y prueba otra vez.\n\nDetalle: {detalle}": "Couldn't use the camera: another app may be using it (Zoom, Teams, the browser…) or it was disconnected. Close that app or plug the camera back in and try again.\n\nDetail: {detalle}",
+ "Windows no deja a Ráfaga Studio usar la cámara. Actívala en Configuración → Privacidad → Cámara («Permitir el acceso a la cámara en este dispositivo» y «Permitir que las aplicaciones de escritorio accedan a la cámara») y vuelve a intentarlo.": "Windows isn't letting Ráfaga Studio use the camera. Turn it on in Settings → Privacy → Camera (“Allow access to the camera on this device” and “Allow desktop apps to access your camera”) and try again.",
+ "Windows no deja a Ráfaga Studio usar el micrófono. Actívalo en Configuración → Privacidad → Micrófono («Permitir el acceso al micrófono en este dispositivo» y «Permitir que las aplicaciones de escritorio accedan al micrófono») y vuelve a intentarlo.": "Windows isn't letting Ráfaga Studio use the microphone. Turn it on in Settings → Privacy → Microphone (“Allow access to the microphone on this device” and “Allow desktop apps to access your microphone”) and try again.",
+ "Este video ya tiene {n} grabaciones encima: borra una o graba con «Solo voz».": "This video already has {n} recordings on top: delete one or record with “Voice only”.",
+ "El archivo sigue en {ruta}: cuando haya sitio, añádelo con «Importar grabación».": "The file is still in {ruta}: when there's room, add it with “Import recording”.",
+ "Tus grabaciones se quedan en {carpeta}.": "Your recordings stay in {carpeta}.",
+ "Para tu próxima grabación": "For your next recording",
+ "Cancelar": "Cancel",
+ "Cambia la grabación elegida": "Changes the selected recording",
+ "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Click the video background to release it: then it applies to your next recording."
 }

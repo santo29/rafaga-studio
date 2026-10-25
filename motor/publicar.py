@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 
-from . import claves, guardia, seguro
+from . import claves, guardia, ia, seguro
 from .idioma import t
 
 HISTORIAL = Path(__file__).resolve().parent.parent / "datos" / "publicaciones.json"
@@ -178,6 +178,16 @@ def _subir(sesion: str, archivo: Path, cabecera: dict, aviso) -> httpx.Response:
     raise RuntimeError(t("La subida a YouTube se cortó varias veces. Revisa tu conexión e inténtalo de nuevo."))
 
 
+def publicable(titulo, descripcion) -> tuple[str, str]:
+    """El título y la descripción tal como se suben (director.costo enseña estos mismos en la pregunta). YouTube no
+    interpreta Markdown: «**», «##» o «[Suscríbete](url)» se publicaban tal cual (lo escribe la IA del Director, o viene
+    pegado de un proyecto viejo). Y rechaza «<» y «>»; el título va hasta 100 caracteres y la descripción hasta 5000
+    bytes."""
+    titulo = re.sub(r"[<>]", "", ia.sin_markdown(titulo, "linea")).strip()[:100]
+    descripcion = re.sub(r"[<>]", "", ia.sin_markdown(descripcion)).encode()[:5000].decode(errors="ignore")
+    return titulo, descripcion
+
+
 def programar(archivo: str, titulo: str, descripcion: str = "", etiquetas=(), fecha_hora: str = "",
               red: str = "youtube", aviso=None) -> dict:
     """Sube el video a YouTube como privado con su hora de salida: YouTube lo publica solo a esa hora, aunque el PC
@@ -193,9 +203,8 @@ def programar(archivo: str, titulo: str, descripcion: str = "", etiquetas=(), fe
     cuenta = claves.cargar().get("youtube")
     if not cuenta:
         raise ValueError(t("Primero conecta YouTube en la página «Publicar»."))
-    # YouTube rechaza «<» y «>»; el título va hasta 100 caracteres y la descripción hasta 5000 bytes
-    titulo = re.sub(r"[<>]", "", str(titulo or "")).strip()[:100] or real.stem[:100]
-    descripcion = re.sub(r"[<>]", "", str(descripcion or "")).encode()[:5000].decode(errors="ignore")
+    titulo, descripcion = publicable(titulo, descripcion)
+    titulo = titulo or real.stem[:100]
     datos = {"snippet": {"title": titulo, "description": descripcion, "tags": _etiquetas(etiquetas)},
              "status": {"privacyStatus": "private", "publishAt": hora, "selfDeclaredMadeForKids": False,
                         "containsSyntheticMedia": True}}

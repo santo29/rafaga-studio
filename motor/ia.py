@@ -5,6 +5,7 @@ import math
 import re
 import threading
 import time
+import traceback
 import urllib.parse
 from fractions import Fraction
 from typing import Callable
@@ -13,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from . import claves, guardia, seguro
-from .idioma import t
+from .idioma import dinero, t
 
 VIDEO_MAXIMO = 300 * 1024 ** 2  # un clip de IA de 5 s pesa unos pocos MB
 ESPACIO_IMAGEN = "black-forest-labs/FLUX.1-schnell"  # imágenes gratis sin clave y con calidad (el oficial de FLUX)
@@ -47,6 +48,124 @@ class SinClave(Exception):
 FALTAS = ("El pedido lo escribe una persona que puede tener faltas (b/v, s/c/z, ll/y, h que falta, letras cambiadas). "
           "Entiende qué quiso decir: si una palabra tal cual no encaja con el resto del pedido, usa la parecida que sí "
           "encaja (p. ej. «abla» → habla). Nunca cambies el tema. Si dos lecturas son igual de probables, dilo.")
+# La regla común de texto plano: lo que escribe la IA se enseña, se dice en voz alta y se publica tal cual
+TEXTO_PLANO = ("Escribe cada texto como texto normal, sin Markdown: nada de **negritas**, # títulos, listas con * o -, "
+               "`código`, tablas ni [enlaces](url); si hace falta una lista, un punto por línea. Lo que dice una voz "
+               "(narración, diálogos), solo palabras: sin emojis, hashtags ni enlaces.")
+
+_ETIQUETA = re.compile(r"</?(?:b|i|u|s|em|strong|p|span|div|h[1-6]|ul|ol|li|a|code|pre|font|small|sup|sub|del|ins|"
+                       r"mark|blockquote|hr|table|thead|tbody|tr|td|th)\b[^>\n]*>", re.I)
+_BLOQUE = re.compile(r"^[ \t]*```.*(?:\n|$)", re.M)  # la línea entera de un ```: no deja un hueco
+_TITULO = re.compile(r"^[ \t]*#{1,6}[ \t]+", re.M)
+_CITA = re.compile(r"^[ \t]*>[ \t]?", re.M)
+_RAYA = re.compile(r"^[ \t]*([-*_])([ \t]*\1){2,}[ \t]*$", re.M)  # --- *** ___
+_LISTA = re.compile(r"^[ \t]*[*+\-•][ \t]+", re.M)
+_TABLA_SEP = re.compile(r"^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$", re.M)
+_TABLA = re.compile(r"^[ \t]*\|(.*)\|[ \t]*$", re.M)
+_ENLACE = re.compile(r"!?\[([^\]\n]+)\]\((\S+?)\)")  # solo [texto](url): los huecos [Precio] y el [Chorus] se quedan
+_MARCAS = [(re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*"), r"\1"), (re.compile(r"__(?=\S)(.+?)(?<=\S)__"), r"\1"),
+           (re.compile(r"~~(?=\S)(.+?)(?<=\S)~~"), r"\1"), (re.compile(r"`([^`\n]+)`"), r"\1"),
+           # *cursiva* y _cursiva_ sin tocar «5 * 3» ni los nombres_con_guion_bajo
+           (re.compile(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"), r"\1"),
+           (re.compile(r"(?<![\w_])_(?=\S)([^_\n]+?)(?<=\S)_(?![\w_])"), r"\1")]
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")  # emojis y sus uniones
+
+
+def sin_markdown(texto, para: str = "texto") -> str:
+    """El texto que escribió una IA, listo para enseñarlo, decirlo o publicarlo: sin Markdown (**, #, listas con * o -,
+    `código`, tablas, [enlaces](url)), sin entidades HTML (&amp;), etiquetas (<br>) ni «\\n» escritos como texto.
+    para: «texto» (chat, descripciones: guarda los saltos de línea; listas con «•»; enlaces «texto: url»),
+    «linea» (títulos y etiquetas: una sola línea) o «voz» (lo que lee la voz y sale en los subtítulos: solo palabras,
+    sin enlaces, emojis ni símbolos; cada línea, una frase). Las «comillas», ¿?, ¡!, el ·, los [Chorus] de una letra,
+    los huecos [Precio] y (salvo en «voz») los #hashtags y emojis se quedan."""
+    import html
+    s = str(texto or "").replace("\\r", "").replace("\\n", "\n").replace("\\t", " ").replace("\r", "")
+    s = html.unescape(re.sub(r"<br\s*/?>", "\n", s, flags=re.I))
+    s = _ETIQUETA.sub("", s)  # <b>, <p>… que algunas IA mezclan (un «<3» o un «<video>» escrito a mano se quedan)
+    s = _BLOQUE.sub("", s)
+    s = _TABLA_SEP.sub("", s)
+    s = _TABLA.sub(lambda m: " · ".join(c.strip() for c in m[1].split("|") if c.strip()), s)
+    s = _RAYA.sub("", s)
+    s = _TITULO.sub("", s)
+    s = _CITA.sub("", s)
+    s = _LISTA.sub("" if para in ("voz", "linea") else "• ", s)
+    s = _ENLACE.sub(lambda m: m[1] if para == "voz" or m[1] == m[2] else f"{m[1]}: {m[2]}", s)
+    for patron, cambio in _MARCAS:
+        s = patron.sub(cambio, s)
+    s = re.sub(r"\\([\\*_#`~\[\]()>|-])", r"\1", s)  # \* \# escapados de Markdown
+    if para == "voz":
+        s = re.sub(r"https?://\S+|www\.\S+", "", s)
+        s = _EMOJI.sub("", s)
+        s = re.sub(r"#(\w)", r"\1", s)
+        s = re.sub(r"[*_~`#|\\^•<>]", " ", s)
+        # cada línea, una frase: la voz hace la pausa y los subtítulos no juntan dos frases
+        s = " ".join(l if l[-1] in ".!?…:;,»\"" else l + "." for l in (" ".join(x.split()) for x in s.split("\n")) if l)
+    elif para == "linea":
+        s = " ".join(s.split())
+    else:
+        s = re.sub(r"\n{3,}", "\n\n", "\n".join(l.rstrip() for l in s.split("\n")))
+    return s.strip()
+
+
+def _limpio(datos):
+    """Cada texto de una respuesta de la IA, sin Markdown (ver sin_markdown). Un texto que es JSON escrito como texto
+    (los «argumentos» del Director) se deja tal cual: limpiarlo lo rompería."""
+    if isinstance(datos, dict):
+        return {k: _limpio(v) for k, v in datos.items()}
+    if isinstance(datos, list):
+        return [_limpio(d) for d in datos]
+    if isinstance(datos, str):
+        if datos.lstrip()[:1] in ("{", "["):
+            try:
+                json.loads(datos)
+                return datos
+            except ValueError:
+                pass
+        return sin_markdown(datos)
+    return datos
+
+
+def recortar(texto: str, largo: int) -> str:
+    """Como mucho `largo` letras, cortado en el último espacio y con «…»: nunca a mitad de palabra."""
+    texto = str(texto or "").strip()
+    if len(texto) <= largo:
+        return texto
+    corte = texto[:max(largo - 1, 1)]
+    if not (corte[-1].isspace() or texto[len(corte)].isspace()) and " " in corte.strip():
+        corte = corte.rsplit(None, 1)[0]  # sin la palabra que quedaba a medias
+    return corte.rstrip(" ,;:") + "…"
+
+
+def hashtag(texto: str) -> str:
+    """Un hashtag que funciona: «comida dominicana» → #comidadominicana, «**#viral**» → #viral (respeta tildes y ñ)."""
+    return "#" + "".join(re.findall(r"\w+", str(texto)))
+
+
+def _mensaje_de(nodo) -> str | None:
+    """El primer texto de una respuesta JSON de error: su «message» (o «detail», «error»…), también dentro de listas."""
+    if isinstance(nodo, str):
+        return nodo.strip() or None
+    if isinstance(nodo, dict):
+        for k in ("message", "msg", "detail", "error_description", "error", "errors"):
+            if (encontrado := _mensaje_de(nodo.get(k))) is not None:
+                return encontrado
+        return next((e for e in map(_mensaje_de, nodo.values()) if e), None)
+    if isinstance(nodo, list):
+        return next((e for e in map(_mensaje_de, nodo) if e), None)
+    return None
+
+
+def motivo(r: httpx.Response) -> str:
+    """El porqué de un error de un servicio, en una línea y corta: su «message» y no el JSON entero con códigos
+    internos; si la respuesta no es JSON (p. ej. una página de error 502), su texto sin etiquetas."""
+    try:
+        texto = _mensaje_de(json.loads(r.text))
+    except ValueError:
+        texto = None
+    if texto is None:
+        import html
+        texto = html.unescape(re.sub(r"<[^>]*>", " ", r.text or ""))
+    return recortar(" ".join(texto.split()), 300) or str(r.status_code)
 
 
 def _json_de(texto: str, esquema: dict | None = None) -> dict:
@@ -82,8 +201,7 @@ def _json_de(texto: str, esquema: dict | None = None) -> dict:
             # Mejor: cumple lo pedido, se leyó sin reparar y abarca más texto (el objeto de fuera, no uno de dentro).
             candidatos.append(((not valido, not exacto, -(fin - m.start())), datos))
     if not candidatos:
-        raise ValueError(t("la IA no devolvió JSON") if "{" not in texto
-                         else t("la IA devolvió un JSON que no se puede reparar"))
+        raise ValueError(t("La IA respondió algo que no se entiende."))
     return min(candidatos, key=lambda c: c[0])[1]
 
 
@@ -99,11 +217,18 @@ def _normalizar(datos, esquema: dict):
             return datos
     if tipo == "string" and isinstance(datos, (int, float)) and not isinstance(datos, bool):
         return str(datos)
+    if tipo == "string" and isinstance(datos, list) and all(isinstance(d, (str, int, float)) for d in datos):
+        # una lista donde va un texto («Por qué es viral: ["Mucho público", …]»): un punto por línea, no JSON
+        return "\n".join(f"• {d}" for d in datos)
     if tipo == "string" and isinstance(datos, (dict, list)):  # p. ej. los argumentos del Director como objeto
         return json.dumps(datos, ensure_ascii=False)
     if tipo == "array" and isinstance(datos, str) and esquema.get("items", {}).get("type") == "string":
-        import re
-        return [p for p in re.split(r"[\s,]+", datos) if p]
+        # Por comas; por espacios solo si todo son #hashtags: «Instagram Reels, YouTube Shorts» no se parte en cuatro
+        trozos = []
+        for parte in re.split(r"\s*,\s*", datos.strip()):
+            palabras = parte.split()
+            trozos += palabras if palabras and all(p.startswith("#") for p in palabras) else [parte] if parte else []
+        return trozos
     if tipo == "object" and isinstance(datos, dict):
         # Un campo opcional en null (los modelos pequeños lo hacen) es como si no viniera: no tumba la respuesta
         return {k: _normalizar(v, esquema.get("properties", {}).get(k, {})) for k, v in datos.items()
@@ -175,7 +300,7 @@ def de_fuera(datos, esquema: dict, que: str) -> dict:
     if valido is None:
         faltan = ", ".join(_faltan(_normalizar(datos, esquema), esquema)[:8]) if isinstance(datos, dict) else t("raíz")
         raise ValueError(t("{que} no tiene la forma pedida: faltan o están mal {campos}.", que=que, campos=faltan))
-    return valido
+    return _limpio(valido)  # lo escribe un agente de fuera: el mismo texto plano que lo de la IA de la app
 
 
 def _ejemplo(esquema: dict):
@@ -244,50 +369,62 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
             faltan = ", ".join(_faltan(_normalizar(datos, esquema), esquema)[:5])
             problema = (t("devolvió el ejemplo sin rellenar") if valido is not None
                         else t("faltan o están mal: {campos}", campos=faltan))
-        except (ValueError, KeyError, IndexError, TypeError) as e:
-            problema = t("respuesta no válida: {error}", error=e)
+        except (ValueError, KeyError, IndexError, TypeError):  # el detalle (en inglés, de Python) va a la consola
+            traceback.print_exc()
+            problema = t("respuesta no válida")
     raise RuntimeError(t("La IA gratis sin clave no dio una respuesta válida ({problema}). Conecta Groq o Gemini "
                          "(gratis) en «Claves de IA» para más calidad.", problema=problema))
 
 
 def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto") -> dict:
     """Pide a la IA de texto una respuesta JSON que cumpla `esquema`. uso: «texto», o «diseno» para la IA que diseña
-    (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona)."""
+    (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona).
+    Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual."""
+    instrucciones = f"{instrucciones}\n\n{TEXTO_PLANO}"
     c = claves.para(uso)
     if not c or not c.get("clave"):
-        return _texto_gratis(instrucciones, pedido, esquema)
+        return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+    nombre = claves.nombre(c["proveedor"])
     if c["proveedor"] == "anthropic":
         import anthropic
         cliente = anthropic.Anthropic(api_key=c["clave"])
-        with cliente.messages.stream(
-            model=c["modelo_texto"], max_tokens=32000, system=instrucciones,
-            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": esquema}},
-            messages=[{"role": "user", "content": pedido}],
-        ) as s:
-            r = s.get_final_message()
+        try:
+            with cliente.messages.stream(
+                model=c["modelo_texto"], max_tokens=32000, system=instrucciones,
+                output_config={"effort": "medium", "format": {"type": "json_schema", "schema": esquema}},
+                messages=[{"role": "user", "content": pedido}],
+            ) as s:
+                r = s.get_final_message()
+        except anthropic.APIStatusError as e:  # sin esto se veía «Error code: 401 - {'error': {…}, 'request_id': …}»
+            raise RuntimeError(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre,
+                                 codigo=e.status_code, detalle=motivo(e.response))) from None
         if r.stop_reason == "refusal":
             raise RuntimeError(t("Claude rechazó el pedido."))
-        return json.loads(next(b.text for b in r.content if b.type == "text"))
+        return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
 
-    from openai import OpenAI
+    from openai import APIStatusError, OpenAI
     cliente = OpenAI(api_key=c["clave"], base_url=claves.OPENAI_COMPAT[c["proveedor"]])
     # El modo json_object funciona en todos los compatibles; el esquema va en las instrucciones.
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con JSON que cumpla este esquema:\n"
                                               f"{json.dumps(esquema)}"},
                 {"role": "user", "content": pedido}]
     for _ in range(2):  # si la respuesta llega cortada o incompleta, se pide una vez más
-        r = cliente.chat.completions.create(model=c["modelo_texto"], response_format={"type": "json_object"},
-                                            messages=mensajes,
-                                            # Pollinations: que no salga en su feed público
-                                            extra_body={"private": True} if c["proveedor"] == "pollinations" else None)
+        try:
+            r = cliente.chat.completions.create(model=c["modelo_texto"], response_format={"type": "json_object"},
+                                                messages=mensajes,
+                                                # Pollinations: que no salga en su feed público
+                                                extra_body={"private": True} if c["proveedor"] == "pollinations" else None)
+        except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
+            raise RuntimeError(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre,
+                                 codigo=e.status_code, detalle=motivo(e.response))) from None
         try:
             valido = _validar(_json_de(r.choices[0].message.content or "", esquema), esquema)
         except ValueError:
             valido = None
         if valido is not None:
-            return valido
+            return _limpio(valido)
     raise RuntimeError(t("La IA de texto ({proveedor}) respondió incompleto dos veces. Inténtalo de nuevo o "
-                         "elige otra IA de texto en «Claves de IA».", proveedor=c["proveedor"]))
+                         "elige otra IA de texto en «Claves de IA».", proveedor=nombre))
 
 
 def puede_referencia() -> bool:
@@ -580,8 +717,8 @@ def precio_video(proveedor: str, segundos: float | None = None, voz: bool = Fals
 
 def nota_pago(proveedor: str, clips: int) -> str:
     """La nota de gasto de un trabajo: cuántos clips mudos hizo el servicio de pago y lo más que costaron."""
-    return t("{proveedor} hizo {n} clip(s) de video: hasta unos US${costo} según su precio.",
-             proveedor=nombre_video(proveedor), n=clips, costo=f"{clips * precio_video(proveedor):.2f}")
+    return t("{proveedor} hizo clips de video ({n}): hasta unos {costo} según su precio.",
+             proveedor=nombre_video(proveedor), n=clips, costo=dinero(clips * precio_video(proveedor)))
 
 
 def _recordar_modelo(proveedor: str, campo: str, modelo: str) -> None:
@@ -642,7 +779,7 @@ def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path
                                             "imageConfig": {"aspectRatio": relacion, "imageSize": calidad}}})
     if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
-                             detalle=" ".join(r.text.split())[:300]))
+                             detalle=motivo(r)))
     for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
         datos = parte.get("inlineData") or parte.get("inline_data") or {}
         if datos.get("data"):
@@ -706,14 +843,14 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
                             "resolution": "720p", "delivery": "uri"}})
     if r.is_error:  # el motivo exacto (filtro de seguridad, sin facturación, clave): el cuerpo no trae la clave
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
-                             detalle=" ".join(r.text.split())[:300]))
+                             detalle=motivo(r)))
     respuesta = r.json()
     interaccion, archivo = str(respuesta.get("id", "")).removeprefix("interactions/"), None
     try:
         bloque = _bloque_video(respuesta)
         if not bloque:  # p. ej. lo frenó su filtro de seguridad: se dice lo que contestó
             raise RuntimeError(t("Gemini no devolvió ningún video: {detalle}",
-                                 detalle=json.dumps(respuesta, ensure_ascii=False)[:300]))
+                                 detalle=recortar(_mensaje_de(respuesta) or t("sin motivo"), 300)))
         try:
             if bloque.get("data"):
                 return _clip_real(base64.b64decode(bloque["data"]), destino)

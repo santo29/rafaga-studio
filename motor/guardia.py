@@ -351,8 +351,8 @@ def revisar_integridad() -> dict:
     if not (cambiados or faltan or sobran):
         return {"estado": "ok", "texto": t("El código de la app es el que se instaló ({n} archivos comprobados).",
                                            n=len(manifiesto))}
-    texto = t("El código de la app no es el que se instaló: {cambiados} cambiado(s), {faltan} que falta(n) y {sobran} "
-              "de más ({ejemplos}).", cambiados=len(cambiados), faltan=len(faltan), sobran=len(sobran),
+    texto = t("El código de la app no es el que se instaló. Archivos cambiados: {cambiados}; que faltan: {faltan}; de "
+              "más: {sobran} ({ejemplos}).", cambiados=len(cambiados), faltan=len(faltan), sobran=len(sobran),
               ejemplos=", ".join((cambiados + faltan + sobran)[:3]))
     registrar("integridad", "alta", texto, "app")  # sin el paso a seguir: así los nombres de archivo no se cortan
     paso = t("Pasa el antivirus de Windows y reinstala Ráfaga Studio (tus proyectos y claves se quedan).")
@@ -459,8 +459,8 @@ def _mcp() -> list[dict]:
                 "y «Conectar» en «Conexión MCP».", cliente=cliente, carpeta=", ".join(sorted(otras)))})
         elif "aviso" in estados:
             resultados.append({"estado": "aviso", "texto": t(
-                "{cliente}: la conexión MCP no arranca en modo seguro (-s -E): pulsa «Desconectar» y «Conectar» en "
-                "«Conexión MCP».", cliente=cliente)})
+                "{cliente}: la conexión MCP no está en modo seguro: pulsa «Desconectar» y «Conectar» en «Conexión "
+                "MCP».", cliente=cliente)})
         else:
             resultados.append({"estado": "ok", "texto": t("{cliente}: la conexión MCP es la de esta app y arranca en "
                                                           "modo seguro.", cliente=cliente)})
@@ -528,4 +528,5 @@ def explicar(evento: dict) -> str:
     esquema = {"type": "object", "properties": {"explicacion": {"type": "string"}}, "required": ["explicacion"],
                "additionalProperties": False}
     r = ia.texto_json(EXPLICAR.replace("{idioma}", IDIOMAS[actual()]), json.dumps(datos, ensure_ascii=False), esquema)
-    return " ".join(str(r.get("explicacion", "")).split())[:1500] or t("La IA no dio ninguna explicación.")
+    # Con sus saltos de línea (la etiqueta parte las largas): juntarlas dejaba «* Se bloqueó…» en medio de la frase
+    return ia.recortar(ia.sin_markdown(r.get("explicacion", "")), 1500) or t("La IA no dio ninguna explicación.")

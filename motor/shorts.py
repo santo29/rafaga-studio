@@ -8,7 +8,7 @@ from typing import Callable
 import yt_dlp
 
 from . import claves, ia, memoria, seguro, video
-from .idioma import t
+from .idioma import porcentaje, t
 
 PROYECTOS = Path(__file__).resolve().parent.parent / "datos" / "proyectos"
 
@@ -179,7 +179,7 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
 
     aviso(t("Descargando el video…"), 0.02)
     original, titulo = descargar(url, carpeta,
-                                 lambda f: aviso(t("Descargando el video… {p:.0%}", p=f), 0.02 + 0.12 * f))
+                                 lambda f: aviso(t("Descargando el video… {p}", p=porcentaje(f)), 0.02 + 0.12 * f))
     total = video.duracion(original)
 
     aviso(t("Sacando el audio…"), 0.15)
@@ -189,7 +189,7 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
     transcribiendo = t("Transcribiendo en la nube…") if (claves.para("transcripcion") or {}).get("clave") else \
         t("Transcribiendo en tu PC (lento; con Groq gratis es mucho más rápido)…")
     aviso(transcribiendo, 0.2)
-    palabras = ia.transcribir(audio, progreso=lambda f: aviso(f"{transcribiendo} {f:.0%}", 0.2 + 0.3 * f))
+    palabras = ia.transcribir(audio, progreso=lambda f: aviso(f"{transcribiendo} {porcentaje(f)}", 0.2 + 0.3 * f))
     if not palabras:
         raise RuntimeError(t("No se encontró voz en el video."))
     (carpeta / "transcripcion.json").write_text(json.dumps(palabras, ensure_ascii=False), encoding="utf-8")

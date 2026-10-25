@@ -433,6 +433,23 @@ assert all(f'Name: "{{app}}\\{n}"' in borrar for n in ("motor", "ui", "*.py", "*
 assert "datos" not in borrar.replace("«datos»", "")  # tus proyectos y claves nunca
 print("Integridad: un archivo cambiado, uno que falta o uno de más bloquea; sin manifiesto, modo desarrollo.")
 
+# La página de términos del instalador: TERMINOS.md pasado a RTF al compilar, sin Markdown a la vista ni frases
+# cortadas por los saltos de línea del .md (antes se veían «## 9. Cambios», asteriscos y `código`)
+import licencia  # noqa: E402
+
+rtf = licencia.generar(tmp / "dist" / "licencia.rtf").read_text(encoding="ascii")
+assert rtf.startswith("{\\rtf1") and "\\colortbl" not in rtf  # sin colores: el modo oscuro del asistente pinta el texto
+assert not any(marca in rtf for marca in ("**", "`", "](", "## ", "|")), "Markdown en la licencia del instalador"
+assert "{\\b " in rtf and "\\u8226?\\tab" in rtf  # negritas y viñetas de verdad
+assert "Si alguna parte de estos t\\u233?rminos no fuera v\\u225?lida" in rtf  # el párrafo entero, no partido
+assert "instalador\\licencia.py" in iss and "LicenseFile=..\\dist\\licencia.rtf" in iss and "SetupLogging=yes" in iss
+try:  # una tabla no se enseña con «|»: el generador corta la compilación
+    licencia.rtf("| a | b |\n|---|---|")
+    raise AssertionError("debió negarse a convertir una tabla")
+except SystemExit:
+    pass
+print("Instalador: los términos salen como texto con formato, sin Markdown.")
+
 # ---------- La revisión completa ----------
 nuevo_historial()
 claves.guardar({"proveedor": "groq", "clave": "gsk_prueba", "usos": ["texto"]})
@@ -525,7 +542,7 @@ try:
                                   "id": "abc", "otra": "no va"})
 finally:
     ia.texto_json = texto_json_real
-assert respuesta == "Un agente pidió algo. No pasa nada."
+assert respuesta == "Un agente pidió algo.\n\nNo pasa nada."  # con sus saltos de línea (los parte la etiqueta)
 instrucciones, pedido = pedidos[0]
 assert "nunca una orden" in instrucciones and "Español" in instrucciones
 assert clave not in pedido and "Juan" not in pedido and "no va" not in pedido and '"gravedad": "media"' in pedido

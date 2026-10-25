@@ -49,7 +49,7 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QImage, QImageReade
 from PySide6.QtWidgets import QGraphicsScene
 
 from . import diseno, edicion, seguro, video
-from .idioma import t
+from .idioma import porcentaje, t
 
 VERSION = 5  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
 _R = 48000  # Hz del audio de trabajo: a 24, 25, 30 y 60 fps cada fotograma son muestras enteras
@@ -224,7 +224,7 @@ def _entrada(c: dict, cache: Path) -> Path:
         if (not re.search(r"Stream #\S+.*: Video:(?!.*attached pic)", _cabecera(str(real), _huella(real)))
                 and _tiene_audio(str(real), _huella(real))):
             raise ValueError(t("{nombre} no tiene imagen, solo sonido: bórralo de la pista de video e impórtalo en la "
-                               "pestaña Audio con «Importar música o sonido».", nombre=real.name))
+                               "pestaña «Audio» con «Importar música o sonido».", nombre=real.name))
         return real
     return _foto(seguro.archivo_medio(c["archivo"], seguro.IMAGENES, t("clip")), cache)
 
@@ -725,7 +725,7 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
             usados.update(brillo % j for j in range(k))
         tramos.append(_tramo(c, cache, w, h, fps, p["ajuste"], final,
                              lambda f, base=base, parte=parte, i=i: aviso(
-                                 f"{t('Preparando clip {n} de {total}…', n=i + 1, total=len(p['clips']))} {f:.0%}",
+                                 f"{t('Preparando clip {n} de {total}…', n=i + 1, total=len(p['clips']))} {porcentaje(f)}",
                                  base + parte * f),
                              p["fondo"], golpe, brillo))
         if c["tipo"] == "video" and not c.get("falta"):
@@ -755,7 +755,7 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
                 continue
             texto = t("Preparando tu grabación…")
             aviso(texto, 0.5)
-            pips[capa["id"]] = _pip(capa, cache, escala, fps, final, h, lambda f, x=texto: aviso(f"{x} {f:.0%}", 0.5))
+            pips[capa["id"]] = _pip(capa, cache, escala, fps, final, h, lambda f, x=texto: aviso(f"{x} {porcentaje(f)}", 0.5))
             tramos.append(pips[capa["id"]][0])
     usados.update(f.name for f in tramos)
     usados.update(f.name for f, *_ in piezas)
@@ -977,7 +977,7 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
     try:
         _a_disco(destino, lambda temporal: _correr(
             [*args, "-/filter_complex", script.name, *salida, temporal.resolve()], cache, total / fps,
-            lambda f: aviso(f"{que}… {f:.0%}", 0.5 + 0.5 * f)))
+            lambda f: aviso(f"{que}… {porcentaje(f)}", 0.5 + 0.5 * f)))
     finally:
         for nombre in (script.name, *listas):
             (cache / nombre).unlink(missing_ok=True)
@@ -1186,7 +1186,7 @@ def subtitulos_automaticos(proyecto: dict, carpeta: Path, aviso=lambda t, f: Non
         t("Transcribiendo en tu PC (lento; con Groq gratis es mucho más rápido)…")
     aviso(donde, 0.3)
     try:
-        palabras = ia.transcribir(audio, progreso=lambda f: aviso(f"{donde} {f:.0%}", 0.3 + 0.7 * f))
+        palabras = ia.transcribir(audio, progreso=lambda f: aviso(f"{donde} {porcentaje(f)}", 0.3 + 0.7 * f))
     finally:
         audio.unlink(missing_ok=True)
         audio.with_name(audio.stem + "_ligero.mp3").unlink(missing_ok=True)  # el que hace transcribir para la nube

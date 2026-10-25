@@ -55,7 +55,7 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 | ⚡ Shorts mágicos | Pega un enlace; la IA elige los mejores momentos y los recorta en vertical con subtítulos |
 | 🚀 Anuncios | Foto del producto → varias versiones de anuncio (pruebas A/B) con tu producto real |
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |
-| 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y master |
+| 🎙️ Cabina | Graba sobre la pista; afinación, cadena de voz por género, mezcla con sidechain y máster |
 | 🔎 Nichos virales | Vistas por día reales de YouTube + investigación web en vivo (con Claude) → nichos con ideas listas |
 | 📅 Publicar | Programa tus videos en YouTube con tu propia app de Google: YouTube los publica a la hora elegida, aunque apagues el PC |
 | 🔌 MCP | Claude (u otro agente) puede usar todo el estudio desde el chat |
@@ -85,7 +85,7 @@ gastar. Para el texto y la transcripción eliges tú el proveedor.
 |---|---|---|
 | Texto / guiones | Groq, Gemini, Pollinations (sin clave) | Claude, OpenAI, OpenRouter, xAI, DeepSeek |
 | Imágenes | Cloudflare Workers AI (~100/día), Pollinations, FLUX en Hugging Face (sin clave, unas pocas al día) | OpenAI, Replicate, Gemini Nano Banana (solo si lo eliges: ~US$0,07 por imagen; mantiene iguales personajes y productos) |
-| Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal ($30 gratis/mes), Pollinations, Kling y Seedance (solo si los eliges: ~US$0,02-0,24 por segundo; antes de cada trabajo la app te dice lo más que puede costar, con un tope de 15 clips de pago por trabajo) |
+| Video IA (imagen → video) | Hugging Face ZeroGPU (Wan 2.2) | Modal (US$30 gratis al mes), Pollinations, Kling y Seedance (solo si los eliges: ~US$0,02-0,24 por segundo; antes de cada trabajo la app te dice lo más que puede costar, con un tope de 15 clips de pago por trabajo) |
 | Video animado con voz (los personajes hablan, labios sincronizados) | — | Gemini Omni (~US$0,10 por segundo; la app usa el modelo más nuevo de precio conocido de tu clave), o Kling o Seedance si los eliges en «Escenas que hablan». Crear te dice el costo antes, el Director te pregunta antes de usarlo y un agente MCP solo lo consigue con tu «Sí» en una ventana de Ráfaga Studio que el agente no puede leer ni contestar |
 | Voz | Voces de Edge | ElevenLabs |
 | Transcripción | Este PC (Whisper), Groq | OpenAI |
@@ -124,7 +124,7 @@ Hugging Face, las voces de Microsoft). El detalle completo, función por funció
 - **Tu token de Hugging Face nunca se envía a Spaces de terceros**: se usan sin token, con la cuota anónima.
 - **El servidor MCP solo acepta imágenes y audios de tu disco** y enlaces de sitios conocidos, así una web
   maliciosa no puede pedirle a Claude que saque archivos privados ni que ataque tu red.
-- **Qué sale de tu PC:** la cabina (voz, mezcla, master), la separación de voz y lo que le dices al Director con el
+- **Qué sale de tu PC:** la cabina (voz, mezcla, máster), la separación de voz y lo que le dices al Director con el
   micrófono se procesan siempre en tu PC (tu voz no sale de él). Los guiones, las
   imágenes y la animación usan los servicios que conectes; en el modo gratis sin clave, Pollinations (pedido como
   privado) y Spaces públicos de Hugging Face, que reciben lo que se les manda.

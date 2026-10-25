@@ -88,7 +88,8 @@ def _crear(url: str, cabecera: dict, cuerpo: dict) -> httpx.Response:
 
 def _motivo(r: httpx.Response, codigo: int | None, clave: str) -> str:
     """El error de Kling en claro (el cuerpo de la respuesta, nunca la clave)."""
-    detalle = " ".join(r.text.split())[:300].replace(clave, "…")
+    from .ia import motivo  # aquí: ia también carga este módulo (por claves)
+    detalle = motivo(r).replace(clave, "…")
     if r.status_code == 401:
         return t("{nombre} no aceptó la clave: conecta una nueva en «Claves de IA» (se consigue en {consola}).",
                  nombre=NOMBRE, consola=CONSOLA)

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
-from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPalette, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame,
                                QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
                                QMessageBox,
@@ -250,6 +250,11 @@ if __name__ == "__main__":
     app.setStyle(EstiloApp())  # Fusion: el estilo nativo de Windows ignora el tema oscuro en las listas desplegables
     app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(ESTILO)
+    # Enlaces en violeta claro (unos 7,5:1 sobre el fondo): el azul de serie (#0000FF) apenas se leía sobre #0F0F13.
+    # Vale para toda la app: documentos legales, chat del Director y cualquier setMarkdown
+    paleta = app.palette()
+    paleta.setColor(QPalette.Link, QColor("#A892FF"))
+    app.setPalette(paleta)
     app.setWindowIcon(QIcon(str(ICONO)))
     # Los botones de los diálogos de Qt (Sí/No, Aceptar/Cancelar) en el idioma de la app; sin esto salen en inglés
     traductor = QTranslator()

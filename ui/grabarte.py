@@ -203,7 +203,7 @@ class PanelGrabarte(QWidget):
         self.encender_btn.clicked.connect(self.encender)
         self.tiempo = etiqueta("", "grabando")
         self.tiempo.hide()
-        silenciar, self.silenciar = casilla(t("Silenciar el video mientras grabo"))
+        silenciar, self.silenciar = casilla(t("Silenciar el video mientras grabas"))
         self.silenciar.setChecked(True)
         bajar, self.bajar = casilla(t("Bajar la música cuando hablas"))
         self.bajar.setChecked(True)
@@ -442,11 +442,10 @@ class PanelGrabarte(QWidget):
         detalle = texto or (self.camara.errorString() if self.camara is not None else "")
         if permiso_denegado("webcam") or _es_permiso(detalle):
             aviso = aviso_privacidad("webcam")
-        else:
+        else:  # el detalle de Windows o Qt viene en inglés: a la consola, no a la ventana
+            print(f"Cámara: {detalle}", file=sys.stderr)
             aviso = t("No se pudo usar la cámara: puede que otra app la esté usando (Zoom, Teams, el navegador…) o que "
-                      "se haya desconectado. Cierra esa app o vuelve a conectar la cámara y prueba otra vez.\n\n"
-                      "Detalle: {detalle}",
-                      detalle=detalle or "—")
+                      "se haya desconectado. Cierra esa app o vuelve a conectar la cámara y prueba otra vez.")
         if self.estado == "grabando":
             self._apagar_luego = True
             self.detener()

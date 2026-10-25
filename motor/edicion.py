@@ -55,7 +55,7 @@ EFECTOS = {"ninguno": t("Ninguno"), "zoom_ritmo": t("Zoom al ritmo"), "flash_rit
            "glitch": t("Glitch"), "vhs": t("VHS"), "espejo": t("Espejo"),
            "desenfoque_entrada": t("Entrada desenfocada"), "brillo_rafaga": t("Brillo Ráfaga")}
 ESTILOS_SUBTITULOS = {"clasico": t("Clásico (amarillo)"), "caja": t("Caja negra"), "neon": t("Neón"),
-                      "karaoke": t("Karaoke Ráfaga"), "minimal": t("Minimal"),
+                      "karaoke": t("Karaoke Ráfaga"), "minimal": t("Minimalista"),
                       "impacto": t("Impacto (grande al centro)")}
 # Lo que pone cada plantilla (ver aplicar_plantilla). La interfaz usa «nombre» y «descripcion»
 PLANTILLAS = {
@@ -102,8 +102,8 @@ def _num(minimo, maximo, decimales=3):
     def regla(v):
         # NaN e infinito no pasan la comparación; True es un int para Python, pero aquí no es un número
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not minimo <= v <= maximo:
-            raise ValueError(t("tiene que ser un número entre {minimo} y {maximo} (llegó {v!r:.40})", minimo=minimo,
-                               maximo=maximo, v=v))
+            raise ValueError(t("tiene que ser un número entre {minimo} y {maximo} (llegó «{v:.40}»)", minimo=minimo,
+                               maximo=maximo, v=str(v)))
         v = round(float(v), decimales)
         return int(v) if v.is_integer() else v
     return regla
@@ -111,7 +111,7 @@ def _num(minimo, maximo, decimales=3):
 
 def _fps(v):
     if isinstance(v, bool) or v not in FPS:
-        raise ValueError(t("vale 24, 25, 30 o 60 (llegó {v!r:.40})", v=v))
+        raise ValueError(t("vale 24, 25, 30 o 60 (llegó «{v:.40}»)", v=str(v)))
     return int(v)
 
 
@@ -122,7 +122,7 @@ def _ruta(tipos):
                 or ".." in re.split(r"[\\/]", v) or Path(v).suffix.lower() not in tipos
                 or Path(v).name.split(".")[0].lower() in diseno._RESERVADOS):
             raise ValueError(t("tiene que ser la ruta completa de un archivo de este PC (C:\\…) de tipo {tipos} "
-                               "(llegó {v!r:.80})", tipos=", ".join(sorted(tipos)), v=v))
+                               "(llegó «{v:.80}»)", tipos=", ".join(sorted(tipos)), v=str(v)))
         return v
     return regla
 
@@ -169,7 +169,7 @@ def _tramo(r: dict, e: dict, que: str) -> dict:
     if diseno._campo(diseno._si_no, e.get("falta", False), f"{que}, «falta»"):
         r["falta"] = True
     if (r["hasta"] - r["desde"]) / r.get("velocidad", 1) < MIN_CLIP:
-        raise ValueError(t("{que}: dura demasiado poco (mínimo {minimo} s) o «hasta» no va después de «desde».",
+        raise ValueError(t("{que}: dura demasiado poco (mínimo {minimo} s) o el final no va después del inicio.",
                            que=que, minimo=MIN_CLIP))
     if r["tipo"] != "imagen":
         r["duracion_archivo"] = diseno._campo(_num(0, _T), e.get("duracion_archivo", r["hasta"]),
@@ -268,13 +268,13 @@ def validar(proyecto: dict) -> dict:
         lista = proyecto.get(clave, [])  # se cuenta ANTES de recorrer: 100 000 clips no cuelgan nada
         if not isinstance(lista, list) or len(lista) > tope:
             raise ValueError(t("El proyecto tiene que traer una lista de hasta {tope} {clave}.", tope=tope,
-                               clave=clave))
+                               clave={"clips": t("clips"), "capas": t("capas"), "audios": t("audios")}[clave]))
     formato = diseno._campo(diseno._una(*video.FORMATOS), proyecto.get("formato", "9:16"), t("El formato"))
     ancho, alto = video.FORMATOS[formato]
     ids = set()
     p = {"version": 1,
          "nombre": diseno._campo(diseno._texto(120), proyecto.get("nombre", t("Mi video")), t("El nombre")),
-         "formato": formato, "fps": diseno._campo(_fps, proyecto.get("fps", 30), t("Los fps")),
+         "formato": formato, "fps": diseno._campo(_fps, proyecto.get("fps", 30), t("Los fotogramas por segundo")),
          "ajuste": diseno._campo(diseno._una("recortar", "difuminar"), proyecto.get("ajuste", "recortar"),
                                  t("El ajuste")),
          "fondo": diseno._campo(diseno.color, proyecto.get("fondo", "#000000"), t("El fondo")),

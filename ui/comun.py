@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGr
                                QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory, QTextEdit,
                                QVBoxLayout, QWidget)
 
-from motor import desde_prompt, guardia, seguro
-from motor.idioma import t
+from motor import desde_prompt, guardia, ia, seguro
+from motor.idioma import dinero, t, texto_de_error
 from ui.iconos import COLOR, icono, poner, separar
 
 
@@ -198,8 +198,8 @@ class EstiloApp(QProxyStyle):
         return super().standardIcon(cual, opcion, widget)
 
 
-NOMBRES_FORMATO = {"9:16": "9:16  TikTok · Shorts · Reels", "16:9": "16:9  YouTube",
-                   "1:1": f"1:1  {t('Cuadrado')}", "4:5": f"4:5  {t('Feed')}"}
+NOMBRES_FORMATO = {"9:16": "9:16 · TikTok, Shorts, Reels", "16:9": "16:9 · YouTube",
+                   "1:1": f"1:1 · {t('Cuadrado')}", "4:5": f"4:5 · {t('Publicación')}"}
 
 
 class Tarea(QThread):
@@ -215,10 +215,9 @@ class Tarea(QThread):
     def run(self):
         try:
             self.listo.emit(self.funcion(**self.datos, aviso=lambda t, f: self.progreso.emit(t, f)))
-        except Exception as e:  # el error se muestra al usuario, no debe tumbar la app
+        except Exception as e:  # el error se muestra al usuario, no debe tumbar la app (el detalle, en la consola)
             traceback.print_exc()
-            self.fallo.emit(str(e).strip() or t("Error inesperado ({tipo}). Inténtalo de nuevo.",
-                                                tipo=type(e).__name__))
+            self.fallo.emit(texto_de_error(e))
 
 
 def mensaje(padre, titulo, texto, icono=QMessageBox.Information):
@@ -287,9 +286,22 @@ class _Halo(QObject):
 _HALO = _Halo()
 
 
+class _NombreAccesible(QObject):
+    """Un botón que solo lleva un icono o un símbolo (↶, ↷, 📁) toma el nombre de su ayuda para el lector de pantalla:
+    sin esto decía «↶» o «carpeta abierta»."""
+    def eventFilter(self, b, e):
+        if e.type() == QEvent.ToolTipChange and not any(c.isalpha() for c in b.text()):
+            b.setAccessibleName(b.toolTip().split(" (")[0])  # «Deshacer (Ctrl+Z)» → «Deshacer»
+        return False
+
+
+_ACCESIBLE = _NombreAccesible()
+
+
 def boton(texto, nombre="secundario"):
     """Botón con estilo. Si el texto empieza por un emoji conocido («📂  Abrir»), sale un icono de línea en su lugar."""
     b = QPushButton()
+    b.installEventFilter(_ACCESIBLE)
     b.setObjectName(nombre)
     b.setCursor(Qt.PointingHandCursor)
     b.setFocusPolicy(Qt.TabFocus)  # el anillo del foco, solo con el teclado: un clic no lo deja puesto sobre el vidrio
@@ -395,8 +407,7 @@ def resumen_avisos(avisos: list[str], maximo: int = 5) -> str:
     import re
     lineas = [f"⚠️ {re.sub(r'https?://\S+', '…', a)[:220]}" for a in avisos[:maximo]]
     if len(avisos) > maximo:
-        lineas.append(t("… y {n} aviso(s) más (todos en proyecto.json, en la carpeta del proyecto).",
-                         n=len(avisos) - maximo))
+        lineas.append(t("… y más avisos ({n}), todos en la carpeta del proyecto.", n=len(avisos) - maximo))
     return "\n".join(lineas)
 
 
@@ -473,8 +484,9 @@ class Reproductor(QFrame):
             return
         r = self.resultados[fila]
         self.player.setSource(QUrl.fromLocalFile(r["archivo"]))
-        self.info.setPlainText(f"{t(r['titulo'])}\n\n{r['descripcion']}\n\n" + " ".join(
-            h if h.startswith("#") else f"#{h}" for h in r["hashtags"]))
+        # sin_markdown: los proyectos de antes guardan la descripción con el Markdown de la IA
+        titulo, descripcion = ia.sin_markdown(t(r["titulo"]), "linea"), ia.sin_markdown(r["descripcion"])
+        self.info.setPlainText(f"{titulo}\n\n{descripcion}\n\n" + " ".join(map(ia.hashtag, r["hashtags"])))
         self.player.play()
         poner(self.play, f"⏸  {t('Pausar')}")
 
@@ -557,16 +569,16 @@ class PaginaTrabajo(QWidget):
             quien = ia.nombre_video(desde_prompt.proveedor_voz() or "gemini")
             titulo = t("Video animado con voz")
             if clips:  # el clip mudo de las que no salgan con voz, por lo alto: una sola cifra, como el Director
-                texto = t("Se harán {n} escena(s) animadas con voz en {proveedor}; las que no salgan con voz se "
-                          "animarán con {video}: hasta unos US${costo} en total según sus precios. ¿Seguir?",
-                          n=escenas, proveedor=quien, video=ia.nombre_video(pago), costo=f"{costo + mudos:.2f}")
+                texto = t("Escenas animadas con voz en {proveedor}: {n}. Las que no salgan con voz se animarán con "
+                          "{video}: hasta unos {costo} en total según sus precios. ¿Seguir?",
+                          n=escenas, proveedor=quien, video=ia.nombre_video(pago), costo=dinero(costo + mudos))
             else:
-                texto = t("Se harán {n} escena(s) animadas con voz en {proveedor}: hasta unos US${costo} según su "
-                          "precio. ¿Seguir?", n=escenas, proveedor=quien, costo=f"{costo:.2f}")
+                texto = t("Escenas animadas con voz en {proveedor}: {n}, hasta unos {costo} según su precio. ¿Seguir?",
+                          n=escenas, proveedor=quien, costo=dinero(costo))
         elif clips:
             titulo, texto = t("IA de video de pago"), t(
-                "Se animarán hasta {n} escena(s) con {proveedor}: hasta unos US${costo} según su precio. ¿Seguir?",
-                n=clips, proveedor=ia.nombre_video(pago), costo=f"{mudos:.2f}")
+                "Escenas que se animarán con {proveedor}: hasta {n}, por unos {costo} como mucho según su precio. "
+                "¿Seguir?", n=clips, proveedor=ia.nombre_video(pago), costo=dinero(mudos))
         else:
             return True
         if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: ningún video de pago empieza

@@ -7,16 +7,33 @@ First public version · Primera versión.
 - **The Director's voice assistant now answers:** it hears quiet laptop microphones and a short «yes» (before, the
   volume threshold was too high: it listened 8 s, heard nothing and said so in a line below the screen). Pressing
   «Talk» or Ctrl+Space scrolls to the chat; «I couldn't hear you» is said in the chat and out loud; a muted or blocked
-  microphone in Windows is reported after 3 s with where to turn it on; holding Ctrl+Space no longer switches listening
+  microphone in Windows is reported after 8 s with where to turn it on; holding Ctrl+Space no longer switches listening
   on and off; Ctrl+Space also answers the «Shall I do it?» window; a reply that can't be played no longer leaves the
   light on; Whisper loads while you speak (the first command waits less) and its first download says so.
 - **El asistente de voz del Director ya responde:** oye los micrófonos bajitos de portátil y un «sí» corto (antes el
   umbral de volumen era muy alto: escuchaba 8 s, no oía nada y lo decía en una línea por debajo de la pantalla). Al
   pulsar «Hablar» o Ctrl+Espacio la página baja hasta el chat; «No te escuché bien» sale en el chat y en voz alta; un
-  micrófono silenciado o bloqueado en Windows se avisa a los 3 s con dónde activarlo; mantener Ctrl+Espacio pulsado ya
+  micrófono silenciado o bloqueado en Windows se avisa a los 8 s con dónde activarlo; mantener Ctrl+Espacio pulsado ya
   no enciende y apaga la escucha; Ctrl+Espacio también contesta la ventana «¿Lo hago?»; una respuesta que no se puede
   reproducir ya no deja la luz encendida; Whisper se carga mientras hablas (la primera orden espera menos) y su primera
   descarga se avisa.
+- **Clean texts everywhere:** the installer shows the terms of use as formatted text (titles, bold, bullets, whole
+  paragraphs) instead of raw Markdown, with its pages in a consistent, informal Spanish and Portuguese, and its error
+  window shows only pip's errors with buttons in the installer's language. Everything an AI writes (scripts, captions,
+  ads, songs, designs, the Director's chat, Ráfaga Guardia's explanations) reaches the screen, the voice, the burned-in
+  subtitles and YouTube without `**`, `#`, list asterisks, `code`, tables or `[links](url)`; the voice no longer reads
+  symbols, links or file paths, and prices are said in words. Service errors show their reason instead of raw JSON,
+  amounts and percentages are written the way each language does, French uses «tu» throughout, and links in the legal
+  documents are readable and open the right document.
+- **Textos limpios en todas partes:** el instalador enseña los términos de uso como texto con formato (títulos,
+  negritas, viñetas y párrafos enteros) y no el Markdown crudo, con sus páginas en un español y un portugués de tú
+  coherentes, y su ventana de error enseña solo los errores de pip, con los botones en el idioma del instalador. Todo lo
+  que escribe una IA (guiones, descripciones, anuncios, canciones, diseños, el chat del Director, las explicaciones de
+  Ráfaga Guardia) llega a la pantalla, a la voz, a los subtítulos quemados y a YouTube sin `**`, `#`, asteriscos de
+  lista, `código`, tablas ni `[enlaces](url)`; la voz ya no lee símbolos, enlaces ni rutas, y dice los precios en
+  palabras. Los errores de los servicios dicen su motivo en vez del JSON crudo, el dinero y los porcentajes se escriben
+  como en cada idioma, el francés va todo en «tu» y los enlaces de los documentos legales se leen bien y abren el
+  documento que toca.
 - **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle, full
   screen or split screen (the main video moves, whole, into the other half; one click, then drag and resize it on the
   preview), or record just your voice, or import a video of your face. A 3-2-1 countdown, then the video plays from the

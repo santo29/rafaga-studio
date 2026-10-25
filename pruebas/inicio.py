@@ -374,8 +374,17 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     padre = QDialog()
     for archivo in legal.DOCUMENTOS:
         doc = legal.ver_documento(padre, archivo)
-        assert len(doc.findChild(QTextBrowser).toPlainText()) > 200, archivo
+        texto = doc.findChild(QTextBrowser).toPlainText()
+        # Markdown de verdad (también LICENSE): sin `comillas`, ** ni ## a la vista
+        assert len(texto) > 200 and not any(m in texto for m in ("`", "**", "## ", "](")), archivo
         doc.close()
+    # Un enlace a otro documento legal lo abre en su ventana; uno de GitHub no navega a ningún sitio
+    doc = legal.ver_documento(padre, "PRIVACIDAD.md")
+    antes = len(padre.findChildren(QDialog))
+    doc.findChild(QTextBrowser).anchorClicked.emit(QUrl("SECURITY.md#contacto"))
+    doc.findChild(QTextBrowser).anchorClicked.emit(QUrl("../../issues"))
+    assert len(padre.findChildren(QDialog)) == antes + 1
+    assert padre.findChildren(QDialog)[-1].windowTitle() == "Política de seguridad"
     acerca = legal.acerca_de(padre)
     assert any("Santo Montilla" in w.text() for w in acerca.findChildren(QLabel))
     acerca.close()

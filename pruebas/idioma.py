@@ -86,5 +86,17 @@ for codigo in idioma.IDIOMAS:
     assert not faltan, f"{codigo}: faltan {len(faltan)} traducciones, p. ej. " + "; ".join(faltan[:5])
     mal = [texto[:50] for texto in marcados if huecos(texto) != huecos(traducciones[texto])]
     assert not mal, f"{codigo}: los {{huecos}} no coinciden en: " + "; ".join(mal[:5])
+    # Comillas de cada idioma: en inglés y en portugués de Brasil “ ”, no las «» del español
+    latinas = [v[:60] for v in traducciones.values() if codigo in ("en", "pt") and ("«" in v or "»" in v)]
+    assert not latinas, f"{codigo}: comillas «» en " + "; ".join(latinas[:5])
+    # Símbolos que el usuario lee como raros: plurales «(s)», Markdown y dinero sin formato propio
+    raros = [v[:60] for v in traducciones.values() if re.search(r"\w\((s|es|n)\)|\*\*|`|\]\(|\$\{", v)]
+    assert not raros, f"{codigo}: símbolos raros en " + "; ".join(raros[:5])
+# El francés, en «tu» como el «tú» del español: ni «vous» ni imperativos en -ez (salvo los nombres de Windows citados)
+frances = json.loads((RAIZ / "idiomas" / "fr.json").read_text(encoding="utf-8"))
+usted = [v[:60] for v in frances.values() if re.search(r"\b(vous|votre|vos)\b|\b\w+ez\b(?<!assez)(?<!chez)",
+                                                        re.sub(r"«[^»]*»", "", v), re.I)]
+assert not usted, "fr.json mezcla «vous» con «tu»: " + "; ".join(usted[:5])
+assert not [k for k in marcados if re.search(r"\w\((s|es|n)\)", k)], "plurales «(s)» en los textos de la app"
 
 print(f"Pruebas de idiomas pasadas ({len(marcados)} textos en {len(idioma.IDIOMAS)} idiomas).")

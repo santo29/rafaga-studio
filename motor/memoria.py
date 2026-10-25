@@ -45,7 +45,9 @@ def recordar(departamento: str, preferencia: str) -> dict[str, list[str]]:
         raise ValueError(t("Departamento desconocido ({departamento!r:.30}); valen {departamentos}.",
                            departamento=departamento,
                            departamentos=", ".join([roles.GENERAL, *roles.DEPARTAMENTOS])))
-    preferencia = " ".join(str(preferencia or "").split())
+    from .ia import sin_markdown  # aquí: la memoria la leen módulos que ia no necesita cargar
+    # Sin Markdown: la escribe la IA (los argumentos del Director no se limpian) y se ve y se repite en cada pedido
+    preferencia = sin_markdown(preferencia or "", "linea")
     if not preferencia or len(preferencia) > MAX_LARGO:
         raise ValueError(t("La preferencia tiene que ser un texto de 1 a {maximo} caracteres.", maximo=MAX_LARGO))
     if sensible(preferencia):

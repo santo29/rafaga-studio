@@ -9,7 +9,7 @@ from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 
 
-USOS_UI = {"texto": t("Guiones y elegir clips"), "diseno": t("IA que diseña"), "imagen": t("Imágenes"),
+USOS_UI = {"texto": t("Guiones y selección de clips"), "diseno": t("IA que diseña"), "imagen": t("Imágenes"),
            "video": t("Animar escenas con IA de video"), "video_voz": t("Escenas que hablan"),
            "transcripcion": t("Transcripción"), "musica": t("Música")}
 
@@ -17,9 +17,9 @@ USOS_UI = {"texto": t("Guiones y elegir clips"), "diseno": t("IA que diseña"), 
 NOMBRES_PROVEEDOR = {"auto": t("Automático (la mejor conectada)"), "pollinations": t("Pollinations (gratis)"),
                      "pc": t("Este PC (gratis, más lento)"), "ninguno": t("No usar (zoom suave sobre la imagen)"),
                      "huggingface": t("Hugging Face (gratis; Space público de la comunidad)"), "openai": "OpenAI",
-                     "anthropic": "Claude (Anthropic)", "modal": t("Mi nube Modal ($30 gratis al mes)"),
+                     "anthropic": "Claude (Anthropic)", "modal": t("Mi nube Modal (US$30 gratis al mes)"),
                      "elevenlabs": "ElevenLabs", "gemini": "Gemini (Google)",
-                     "cloudflare": t("Cloudflare (gratis diario)"), "groq": t("Groq (gratis)"),
+                     "cloudflare": t("Cloudflare (gratis cada día)"), "groq": t("Groq (gratis)"),
                      "kling": t("Kling (de pago)"), "seedance": t("Seedance (de pago)")}
 
 
@@ -29,14 +29,14 @@ SERVICIOS = [
     ("gemini", "Gemini (Google)", t("Guiones con IA; imágenes Nano Banana (si las eliges), videos animados con voz y música con Lyria"),
      t("Gratis (imágenes, video y música de pago)"),
      "https://aistudio.google.com/app/apikey"),
-    ("cloudflare", "Cloudflare Workers AI", t("Imágenes, ~100 al día. Pega el ID de cuenta y el token juntos"),
+    ("cloudflare", "Cloudflare Workers AI", t("Imágenes, unas 100 al día. Pega juntos el ID de cuenta y el token"),
      t("Gratis"), "https://dash.cloudflare.com/profile/api-tokens"),
     ("pollinations", "Pollinations", t("Imágenes y guiones sin marca de agua"), t("Gratis"),
      "https://enter.pollinations.ai"),
     ("huggingface", "Hugging Face", t("Más cuota para animar fotos e imágenes"), t("Gratis"),
      "https://huggingface.co/settings/tokens"),
     ("modal", "Modal", t("Tu nube de video con IA. Pega las dos partes del token (ak-… as-…)"),
-     t("$1/mes; $30 con tarjeta"), "https://modal.com/settings/tokens"),
+     t("Gratis: US$1 al mes; US$30 con tarjeta"), "https://modal.com/settings/tokens"),
     ("elevenlabs", "ElevenLabs", t("Voces realistas y música"), t("Plan gratis pequeño"),
      "https://elevenlabs.io/app/settings/api-keys"),
     ("anthropic", "Claude (Anthropic)", t("Los mejores guiones e investigación en internet"), t("De pago"),
@@ -49,9 +49,9 @@ SERVICIOS = [
     ("replicate", "Replicate", t("Imágenes"), t("De pago"), "https://replicate.com/account/api-tokens"),
     # Sin formato de clave reconocible: se conectan con su botón. El enlace (CONSOLA) lo da su módulo
     ("kling", "Kling", t("Animar escenas y escenas que hablan con su propio audio"),
-     t("De pago (~US$0.04-0.13 por segundo)"), None),
+     t("De pago (unos US$0.04 a 0.13 por segundo)"), None),
     ("seedance", "Seedance (BytePlus)", t("Animar escenas y escenas que hablan con su propio audio"),
-     t("De pago (~US$0.02-0.24 por segundo)"), None),
+     t("De pago (unos US$0.02 a 0.24 por segundo)"), None),
 ]
 
 
@@ -132,7 +132,7 @@ class PaginaClaves(QWidget):
                 self.nota_diseno = etiqueta(t("Claude o ChatGPT diseñan mejor: conecta su clave."), "sub")
                 defecto_lay.addWidget(self.nota_diseno)
         # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip)
-        fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): dejar bajar archivos a través de él. Con esto la app "
+        fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): permitir descargas a través de él. Con esto la app "
                               "ya no puede impedir que un enlace llegue a tu red local."))
         fake_ip.setChecked(claves.ajustes().get("proxy_fake_ip") is True)
         fake_ip.toggled.connect(lambda v: claves.elegir_por_defecto("proxy_fake_ip", v))
@@ -142,10 +142,10 @@ class PaginaClaves(QWidget):
         nube_caja, nube_lay = tarjeta()
         nube_lay.addWidget(etiqueta(f"☁️  {t('Mi nube de video (Modal)')}", "sub"))
         nube_lay.addWidget(etiqueta(t("Crea una cuenta en modal.com, crea un token en Settings → API tokens (ak-… y "
-                                      "as-…), pégalo arriba juntos y pulsa «Instalar motor». Plan Starter: $1 al mes "
-                                      "sin tarjeta; $30 gratis al mes si añades un método de pago (pon un límite de "
-                                      "uso de $30 en Usage & billing para no pagar nada). Cada clip de 5 s cuesta "
-                                      "~$0.20–0.35.")))
+                                      "as-…), pega las dos partes juntas arriba y pulsa «Instalar motor». Plan "
+                                      "Starter: US$1 de crédito gratis al mes sin tarjeta, o US$30 gratis al mes si "
+                                      "añades un método de pago (pon un límite de uso de US$30 en Usage & billing "
+                                      "para no pagar nada). Cada clip de 5 s cuesta unos US$0.20 a 0.35.")))
         fila = QHBoxLayout()
         self.limite = QSpinBox()
         self.limite.setRange(0, 50)
@@ -179,18 +179,19 @@ class PaginaClaves(QWidget):
     def _refrescar(self):
         self.lista.clear()
         for archivo in claves.apartadas():
-            self.lista.addItem("⚠️  " + t("No se pudo leer un archivo de claves y se apartó (cifrado) en "
-                                          "datos/{archivo}. No lo borres: si sus claves se pueden leer, la app las "
-                                          "recupera sola. Mientras, vuelve a conectar las que necesites.",
-                                          archivo=archivo.name))
+            self.lista.addItem("⚠️ " + t("No se pudo leer un archivo de claves: se guardó aparte, cifrado, en la "
+                                         "carpeta de datos de la app ({archivo}). No lo borres: si sus claves se "
+                                         "pueden leer, la app las recupera sola. Mientras, vuelve a conectar las que "
+                                         "necesites.", archivo=archivo.name))
         for c in claves.publico():
-            modelos = " · ".join(f"{u}: {c.get('modelo_' + u)}" for u in c["usos"] if c.get("modelo_" + u))
-            item = QListWidgetItem(f"✅  {c['proveedor'].upper()}   {c['clave']}\n      {modelos}")
+            modelos = " · ".join(f"{USOS_UI.get(u, u)}: {c.get('modelo_' + u)}" for u in c["usos"]
+                                 if c.get("modelo_" + u))
+            item = QListWidgetItem(f"✅ {claves.nombre(c['proveedor'])} · {c['clave']}" + (f"\n{modelos}" if modelos else ""))
             item.setData(Qt.UserRole, c["proveedor"])
             self.lista.addItem(item)
         if not self.lista.count():
             self.lista.addItem(t("Sin claves todavía: casi todo funciona en modo gratis sin clave, pero más lento y "
-                                 "simple (guiones con IA básica, ~1 imagen por hora, 2 min de GPU al día). La música "
+                                 "simple (guiones con IA básica, una imagen por hora y unos minutos de animación al día). La música "
                                  "con IA sí necesita clave (ElevenLabs o Gemini).\n"
                                  "Para más calidad y velocidad, conecta claves gratis: Groq (console.groq.com), "
                                  "Cloudflare (imágenes) y Hugging Face (animar fotos)."))

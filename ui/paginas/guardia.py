@@ -232,7 +232,7 @@ class PaginaGuardia(QWidget):
             columnas.addLayout(columna_lay, 1)
         nota_lay.addLayout(columnas)
         nota_lay.addWidget(etiqueta(t("Las reglas deciden y bloquean; la IA solo explica y nunca hace nada por su "
-                                      "cuenta. Todo se apunta en tu PC, en datos/guardia.json."), "meta"))
+                                      "cuenta. Todo se guarda en tu PC, en la carpeta de datos de la app."), "meta"))
         lay.addWidget(nota)
         lay.addStretch()
 
@@ -396,7 +396,7 @@ class PaginaGuardia(QWidget):
         for evento in self._eventos[:MAX_VISIBLES]:
             self.lista_eventos.addWidget(self._fila(evento))
         if len(self._eventos) > MAX_VISIBLES:
-            mas = etiqueta(t("… y {n} evento(s) más antiguos.", n=len(self._eventos) - MAX_VISIBLES), "meta")
+            mas = etiqueta(t("… y más eventos antiguos ({n}).", n=len(self._eventos) - MAX_VISIBLES), "meta")
             mas.setContentsMargins(0, 8, 0, 0)
             self.lista_eventos.addWidget(mas)
 

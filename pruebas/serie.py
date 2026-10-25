@@ -308,7 +308,7 @@ try:
     assert final.is_file() and 2.8 < video.duracion(final) < 3.5  # el clip de 3 s se corta al acabar de hablar
     assert any("se usaron 2" in a for a in r["avisos"])
     assert any("2" in a and "se cortó la descarga" in a for a in r["avisos"])
-    assert any("2 escena(s)" in a and "US$" in a for a in r["avisos"])  # la que se cobró sin llegar también cuenta
+    assert any("escenas animadas con voz (2)" in a and "US$" in a for a in r["avisos"])  # la que se cobró sin llegar también cuenta
     # Reintentar en la misma carpeta (ejemplos/crear.py): las escenas ya hechas no se vuelven a pagar
     pedidos_omni.clear()
     desde_prompt.clips_hablados(json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8")),

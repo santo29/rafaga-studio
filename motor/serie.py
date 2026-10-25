@@ -445,7 +445,7 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         diseno.escribir_json(ep / "episodio.json", capitulo)
         raise RuntimeError(t("No salió ningún dibujo: seguramente se acabó la cuota gratis de imágenes de hoy. El guion "
                              "quedó guardado; pulsa «Dibujar lo que falta» más tarde o conecta Pollinations gratis en "
-                             "Claves de IA."))
+                             "«Claves de IA»."))
     if estado == "incompleto":
         notas.append(t("Faltan {n} dibujos: pulsa «Dibujar lo que falta» para hacerlos.", n=len(escenas) - dibujos))
     nombre = f"{datos['titulo']} · {t('Capítulo {n}', n=numero)}"

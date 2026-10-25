@@ -255,13 +255,13 @@ try:
     desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, notas=notas, pago="kling")
     assert len(kling.llamadas) == desde_prompt.MAX_CLIPS_PAGO == 15  # el resto, zoom suave
     assert any("tope de gasto" in n for n in notas)
-    assert f"Kling hizo 15 clip(s) de video: hasta unos US${15 * 0.25:.2f}" in " ".join(notas), notas
+    assert f"Kling hizo clips de video (15): hasta unos US${15 * 0.25:.2f}" in " ".join(notas), notas
     # Reintento en la misma carpeta: las 15 ya animadas desde esa misma imagen no se pagan otra vez (solo las 5 que
     # quedaron con zoom, en este trabajo nuevo)
     notas.clear()
     desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, notas=notas, pago="kling")
     assert len(kling.llamadas) == 20 and {ll[3].split(",")[0] for ll in kling.llamadas[15:]} == {
-        f"scene {i}" for i in range(15, 20)} and any("Kling hizo 5 clip(s)" in n for n in notas), notas
+        f"scene {i}" for i in range(15, 20)} and any("Kling hizo clips de video (5)" in n for n in notas), notas
     # Un plano redibujado (más nuevo que su clip viejo) sí se anima de nuevo: es otra imagen
     os.utime(carpeta / "video_final_imagen_03.png", (time.time() + 60, time.time() + 60))
     desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, pago="kling")
@@ -281,7 +281,7 @@ try:
     carpeta.mkdir()
     desde_prompt.montar({**guion, "escenas": guion["escenas"][:3]}, carpeta, "9:16", VOZ, lambda *a: None,
                         crear_imagen=dibujar, notas=notas, pago="kling")
-    assert len(kling.llamadas) == 1 and any("Kling hizo 1 clip(s)" in n for n in notas), notas  # y no reintenta
+    assert len(kling.llamadas) == 1 and any("Kling hizo clips de video (1)" in n for n in notas), notas  # y no reintenta
     kling.falla = None
 
     # El trabajo empezó con la IA de video en «No usar» (no se preguntó nada) y el usuario elige Kling en Claves de IA
@@ -328,8 +328,8 @@ try:
             mudas = [ll[3].split(",")[0] for ll in kling.llamadas if ll[0] == "animar"]
             assert mudas == (["scene 1"] if falla_voz else []), mudas
             if falla_voz:
-                assert any("Kling hizo 2 escena(s) animadas con voz" in a for a in r["avisos"]), r["avisos"]
-                assert any("Kling hizo 1 clip(s) de video" in a for a in r["avisos"]), r["avisos"]
+                assert any("Kling hizo escenas animadas con voz (2)" in a for a in r["avisos"]), r["avisos"]
+                assert any("Kling hizo clips de video (1)" in a for a in r["avisos"]), r["avisos"]
         # Seedance sin foto: solo del texto (sus 2.x no aceptan caras reales en la imagen)
         kling.falla_voz = None
         claves.elegir_por_defecto("video_voz", "seedance")
@@ -355,7 +355,7 @@ try:
                 e = falla(desde_prompt.animar_imagen, str(foto), "x", error=RuntimeError)
             finally:
                 video.segmento_mudo, kling.falla = segmento_real, None
-            assert ("Kling hizo 1 clip(s)" in e and str(desde_prompt.PROYECTOS) in e) == (k < 2), e  # sin tarea, no
+            assert ("Kling hizo clips de video (1)" in e and str(desde_prompt.PROYECTOS) in e) == (k < 2), e  # sin tarea, no
         # Anuncios: falla el cierre de la 2ª variante; el error cuenta los clips de pago de las dos
         from motor import anuncios
         reales_anuncios = ia.investigar_web, ia.texto_json, video.cierre, anuncios.PROYECTOS
@@ -375,7 +375,7 @@ try:
             e = falla(anuncios.crear, str(foto), "p", "d", "p", "oferta", "ugc", segundos=10, error=RuntimeError)
         finally:
             ia.investigar_web, ia.texto_json, video.cierre, anuncios.PROYECTOS = reales_anuncios
-        assert len(kling.llamadas) == 6 and "cierre" in e and e.count("Kling hizo 3 clip(s)") == 2, e
+        assert len(kling.llamadas) == 6 and "cierre" in e and e.count("Kling hizo clips de video (3)") == 2, e
     finally:
         desde_prompt.escena_hablada, desde_prompt.PROYECTOS, ia.imagen, ia.imagen_con_producto = reales_generar
         kling.falla_voz = None
@@ -425,7 +425,7 @@ try:
     # Sin el sí no se hace, y al agente no le llega nada que pueda devolver para saltarse la pregunta
     error = falla(mcp_server.crear_video, "un gato", error=ToolError)
     assert "no lo aceptó" in error and "US$" not in error and not hechos, error
-    assert f"Esto cuesta unos US${10 * precio_clip:.2f}" in ventanas[-1] and "«crear_video»" in ventanas[-1]
+    assert f"Esto cuesta unos US${10 * precio_clip:.2f}" in ventanas[-1] and "crear un video" in ventanas[-1]
     falla(mcp_server.crear_video, "x", "9:16", 45, "es-DO-EmilioNeural", str(foto), True, error=ToolError)
     assert "US$" in ventanas[-1] and not hechos  # también con los argumentos por posición
     assert por_protocolo("crear_video", {"prompt": "un gato", "confirmar_gasto": "0123456789abcdef"}) and not hechos
@@ -516,20 +516,20 @@ pregunta_real = QMessageBox.question
 QMessageBox.question = lambda padre, titulo, texto, *a: preguntas.append(texto) or respuesta[0]
 try:
     assert crear.lanzar(crear.iniciar, desde_prompt.animar_imagen, imagen=str(foto), prompt="x") is False
-    assert crear.tarea is None and "1 escena(s) con Kling" in preguntas[-1]
+    assert crear.tarea is None and "con Kling: hasta 1," in preguntas[-1]
     assert f"US${precio_clip:.2f}" in preguntas[-1]
     assert crear._pagar_video(desde_prompt.generar, {"segundos": 45}) is False
-    assert f"hasta 10 escena(s) con Kling: hasta unos US${10 * precio_clip:.2f}" in preguntas[-1]
+    assert f"con Kling: hasta 10, por unos US${10 * precio_clip:.2f}" in preguntas[-1]
     # Animado con voz y animar con Kling: una sola pregunta con el total (las mismas escenas, no unas más)
     antes = len(preguntas)
     _, hablado = desde_prompt.costo_hablado(45)
     total = hablado + director.clips("crear_video", {"segundos": 45, "animado": True}) * precio_clip
     assert crear._pagar_video(desde_prompt.generar, {"segundos": 45, "animado": True}) is False
-    assert len(preguntas) == antes + 1 and "en Seedance; las que no salgan con voz se animarán con Kling" in \
+    assert len(preguntas) == antes + 1 and "en Seedance: 6. Las que no salgan con voz se animarán con Kling" in \
         preguntas[-1] and f"US${total:.2f} en total" in preguntas[-1], preguntas[-1]
     claves.elegir_por_defecto("video", "auto")
     assert crear._pagar_video(desde_prompt.generar, {"segundos": 45, "animado": True}) is False
-    assert f"en Seedance: hasta unos US${hablado:.2f}" in preguntas[-1] and "Kling" not in preguntas[-1]
+    assert f"en Seedance: 6, hasta unos US${hablado:.2f}" in preguntas[-1] and "Kling" not in preguntas[-1]
     claves.elegir_por_defecto("video", "kling")
     antes = len(preguntas)
     assert crear._pagar_video(musica.crear, {"idea": "x"})  # no anima escenas: ni se pregunta

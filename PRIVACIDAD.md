@@ -30,12 +30,12 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Qué | Dónde |
 |---|---|
 | Tus claves de IA (cifradas con DPAPI, tu cuenta de Windows) | `datos/claves.json` |
-| Copias cifradas de claves que no se pudieron leer | `datos/claves.danado-*` |
+| Copias cifradas de claves que no se pudieron leer | copias `datos/claves.danado-…` (una por cada vez que no se pudo leer) |
 | Ajustes, idioma elegido, uso de cuotas gratis del día | `datos/ajustes.json`, `datos/idioma.json`, `datos/uso_nubes.json`, `datos/uso_nube.json` |
 | Aceptación de este aviso (versión y fecha) | `datos/legal.json` |
 | Videos, shorts, anuncios, canciones y grabaciones de la Cabina | `datos/proyectos/` |
 | Proyectos del editor de video | `datos/ediciones/` |
-| Lo que grabas con «Grabarte» (tu cámara y tu micrófono) | `datos/ediciones/<proyecto>/grabaciones/`. La app nunca las borra sola, tampoco al descartar un video sin guardar: bórralas tú cuando quieras |
+| Lo que grabas con «Grabarte» (tu cámara y tu micrófono) | la carpeta `grabaciones` de cada proyecto, dentro de `datos/ediciones`. La app nunca las borra sola, tampoco al descartar un video sin guardar: bórralas tú cuando quieras |
 | Diseños y tu marca (nombre, colores, logo) | `datos/disenos/`, `datos/marca.json`, `datos/marca/` |
 | Series animadas, personajes y capítulos | `datos/series/` |
 | Investigaciones de nichos | `datos/nichos/` |
@@ -44,8 +44,8 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Historial de Ráfaga Guardia: lo que la app frenó (fecha, tipo, gravedad, de dónde vino y un detalle corto sin claves, sin enlaces firmados y sin rutas enteras: de un archivo solo queda su nombre), si el estudio está bloqueado y la huella del archivo de claves (para notar si otro programa lo cambia). Guarda los últimos 500 eventos y lo borras con «Borrar historial» | `datos/guardia.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |
-| Conexión MCP (solo si la activas) | `%USERPROFILE%\.claude.json` y `%APPDATA%\Claude\claude_desktop_config.json` (sin copias: esa configuración lleva los tokens de tus otros servidores MCP). Al desinstalar la app, se quita |
-| Modelos de IA locales | Whisper: `%USERPROFILE%\.cache\huggingface`. Demucs: `datos/modelos` (se comprueba su huella entera antes de cada uso) |
+| Conexión MCP (solo si la activas) | `.claude.json` en tu carpeta de usuario y `claude_desktop_config.json` en `AppData\Roaming\Claude` (sin copias: esa configuración lleva los tokens de tus otros servidores MCP). Al desinstalar la app, se quita |
+| Modelos de IA locales | Whisper: la caché de Hugging Face (`.cache\huggingface` en tu carpeta de usuario). Demucs: `datos/modelos` (se comprueba su huella entera antes de cada uso) |
 | Respuestas habladas del Director (temporales) | la carpeta temporal de Windows (`rafaga-voz`) |
 
 Solo tu usuario de Windows puede leer tus claves: el cifrado DPAPI usa tu cuenta, así que copiadas a otro PC o a otra
@@ -153,7 +153,7 @@ hace 7 días o más), y el motor de video que se instala en tu propia nube Modal
 ya compiladas y de hace 7 días o más). Revisamos el código con
 pruebas automáticas de seguridad. **Ráfaga Guardia**, dentro de la app, apunta en tu PC lo que se frena, comprueba
 que el código de la app es el que instalaste y, si un agente insiste o el código cambió, bloquea el video, las
-imágenes, la música y la voz de pago, publicar, la memoria y el MCP hasta que lo desbloquees tú (detalles en [SECURITY.md](SECURITY.md)). Protege la app y lo que
+imágenes, la música y la voz de pago, publicar, la memoria y el MCP hasta que lo desbloquees tú (detalles en la [política de seguridad](SECURITY.md)). Protege la app y lo que
 guarda, no el PC entero: ningún programa es infalible, mantén tu Windows y tu antivirus al día.
 
 ## Leyes aplicables
@@ -168,4 +168,4 @@ envías.
 Si cambia lo que la app hace con tus datos, actualizaremos este aviso y su versión. La app te lo mostrará otra vez
 antes de seguir.
 
-Para cualquier duda o petición sobre privacidad, usa los canales de contacto de [SECURITY.md](SECURITY.md#contacto).
+Para cualquier duda o petición sobre privacidad, usa los canales de contacto de la [política de seguridad](SECURITY.md#contacto).

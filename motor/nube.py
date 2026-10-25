@@ -89,7 +89,7 @@ def instalar() -> str:
     """Sube el motor de video (modal_app.py) a la cuenta de Modal del usuario."""
     c = claves.cargar().get("modal")
     if not c:
-        raise RuntimeError(t("Primero conecta tu token de Modal en Claves de IA."))
+        raise RuntimeError(t("Primero conecta tu token de Modal en «Claves de IA»."))
     r = subprocess.run([sys.executable, "-m", "modal", "deploy", str(RAIZ / "modal_app.py")],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800,
                        env=claves.modal_env(c["clave"]), cwd=RAIZ,

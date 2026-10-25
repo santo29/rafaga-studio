@@ -7,7 +7,7 @@ from typing import Callable
 
 from . import claves, ia, memoria, seguro, video
 from .desde_prompt import relanzar_con_gasto
-from .idioma import actual, IDIOMAS, t
+from .idioma import actual, IDIOMAS, porcentaje, t
 from .shorts import PROYECTOS
 
 MAX_ESCENAS = 14  # cada escena es una imagen de IA (de pago con Gemini): el gasto no lo decide la duración
@@ -54,8 +54,8 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     aviso(t("Escuchando la canción en {servicio} para sincronizar la letra…", servicio=servicio) if servicio
           else t("Escuchando la canción en tu PC para sincronizar la letra…"), 0.03)
     palabras = ia.transcribir(audio, pista=letra or None, cancion=True, progreso=lambda f: aviso(
-        t("Escuchando la canción en {servicio}… {p:.0%}", servicio=servicio, p=f) if servicio
-        else t("Escuchando la canción en tu PC… {p:.0%}", p=f), 0.03 + 0.15 * f))
+        t("Escuchando la canción en {servicio}… {p}", servicio=servicio, p=porcentaje(f)) if servicio
+        else t("Escuchando la canción en tu PC… {p}", p=porcentaje(f)), 0.03 + 0.15 * f))
 
     # Una escena cada ~8 s, con tope para no gastar demasiadas imágenes.
     n = max(2, min(MAX_ESCENAS, math.ceil(total / 8)))
@@ -119,5 +119,5 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
                 "avisos": notas, "resultados": [{"archivo": str(final), "titulo": titulo,
                                                  "descripcion": plan["descripcion"], "hashtags": plan["hashtags"]}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
-    aviso(t("¡Listo! Con {n} aviso(s): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
+    aviso(t("¡Listo! Hay avisos ({n}): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)
     return proyecto

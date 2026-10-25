@@ -43,6 +43,15 @@ USOS = {
 }
 # Videos de pago con su propio módulo (motor/kling.py, motor/seedance.py), los dos con el mismo contrato
 VIDEO_DE_PAGO = ("kling", "seedance")
+# Cómo se escribe cada marca en lo que lee el usuario (con .capitalize() salía «Elevenlabs» o «Openai»)
+NOMBRES = {"anthropic": "Claude", "openai": "OpenAI", "groq": "Groq", "gemini": "Gemini", "deepseek": "DeepSeek",
+           "openrouter": "OpenRouter", "xai": "xAI", "pollinations": "Pollinations", "elevenlabs": "ElevenLabs",
+           "replicate": "Replicate", "huggingface": "Hugging Face", "cloudflare": "Cloudflare", "modal": "Modal",
+           "kling": "Kling", "seedance": "Seedance"}
+
+
+def nombre(proveedor: str) -> str:
+    return NOMBRES.get(proveedor, proveedor)
 
 # Orden de preferencia cuando hay varias claves para lo mismo (modo "automático").
 PREFERENCIA = {
@@ -527,7 +536,8 @@ def _leer_para_cambiar() -> dict:
                                                      "otro PC?): la app siguió sin ellas."))
         raise ValueError(t("Windows no puede descifrar ahora tus claves guardadas (¿abriste la app desde otra cuenta "
                            "u otro PC?). No se tocan: cierra la sesión de Windows, vuelve a entrar y prueba otra "
-                           "vez. Si datos/claves.json viene de otro PC, sácalo de la carpeta datos.")) from None
+                           "vez. Si tus claves vienen de otro PC, saca el archivo claves.json de la carpeta «datos» de la app y "
+                           "vuelve a conectarlas en «Claves de IA».")) from None
 
 
 def apartadas() -> list[Path]:

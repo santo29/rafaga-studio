@@ -147,9 +147,9 @@ gratis = [("crear_diseno", {"pedido": "x"}), ("crear_video", {"prompt": "x"}), (
           ("editar_video", {"medios": ["a.mp4"]})]
 assert all(director.costo(n, a) is None for n, a in gratis)
 pregunta = director.costo("programar_publicacion", {"titulo": "Mi video", "fecha_hora": "2026-10-25T18:00"})
-assert "YouTube" in pregunta and "«Mi video»" in pregunta and "2026-10-25 18:00." in pregunta
+assert "YouTube" in pregunta and "«Mi video»" in pregunta and "25/10/2026 18:00." in pregunta  # como en «Publicar»
 con_zona = "2026-10-25T18:00:00-04:00"  # con zona: en la hora de este PC y sin restos («18:00:00-»)
-esperada = datetime.fromisoformat(con_zona).astimezone().strftime("%Y-%m-%d %H:%M")
+esperada = datetime.fromisoformat(con_zona).astimezone().strftime("%d/%m/%Y %H:%M")
 assert f"el {esperada}. Descripción:" in director.costo("programar_publicacion", {"titulo": "x", "fecha_hora": con_zona})
 # Dice qué video se sube y la descripción entera, no solo el título (ver también pruebas/seguridad.py, 21)
 pregunta = director.costo("programar_publicacion", {"archivo": "C:/x/boda.mp4", "titulo": "t", "fecha_hora": con_zona,

@@ -625,7 +625,7 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     d = diseno.validar(d)
     diseno.guardar(d, carpeta)
     png = diseno.exportar(d, carpeta, carpeta / "vista_previa.png")
-    aviso(t("¡Listo! Con {n} aviso(s).", n=len(avisos)) if avisos else t("¡Listo!"), 1.0)
+    aviso(t("¡Listo! Hay avisos ({n}).", n=len(avisos)) if avisos else t("¡Listo!"), 1.0)
     descripcion = _txt(r.get("descripcion"), 1000)
     return {"tipo": "diseno", "carpeta": str(carpeta), "archivo": str(png), "diseno": d, "avisos": avisos,
             "titulo": d["nombre"],

@@ -275,6 +275,22 @@ TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, c
                                  crear_video_musical, producir_cancion, separar_voz_y_pista, crear_diseno,
                                  editar_video, crear_serie, crear_episodio, listar_series, listar_proyectos,
                                  listar_opciones, programar_publicacion, recordar_preferencia)}
+# Lo que hace cada herramienta dicho para el usuario: en las ventanas del MCP, el historial de Ráfaga Guardia y el
+# progreso del Director se leía «crear_video» o «recordar_preferencia»
+NOMBRES = {"crear_video": t("crear un video"), "sacar_shorts": t("sacar shorts de un video"),
+           "investigar_nichos": t("investigar nichos virales"), "crear_anuncios": t("crear anuncios"),
+           "crear_cancion": t("crear una canción"), "crear_video_musical": t("hacer un video musical"),
+           "producir_cancion": t("producir una canción en la cabina"),
+           "separar_voz_y_pista": t("separar la voz y la pista de una canción"), "crear_diseno": t("crear un diseño"),
+           "editar_video": t("montar un video en el editor"), "crear_serie": t("crear una serie de dibujos animados"),
+           "crear_episodio": t("hacer un capítulo de una serie"), "listar_series": t("ver tus series"),
+           "listar_proyectos": t("ver tus proyectos"), "listar_opciones": t("ver las opciones del estudio"),
+           "programar_publicacion": t("programar una publicación en YouTube"),
+           "recordar_preferencia": t("guardar algo en la memoria del estudio")}
+
+
+def nombre(herramienta: str) -> str:
+    return NOMBRES.get(herramienta, herramienta)
 
 
 def resultados(respuesta: str) -> list[dict]:

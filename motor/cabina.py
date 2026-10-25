@@ -74,7 +74,7 @@ def grabar(pista: Path, destino: Path, detener: threading.Event, dispositivo_ent
                    device=(dispositivo_entrada, None)) as flujo:
         retraso = flujo.latency[0] + flujo.latency[1]
         while flujo.active:
-            aviso(f"🔴 {t('Grabando… {s:5.1f} s de {total:.0f} s', s=pos[0] / SR, total=total / SR)}",
+            aviso(f"🔴 {t('Grabando… {s:.1f} s de {total:.0f} s', s=pos[0] / SR, total=total / SR)}",
                   min(pos[0] / total, 1))
             time.sleep(0.2)
     voz = np.concatenate(grabado) if grabado else np.zeros(1, np.float32)
@@ -222,9 +222,8 @@ def sesion(pista: str, voz: str, estilo: str = "Dembow / urbano (seco y al frent
 
     proyecto = {"tipo": "cabina", "formato": "audio", "carpeta": str(carpeta), "titulo": titulo, "analisis": info,
                 "resultados": [{"archivo": str(final), "titulo": titulo, "hashtags": [],
-                                "descripcion": t("{bpm} BPM · {tono} · {estilo}\n"
-                                                 "Partes: voz_procesada.wav, pista.wav, mezcla.wav, master.wav",
-                                                 bpm=info["bpm"], tono=info["tono"], estilo=t(estilo))}]}
+                                "descripcion": t("{bpm} BPM · {tono} · {estilo}", bpm=info["bpm"],
+                                                 tono=info["tono"], estilo=t(estilo))}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
     aviso(t("¡Listo!"), 1.0)
     return proyecto
@@ -240,7 +239,7 @@ def separar_cancion(cancion: str, aviso: Callable[[str, float], None] = lambda t
     # Los títulos van en español y se traducen al mostrarlos (ui/comun.Reproductor): si se cambia el idioma de la
     # app, un proyecto viejo también sale en el nuevo (sus traducciones están en idiomas/*.json)
     proyecto = {"tipo": "separacion", "formato": "audio", "carpeta": str(carpeta), "titulo": Path(cancion).stem,
-                "resultados": [{"archivo": str(partes["voz"]), "titulo": "Voz (acapella)",
+                "resultados": [{"archivo": str(partes["voz"]), "titulo": "Voz (a capela)",
                                 "descripcion": partes["donde"], "hashtags": []},
                                {"archivo": str(partes["pista"]), "titulo": "Pista (instrumental)",
                                 "descripcion": partes["donde"], "hashtags": []}]}

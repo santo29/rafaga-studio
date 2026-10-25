@@ -56,26 +56,41 @@ origin (app, mcp, director) and a short detail with no keys, tokens, signed URLs
 - the studio memory refusing sensitive data;
 - **integrity**: the installer ships `integridad.json` (built by `instalador/integridad.py` every time `rafaga.iss` is
   compiled) with the SHA-256 of `app.py`, `mcp_server.py`, `modal_app.py`, the launcher `.bat` and every `.py` in
-  `motor/` and `ui/`. A changed, missing or extra `.py` (a planted module) is an «alta» event. Without a manifest (a
-  git checkout) it says «modo desarrollo» and never alerts; an installed copy without it gets a warning.
+  `motor/` and `ui/`. A changed or missing file, or an extra module the app could import (a `.py`, `.pyw`, `.pyc` or
+  `.pyd` or a package folder with `__init__` planted in the app folder, or a `.pyc`/`.pyd` next to the code in
+  `motor/` or `ui/`) is an «alta» event, and its text says what to do (antivirus, then reinstall). Without a manifest
+  (a git checkout) it says «modo desarrollo» and never alerts; an installed copy without it gets a warning. The
+  installer deletes `motor\`, `ui\` and the root `.py*` files before copying (`[InstallDelete]`), so an update never
+  leaves an old module behind that would look planted, and reinstalling removes a planted one. The MCP server also
+  checks the integrity when it starts, for people who only use Ráfaga from Claude.
 
 **«Revisar ahora»** (also once at start-up, in the background) checks the integrity, that the keys file is encrypted
 with DPAPI and readable, that the app is installed inside `%LOCALAPPDATA%`, that the MCP registration in Claude's
-configs runs this app's `mcp_server.py` with `-s -E`, the hash of the Demucs model and the lock state.
+configs is exactly the one «Conectar» writes (this app's Python and `mcp_server.py` with `-s -E`, nothing in between,
+no extra environment such as a proxy, stdio), also in each project's local scope of `~/.claude.json`, the hash of the
+Demucs model and the lock state. «Desconectar» removes the project-scope entries too.
 
 **Lockdown («Bloqueo»).** While locked, the MCP server refuses every tool, the Director refuses anything paid,
-publishing or saving to memory, and paid video, image and music calls do not start. It locks by itself only on an
-«alta» integrity event or when you say «No» to an MCP agent 3 times in 10 minutes (an agent insisting); you can also
-lock it by hand. **Only a person on the page can unlock it**, after a confirmation: no tool, agent or the Director
-can, and if `guardia.json` is edited or broken to drop the lock while the app is open, the page puts it back and
-warns. New «alta» events (also those written by the MCP process) turn the shield red and show a Windows notification.
+publishing or saving to memory, paid video, image, music and ElevenLabs voice calls and uploads from the «Publicar»
+page do not start, and transcription that would use the paid OpenAI API is done by the free local Whisper instead.
+The paid text AI (yours, if you connected one) keeps working. It locks by itself only on an «alta» integrity event or
+when you say «No» to an MCP agent 3 times in 10 minutes (an agent insisting); a single «No» is your decision and does
+not turn the shield amber. You can also lock it by hand. **Only a person on the page can unlock it**, after a
+confirmation: no tool, agent or the Director can, and if `guardia.json` is edited or broken to drop the lock while the
+app is open, the page puts it back and warns. If `guardia.json` exists but cannot be read (another program holds it
+open), the studio counts as locked until it can. New «alta» events (also those written by the MCP process) turn the
+shield red and show a Windows notification.
 
 **Limits, honestly:** an attacker who can rewrite the app's code can also rewrite the manifest (and `guardia.json`
 while the app is closed); this catches tampering by malware or programs that do not know about it, and the installer
 only installs under your profile, where other accounts cannot write. It does not see what happens outside the app,
 and an agent that drives your mouse and keyboard could click «Sí» or unlock. Packages under `python\` (the installed
 Python and its libraries) and the `__pycache__` folders are not in the manifest: the libraries are pinned by hash in
-`requirements.lock` at install time.
+`requirements.lock` at install time, and a `.pyc` planted in `__pycache__` with its `.py`'s header (or of the
+unchecked-hash kind) is loaded without being noticed. With the app open twice, the page recognises the other copy's
+unlock by the «desbloqueo» event it writes; someone who edits `guardia.json` while the app is open can append a fake
+one, which is the same attacker who can already unlock it with the app closed. The `.mcp.json` files of Claude Code's
+project scope (one in each working folder) are not checked.
 
 ## Contacto
 

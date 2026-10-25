@@ -86,6 +86,18 @@ fr.Abrir=Ouvrir Ráfaga Studio
 [Tasks]
 Name: "escritorio"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; Ráfaga Guardia: Inno no borra al actualizar lo que la versión nueva ya no trae. Un .py viejo en motor\ o ui\
+; contaría como un módulo «de más» y bloquearía la app en cada arranque como si fuera malware. Se borra el código
+; anterior antes de copiar el nuevo; reinstalar también quita así uno plantado (motor\x.py, un json.py o json.pyc en
+; la raíz). Corre antes de [Files] y no toca «datos» (tus proyectos y claves) ni «python».
+Type: filesandordirs; Name: "{app}\motor"
+Type: filesandordirs; Name: "{app}\ui"
+Type: files; Name: "{app}\*.py"
+Type: files; Name: "{app}\*.pyw"
+Type: files; Name: "{app}\*.pyc"
+Type: files; Name: "{app}\*.pyd"
+
 [Files]
 ; La app: el código, las traducciones, los iconos, los ejemplos y los documentos legales (sin pruebas ni cachés)
 Source: "..\app.py"; DestDir: "{app}"; Flags: ignoreversion

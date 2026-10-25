@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 
-from . import claves, seguro
+from . import claves, guardia, seguro
 from .idioma import t
 
 HISTORIAL = Path(__file__).resolve().parent.parent / "datos" / "publicaciones.json"
@@ -182,6 +182,7 @@ def programar(archivo: str, titulo: str, descripcion: str = "", etiquetas=(), fe
               red: str = "youtube", aviso=None) -> dict:
     """Sube el video a YouTube como privado con su hora de salida: YouTube lo publica solo a esa hora, aunque el PC
     esté apagado. Devuelve lo apuntado en el historial (datos/publicaciones.json)."""
+    guardia.sin_bloqueo()  # con el estudio bloqueado no se publica, tampoco desde la página «Publicar»
     aviso = aviso or (lambda texto, f: None)
     red = str(red or "youtube").strip().lower()  # la IA escribe a menudo «YouTube»
     if red != "youtube":

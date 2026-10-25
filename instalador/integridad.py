@@ -1,7 +1,9 @@
 """Genera el manifiesto de integridad que va con el instalador: dist/integridad.json, con la huella SHA-256 de cada
 archivo de código que copia rafaga.iss (app.py, mcp_server.py, modal_app.py, el lanzador .bat y todos los .py de motor
 y ui). La app instalada lo compara con su código (motor/guardia.py, revisar_integridad): un archivo cambiado, uno que
-falta o un .py de más es un evento «alta» de Ráfaga Guardia y bloquea lo de pago.
+falta o un módulo de más (un .py, .pyw, .pyc o .pyd, o un paquete plantado) es un evento «alta» de Ráfaga Guardia y
+bloquea lo de pago. rafaga.iss borra motor/ y ui/ antes de copiar ([InstallDelete]): una actualización nunca deja un
+.py viejo que contaría como plantado.
 
 rafaga.iss lo ejecuta solo al compilar (así nunca se empaqueta uno viejo); a mano:
     .venv\\Scripts\\python.exe -s -E instalador\\integridad.py

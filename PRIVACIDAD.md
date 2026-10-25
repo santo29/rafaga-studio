@@ -145,8 +145,8 @@ yt-dlp y su componente yt-dlp-ejs, que se actualizan solos al abrir la app (solo
 hace 7 días o más), y el motor de video que se instala en tu propia nube Modal si la conectas (también con versiones
 ya compiladas y de hace 7 días o más). Revisamos el código con
 pruebas automáticas de seguridad. **Ráfaga Guardia**, dentro de la app, apunta en tu PC lo que se frena, comprueba
-que el código de la app es el que instalaste y, si un agente insiste o el código cambió, bloquea lo de pago, publicar,
-la memoria y el MCP hasta que lo desbloquees tú (detalles en [SECURITY.md](SECURITY.md)). Protege la app y lo que
+que el código de la app es el que instalaste y, si un agente insiste o el código cambió, bloquea el video, las
+imágenes, la música y la voz de pago, publicar, la memoria y el MCP hasta que lo desbloquees tú (detalles en [SECURITY.md](SECURITY.md)). Protege la app y lo que
 guarda, no el PC entero: ningún programa es infalible, mantén tu Windows y tu antivirus al día.
 
 ## Leyes aplicables

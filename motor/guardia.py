@@ -4,6 +4,7 @@ servicio…), comprueba que el código de la app es el que se instaló y, si hac
 publica o se guarda en la memoria. Las reglas de este archivo deciden; la IA solo explica (explicar), nunca actúa.
 Protege Ráfaga Studio y lo que guarda dentro (tus claves, tu dinero, tus datos), no el PC entero."""
 import hashlib
+import importlib.machinery
 import json
 import os
 import re
@@ -48,37 +49,56 @@ def _segundos(fecha) -> float:
 _URL = re.compile(r"(?i)\b(?:https?|wss?|ftp)://([^/\s?#«»\"'<>]+)[^\s«»\"'<>]*")
 _CLAVE = re.compile(r"(?<![\w-])(?:sk[-_]|rk_|pk_|AIza|hf_|r8_|gsk_|xai-|ark-|a[ks]-|cf[ua]t_|gh[opusr]_|"
                     r"github_pat_|glpat-|xox[abeprs]-|AKIA|ASIA|eyJ)[\w.+/=-]*")
-_LARGO = re.compile(r"(?<![\w-])(?=[\w+/=-]*\d)(?=[\w+/=-]*[A-Za-z])[\w+/=-]{32,}")  # tokens sin prefijo conocido
+_LARGO = re.compile(r"(?<![\w-])[\w+/=-]{32,}")  # tokens sin prefijo conocido (si llevan letras y números: _token)
+_EXTENSION = re.compile(r"\.\w{2,5}\b")
 _PERFIL = re.compile(r"(?i)([\\/])(?:Users|Usuarios|home|Documents and Settings)[\\/][^\\/«»\"'<>]+")
 _RUTA = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|//|~[\\/])[^\s«»\"'<>]*")  # C:\…, \\servidor\…, //servidor/…, ~\…
+
+
+def _token(m) -> str:
+    """Un token largo con letras y números se tapa; un nombre de archivo largo (mi_video_final_2026_10_24.gif) no: sin
+    él, el evento no dice de qué archivo se trata. Se mira aquí y no con anticipaciones en _LARGO: con ellas,
+    «a+a+a+…» tardaba un tiempo cuadrático (16 000 letras, más de un segundo)."""
+    s = m[0]
+    if re.search(r"\d", s) and re.search(r"[A-Za-z]", s) and not _EXTENSION.match(m.string, m.end()):
+        return "[…]"
+    return s
 
 
 def limpiar(texto) -> str:
     """El detalle de un evento, apto para guardarlo y enseñarlo (y, si lo pides, para la IA que lo explica): de un
     enlace queda el sitio (la firma de un enlace firmado no), de una ruta el nombre del archivo (la ruta lleva tu
     nombre de usuario), y ninguna clave ni token."""
-    s = " ".join(str(texto or "").split())
+    s = " ".join(str(texto or "")[:2000].split())  # cortado antes de las expresiones: un texto enorme no cuelga a nadie
     s = _URL.sub(lambda m: m[1], s)
     s = _CLAVE.sub("[clave]", s)
     s = _PERFIL.sub(lambda m: f"{m[1]}…", s)  # con espacios en el nombre, el trozo de después ya no lo lleva
     s = _RUTA.sub(lambda m: "…\\" + re.split(r"[\\/]", m[0].rstrip("\\/"))[-1], s)
-    s = _LARGO.sub("[…]", s)
+    s = _LARGO.sub(_token, s)
     return s if len(s) <= 240 else s[:239] + "…"
 
 
 # ---------- El historial: datos/guardia.json, compartido por la app y el servidor MCP ----------
 
 def _leer() -> dict:
-    """Lo guardado, con su forma de siempre; vacío si no hay o está dañado: un historial roto nunca rompe la app."""
-    datos = {}
+    """Lo guardado, con su forma de siempre; vacío si no hay o está dañado: un historial roto nunca rompe la app.
+    Si existe pero no se deja leer (otro programa lo tiene abierto en exclusiva), falla cerrado: cuenta como bloqueado
+    y lleva «ilegible», para que _cambiar no lo pise (borraría el bloqueo de verdad y el historial)."""
+    datos, ilegible = {}, False
     for _ in range(20):
         try:
-            datos = json.loads(ARCHIVO.read_text(encoding="utf-8-sig"))
+            datos, ilegible = json.loads(ARCHIVO.read_text(encoding="utf-8-sig")), False
             break
-        except PermissionError:  # se está reemplazando justo ahora (Windows lo bloquea un instante)
+        except PermissionError:  # se está reemplazando ahora (Windows lo bloquea un instante), o otro lo retiene
+            ilegible = True
             time.sleep(0.05)
         except (OSError, ValueError, RecursionError):
             break
+    if ilegible:
+        return {"eventos": [], "visto": "", "claves": [], "ilegible": True,
+                "bloqueo": {"fecha": _ahora(), "auto": True, "ilegible": True, "motivo": t(
+                    "No se puede leer el historial de Ráfaga Guardia: otro programa lo tiene abierto. Ciérralo o "
+                    "reinicia el PC.")}}
     datos = datos if isinstance(datos, dict) else {}
     eventos = [e for e in datos.get("eventos") or [] if isinstance(e, dict)
                and all(isinstance(e.get(k), str) for k in ("id", "fecha", "tipo", "detalle", "origen"))
@@ -96,10 +116,12 @@ def _leer() -> dict:
 @contextmanager
 def _cerrojo():
     """Un solo proceso a la vez cambia el historial (la app y el MCP escriben a la vez): sin esto, dos que leen a la vez
-    pierden el evento del otro. Un cerrojo de más de 10 s es de un proceso que murió a medias: se quita."""
+    pierden el evento del otro. Un cerrojo de más de 10 s es de un proceso que murió a medias: se quita. Se espera 2 s
+    como mucho (quien lo tiene lo suelta en milisegundos): un .lock que otro programa mantiene fresco no congela la
+    ventana, que también escribe aquí (marcar_visto, bloquear…)."""
     cerrojo = ARCHIVO.with_name(ARCHIVO.name + ".lock")
     fd = None
-    for _ in range(200):
+    for _ in range(40):
         try:
             fd = os.open(cerrojo, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
@@ -113,7 +135,7 @@ def _cerrojo():
             pass
         time.sleep(0.05)
     try:
-        yield  # sin cerrojo tras 10 s se escribe igual: perder el evento seguro es peor que arriesgarse a otro
+        yield  # sin cerrojo tras 2 s se escribe igual: perder el evento seguro es peor que arriesgarse a otro
     finally:
         if fd is not None:
             os.close(fd)
@@ -131,6 +153,8 @@ def _cambiar(funcion):
         ARCHIVO.parent.mkdir(parents=True, exist_ok=True)
         with _cerrojo():
             datos = _leer()
+            if datos.pop("ilegible", False):
+                return None  # otro programa lo retiene: escribir encima quitaría el bloqueo de verdad y el historial
             resultado = funcion(datos)
             _reemplazar(ARCHIVO, json.dumps(datos, ensure_ascii=False, indent=1))
             return resultado
@@ -161,7 +185,9 @@ def _reglas(datos: dict, evento: dict) -> None:
     if datos["bloqueo"]:
         return
     if evento["tipo"] == "integridad" and evento["gravedad"] == "alta":
-        motivo = t("El código de la app cambió desde que se instaló (puede ser un programa malicioso).")
+        # con el paso a seguir: sale en la notificación, en la página y en lo que rechazan el MCP y el Director
+        motivo = t("El código de la app cambió desde que se instaló (puede ser un programa malicioso).") + " " + t(
+            "Pasa el antivirus de Windows y reinstala Ráfaga Studio (tus proyectos y claves se quedan).")
     elif evento["tipo"] == "mcp_no":
         # solo los de después del último desbloqueo (el historial va en orden): esos ya los perdonó una persona
         eventos = datos["eventos"]
@@ -233,13 +259,15 @@ def desbloquear() -> None:
 
 def mensaje_bloqueo() -> str:
     motivo = (bloqueado() or {}).get("motivo") or t("sin motivo")
-    return t("Ráfaga Guardia tiene el estudio bloqueado ({motivo}). No se hace nada de pago, ni se publica, ni se "
-             "guarda en la memoria, y el MCP no funciona hasta que lo desbloquees en la página «Ráfaga Guardia» de la "
-             "app.", motivo=motivo)
+    # Solo lo que de verdad se frena (sin_bloqueo, el Director y el MCP): la IA de texto, p. ej., sigue
+    return t("Ráfaga Guardia tiene el estudio bloqueado ({motivo}). No empieza ningún video, imagen, canción ni voz "
+             "de pago, no se publica, no se guarda en la memoria y el MCP no funciona hasta que lo desbloquees en la "
+             "página «Ráfaga Guardia» de la app.", motivo=motivo)
 
 
 def sin_bloqueo() -> None:
-    """Lo primero de cada llamada de pago (video, imagen, música): con el estudio bloqueado no empieza."""
+    """Lo primero de cada llamada de pago (video, imagen, música, voz de ElevenLabs) y de publicar: con el estudio
+    bloqueado no empieza."""
     if bloqueado():
         raise RuntimeError(mensaje_bloqueo())
 
@@ -275,13 +303,21 @@ def vigilar_claves(texto: str) -> None:
 
 def huellas(raiz: Path = RAIZ, sueltos: bool = False) -> dict[str, str]:
     """SHA-256 de cada archivo de código (ruta relativa con «/»): los de RAIZ_CODIGO y todos los .py de motor y ui.
-    sueltos=True suma cualquier otro .py de la carpeta de la app, para encontrar uno plantado (un «json.py» ahí se
-    cargaría en lugar del de Python)."""
+    sueltos=True suma cualquier módulo o paquete de más que Python importaría en lugar del de verdad: un .py,
+    .pyw, .pyc o .pyd suelto en la carpeta de la app (un «json.pyc» ahí se cargaría en lugar del json de Python),
+    una carpeta con __init__ (un paquete plantado; ejemplos/ no lo tiene) y un .pyc o .pyd junto al código de motor
+    y ui (un .pyd se carga antes que su .py). Lo de __pycache__ no se mira: ver los límites en SECURITY.md."""
     archivos = [raiz / n for n in RAIZ_CODIGO if (raiz / n).is_file()]
     archivos += [p for c in CARPETAS_CODIGO for p in sorted((raiz / c).rglob("*.py"))]
     if sueltos:
-        archivos += [p for p in sorted(raiz.glob("*.py")) if p.name not in RAIZ_CODIGO]
-    return {p.relative_to(raiz).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in archivos}
+        sufijos = tuple(importlib.machinery.all_suffixes())  # .py, .pyw, .pyc, .pyd y .cp314-win_amd64.pyd
+        archivos += [p for p in sorted(raiz.glob("*")) if p.name.endswith(sufijos) and p.name not in RAIZ_CODIGO]
+        archivos += [p for p in sorted(raiz.glob("*/__init__.*"))
+                     if p.name.endswith(sufijos) and p.parent.name not in CARPETAS_CODIGO]
+        archivos += [p for c in CARPETAS_CODIGO for p in sorted((raiz / c).rglob("*"))
+                     if p.name.endswith(sufijos) and p.suffix != ".py" and "__pycache__" not in p.parts]
+    # is_file: una carpeta llamada «x.pyc» no tumba la revisión
+    return {p.relative_to(raiz).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in archivos if p.is_file()}
 
 
 def _instalada() -> bool:
@@ -291,8 +327,9 @@ def _instalada() -> bool:
 
 
 def revisar_integridad() -> dict:
-    """Compara el código con el manifiesto del instalador. Un archivo cambiado, uno que falta o un .py de más es un
-    evento «alta» (y bloquea: _reglas). Sin manifiesto (una copia de git de quien desarrolla): modo desarrollo.
+    """Compara el código con el manifiesto del instalador. Un archivo cambiado, uno que falta o un módulo de más
+    (ver huellas) es un evento «alta» (y bloquea: _reglas). Sin manifiesto (una copia de git de quien desarrolla):
+    modo desarrollo.
     Límite honesto: quien puede reescribir el código también puede reescribir el manifiesto. Esto pilla lo que cambia
     un programa malicioso o cualquier otro que no sabe de él; el instalador solo instala dentro de tu perfil."""
     try:
@@ -317,8 +354,9 @@ def revisar_integridad() -> dict:
     texto = t("El código de la app no es el que se instaló: {cambiados} cambiado(s), {faltan} que falta(n) y {sobran} "
               "de más ({ejemplos}).", cambiados=len(cambiados), faltan=len(faltan), sobran=len(sobran),
               ejemplos=", ".join((cambiados + faltan + sobran)[:3]))
-    registrar("integridad", "alta", texto, "app")
-    return {"estado": "peligro", "texto": texto}
+    registrar("integridad", "alta", texto, "app")  # sin el paso a seguir: así los nombres de archivo no se cortan
+    paso = t("Pasa el antivirus de Windows y reinstala Ráfaga Studio (tus proyectos y claves se quedan).")
+    return {"estado": "peligro", "texto": f"{texto} {paso}"}
 
 
 # ---------- La revisión completa ----------
@@ -353,27 +391,50 @@ def _carpeta() -> dict | None:
                                             "podrían cambiar su código. Reinstálala.", carpeta=RAIZ)}
 
 
+_ENV_APP = {"PYTHONIOENCODING", "HF_HUB_DISABLE_SYMLINKS_WARNING", "PYTHONNOUSERSITE"}  # el env que escribió la app
+
+
+def _registro(servidor) -> str:
+    """ok: justo lo que escribe «Conectar»; aviso: lo que escribían versiones anteriores (sin -s -E); peligro:
+    cualquier otra cosa. No basta mirar el principio y el final: un -c o un script delante del mcp_server.py corren
+    otro código, y un env con HTTPS_PROXY pasaría tus llamadas con claves por el proxy de otro (-E solo quita las
+    PYTHON*)."""
+    from . import conexion_mcp
+    if not isinstance(servidor, dict):
+        return "peligro"
+    args = [str(a) for a in servidor["args"]] if isinstance(servidor.get("args"), list) else []
+    env = servidor.get("env") or {}
+    if (os.path.normcase(str(servidor.get("command"))) != os.path.normcase(conexion_mcp.PYTHON) or not args
+            or os.path.normcase(args[-1]) != os.path.normcase(str(RAIZ / "mcp_server.py"))
+            or servidor.get("type", "stdio") != "stdio" or not isinstance(env, dict) or set(env) - _ENV_APP):
+        return "peligro"
+    return {tuple(conexion_mcp.SERVIDOR["args"][:-1]): "ok", (): "aviso"}.get(tuple(args[:-1]), "peligro")
+
+
 def _mcp() -> list[dict]:
-    """El registro MCP de cada Claude: que arranque ESTA app (su Python y su mcp_server.py) y en modo seguro (-s -E)."""
+    """El registro MCP de cada Claude: que arranque ESTA app (su Python y su mcp_server.py) y en modo seguro (-s -E).
+    ponytail: los .mcp.json de ámbito proyecto (uno en cada carpeta de trabajo) no se pueden enumerar barato."""
     from . import conexion_mcp
     resultados = []
-    propio = (os.path.normcase(conexion_mcp.PYTHON), os.path.normcase(str(RAIZ / "mcp_server.py")))
     for cliente, archivo in conexion_mcp.CLIENTES.items():
         try:
-            servidor = (conexion_mcp._leer(archivo).get("mcpServers") or {}).get(conexion_mcp.NOMBRE)
-        except Exception:  # una config de Claude ilegible no tumba la revisión
+            datos = conexion_mcp._leer(archivo)
+            servidores = [(datos.get("mcpServers") or {}).get(conexion_mcp.NOMBRE)]
+            if cliente == "Claude Code":  # el ámbito local de cada proyecto (~/.claude.json → projects) gana
+                servidores += [(p.get("mcpServers") or {}).get(conexion_mcp.NOMBRE)
+                               for p in (datos.get("projects") or {}).values()]
+            estados = {_registro(s) for s in servidores if s is not None}
+        except Exception:  # una config de Claude ilegible (o con una forma rara) no tumba la revisión
             resultados.append({"estado": "aviso", "texto": t("No se pudo leer la configuración de {cliente}.",
                                                              cliente=cliente)})
             continue
-        if servidor is None:
+        if not estados:
             continue
-        args = servidor.get("args") if isinstance(servidor, dict) and isinstance(servidor.get("args"), list) else []
-        comando = servidor.get("command") if isinstance(servidor, dict) else None
-        if (os.path.normcase(str(comando)), os.path.normcase(str(args[-1]) if args else "")) != propio:
+        if "peligro" in estados:
             resultados.append({"estado": "peligro", "texto": t(
                 "{cliente} arranca «{nombre}» con otro programa o desde otra carpeta: pulsa «Desconectar» y «Conectar» "
                 "en «Conexión MCP».", cliente=cliente, nombre=conexion_mcp.NOMBRE)})
-        elif not {"-s", "-E"} <= set(map(str, args)):
+        elif "aviso" in estados:
             resultados.append({"estado": "aviso", "texto": t(
                 "{cliente}: la conexión MCP no arranca en modo seguro (-s -E): pulsa «Desconectar» y «Conectar» en "
                 "«Conexión MCP».", cliente=cliente)})
@@ -405,10 +466,15 @@ def revisar() -> list[dict]:
             traceback.print_exc()
             r = {"estado": "aviso", "texto": t("No se pudo comprobar una parte ({error}).", error=type(e).__name__)}
         resultados += r if isinstance(r, list) else [r] if r else []
-    bloqueo = bloqueado()
-    resultados.append({"estado": "peligro", "texto": t("Bloqueado: {motivo}", motivo=bloqueo["motivo"])} if bloqueo
-                      else {"estado": "ok", "texto": t("Sin bloqueo: el estudio funciona con normalidad.")})
-    return resultados
+    return resultados + [linea_bloqueo(bloqueado())]
+
+
+def linea_bloqueo(bloqueo) -> dict:
+    """La última línea de revisar(), la del bloqueo. La página la pone al día sola cuando cambia, sin revisar todo
+    otra vez: otra revisión volvería a apuntar (y a notificar) la misma integridad «alta»."""
+    if bloqueo:
+        return {"estado": "peligro", "texto": t("Bloqueado: {motivo}", motivo=bloqueo["motivo"]), "bloqueo": True}
+    return {"estado": "ok", "texto": t("Sin bloqueo: el estudio funciona con normalidad."), "bloqueo": True}
 
 
 def estado(resultados=()) -> str:

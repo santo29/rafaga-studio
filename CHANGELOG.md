@@ -55,7 +55,16 @@ First public version · Primera versión.
   redirects, fake-ip proxies, fake files, Director and MCP refusals, keys from another service, DPAPI failures, a keys
   file changed by another program, sensitive data refused by the memory) without keys, signed URLs or full paths;
   checks the app's code against an integrity manifest built by the installer; checks the keys file, the install
-  folder, the MCP registration and the Demucs model; and **locks** paid features, publishing, the memory and MCP when
-  the code changed or an MCP agent insists after 3 «No» in 10 minutes. Only a person on the page can unlock it. Serious
+  folder, the MCP registration and the Demucs model; and **locks** paid video, images, music and voice, publishing,
+  the memory and MCP when the code changed or an MCP agent insists after 3 «No» in 10 minutes. Only a person on the
+  page can unlock it. Serious
   events show a Windows notification; «Explicar con IA» explains an event in plain words (the AI never acts). The
   launcher `.bat` also opens the installed copy. Privacy notice version 7.
+- **Ráfaga Guardia review:** while locked, ElevenLabs voices and uploads from the Publish page do not start and OpenAI
+  transcription falls back to the free local Whisper (the lock texts now say exactly what stops); the integrity check
+  also sees planted `.pyc`/`.pyw`/`.pyd` files and packages, and the MCP server runs it when it starts; a hijacked MCP
+  registration (`-c` code, a script in between, a proxy in `env`, another connection type or a project-scope entry)
+  is «peligro»; the installer deletes the old code before copying, so an update never locks the app; unlocking with
+  the app open twice no longer locks it again; one incident, one notification of each kind; a single «No» to an agent
+  or a key pasted in the wrong box no longer turns the shield amber; an unreadable `guardia.json` counts as locked; a
+  lock file kept fresh by another program no longer freezes the window; long file names stay readable in events.

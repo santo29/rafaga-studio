@@ -749,6 +749,7 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     c = claves.cargar().get("elevenlabs")
     if not c:
         raise SinClave(t("Conecta tu clave de ElevenLabs para usar sus voces."))
+    guardia.sin_bloqueo()  # de pago (ElevenLabs cobra por letra): con el estudio bloqueado no empieza
     r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
                    params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": c["clave"]}, timeout=300,
                    json={"text": texto, "model_id": c.get("modelo_voz", "eleven_multilingual_v2")})
@@ -779,6 +780,8 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     Usa Groq/OpenAI si hay clave (rápido); si no, Whisper local en el PC (lento pero gratis).
     en_pc: siempre en el PC, aunque haya clave (la voz del usuario para el Director no sale de aquí)."""
     c = None if en_pc else claves.para("transcripcion")
+    if c and c.get("proveedor") == "openai" and guardia.bloqueado():
+        c = None  # de pago (PRECIO_TRANSCRIPCION): bloqueado, se transcribe gratis en el PC (Groq sigue: es gratis)
     limite_api = 24 * 1024 * 1024  # Groq y OpenAI rechazan archivos de más de 25 MB
     if c and c.get("clave") and audio.stat().st_size > limite_api:
         from .video import ffmpeg

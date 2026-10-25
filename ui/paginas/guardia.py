@@ -27,7 +27,8 @@ ORIGENES = {"app": t("la app"), "mcp": t("un agente MCP"), "director": t("el Dir
 MARCAS = {"ok": ("circle-check", "#3DDC97"), "aviso": ("triangle-alert", "#FFB454"),
           "peligro": ("octagon-alert", "#FF4D8D")}
 PROTEGE = [t("Tus claves de IA: cifradas con tu cuenta de Windows y nunca enviadas a otro servicio."),
-           t("Tu dinero: nada de pago se hace sin tu «Sí»; con el bloqueo, nada de pago empieza."),
+           t("Tu dinero: nada de pago se hace sin tu «Sí»; con el bloqueo no empieza ningún video, imagen, "
+             "canción ni voz de pago."),
            t("Tus archivos y tu red: ni carpetas de red, ni tu red local, ni archivos que fingen ser otra cosa."),
            t("El código de la app: si otro programa lo cambia después de instalarla, se bloquea y te avisa."),
            t("Los agentes conectados por MCP: si insisten después de tus «No», se bloquean.")]
@@ -276,6 +277,11 @@ class PaginaGuardia(QWidget):
     def _revisado(self, r):
         self.resultados = r.get("resultados") or []
         self.hora_revision = time.strftime("%H:%M")
+        self._pintar_resultados()
+        self._firma = None  # la revisión pudo apuntar un evento (el código cambió): se recarga ya
+        self._comprobar_cambios()
+
+    def _pintar_resultados(self):
         _vaciar(self.lista_resultados)
         for resultado in self.resultados:
             fila = QWidget()
@@ -285,8 +291,6 @@ class PaginaGuardia(QWidget):
             fila_lay.addWidget(_icono_fijo(*MARCAS.get(resultado.get("estado"), MARCAS["aviso"])), 0, Qt.AlignTop)
             fila_lay.addWidget(etiqueta(str(resultado.get("texto", ""))), 1)
             self.lista_resultados.addWidget(fila)
-        self._firma = None  # la revisión pudo apuntar un evento (el código cambió): se recarga ya
-        self._comprobar_cambios()
 
     # ---------- Vigilar el historial ----------
 
@@ -297,8 +301,11 @@ class PaginaGuardia(QWidget):
         try:
             datos = guardia.ARCHIVO.stat()
             firma = (datos.st_mtime_ns, datos.st_size)
-        except OSError:
+            open(guardia.ARCHIVO, "rb").close()  # otro programa que lo abre en exclusiva no le cambia fecha ni tamaño
+        except FileNotFoundError:
             firma = ()
+        except OSError:
+            firma = ("ilegible",)  # guardia.bloqueado() falla cerrado: que la página lo enseñe
         if firma == self._firma:
             return
         self._firma = firma
@@ -309,14 +316,18 @@ class PaginaGuardia(QWidget):
 
     def _recargar(self):
         eventos, bloqueo = guardia.eventos(), guardia.bloqueado()
-        if self._bloqueo and not bloqueo:
-            # Solo se desbloquea aquí (_alternar_bloqueo pone _bloqueo a None antes): quitarlo editando o rompiendo
-            # guardia.json no vale, se vuelve a poner y se avisa
+        if bloqueo and bloqueo.get("ilegible") and self._bloqueo:
+            bloqueo = self._bloqueo  # mientras no se puede leer, se recuerda el bloqueo de verdad que había
+        # El último bloqueo o desbloqueo del historial (va del más nuevo al más viejo): con la app abierta dos veces,
+        # la otra copia desbloqueó desde su página (guardia.desbloquear lo apunta) y no es un ataque
+        ultimo = next((e["tipo"] for e in eventos if e["tipo"] in ("bloqueo", "desbloqueo")), None)
+        if self._bloqueo and not self._bloqueo.get("ilegible") and not bloqueo and ultimo != "desbloqueo":
+            # Solo se desbloquea en esta página: quitarlo editando o rompiendo guardia.json no vale, se vuelve a poner
+            # y se avisa
             guardia.registrar("bloqueo_quitado", "alta", t("Alguien quitó el bloqueo desde fuera de esta página: se "
                                                            "volvió a poner. Solo se desbloquea aquí."), "app")
             guardia.bloquear(self._bloqueo.get("motivo") or t("sin motivo"))
             eventos, bloqueo = guardia.eventos(), guardia.bloqueado()
-        cambio = bool(self._bloqueo) != bool(bloqueo)
         self._bloqueo = bloqueo
         if self._vistos is None:  # al abrir la app no se notifica lo de antes: el escudo ya lo enseña
             self._vistos = {e["id"] for e in eventos}
@@ -326,9 +337,14 @@ class PaginaGuardia(QWidget):
                 if evento["gravedad"] == "alta":
                     self._notificar(evento)
         self._eventos = eventos
+        # Se bloqueó o desbloqueó: la línea del bloqueo (la última de revisar) al día, sin revisar todo otra vez
+        # (otra revisión volvería a apuntar y a notificar la misma integridad «alta»)
+        if self.resultados and self.resultados[-1].get("bloqueo"):
+            linea = guardia.linea_bloqueo(bloqueo)
+            if linea != self.resultados[-1]:
+                self.resultados[-1] = linea
+                self._pintar_resultados()
         self._pintar()
-        if cambio and self.resultados:  # se bloqueó o desbloqueó: la línea del bloqueo de las comprobaciones, al día
-            self.revisar_ahora(inicio=True)
 
     def _notificar(self, evento):
         """Una notificación de Windows con el icono de la app. La bandeja se crea al primer aviso, y solo si existe."""
@@ -351,8 +367,8 @@ class PaginaGuardia(QWidget):
         self.titulo_estado.setText(TITULOS[estado])
         self.titulo_estado.setStyleSheet(f"color: {color};")
         self.texto_estado.setText(t("Bloqueado: {motivo}", motivo=self._bloqueo["motivo"]) + "\n" + t(
-            "Nada de pago, publicar, la memoria ni el MCP funcionan hasta que lo desbloquees aquí.")
-            if self._bloqueo else DESCRIPCIONES[estado])
+            "No empieza ningún video, imagen, canción ni voz de pago, ni se publica, ni se guarda en la memoria, ni "
+            "funciona el MCP hasta que lo desbloquees aquí.") if self._bloqueo else DESCRIPCIONES[estado])
         poner(self.bloqueo, f"🔓  {t('Desbloquear')}" if self._bloqueo else f"🔒  {t('Bloquear ahora')}")
         if self.hora_revision and not (self.tarea and self.tarea.isRunning()):
             self.hora.setText(t("Última revisión: {hora}", hora=self.hora_revision))
@@ -435,15 +451,16 @@ class PaginaGuardia(QWidget):
     def _alternar_bloqueo(self):
         if guardia.bloqueado():
             pregunta = QMessageBox.question(
-                self, t("Desbloquear"), t("¿Desbloquear Ráfaga Studio? Vuelven a funcionar lo de pago, publicar, la "
-                                          "memoria y el MCP. Si el código de la app sigue cambiado, se bloqueará otra "
-                                          "vez en la próxima revisión."), QMessageBox.Yes | QMessageBox.No,
+                self, t("Desbloquear"), t("¿Desbloquear Ráfaga Studio? Vuelven a funcionar el video, las "
+                                          "imágenes, la música y la voz de pago, publicar, la memoria y el MCP. Si el "
+                                          "código de la app sigue cambiado, se bloqueará otra vez enseguida."),
+                QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No)
             if pregunta != QMessageBox.Yes:
                 return
             self._bloqueo = None  # lo quita esta página, la única que puede: no es un desbloqueo de fuera
             guardia.desbloquear()
-            self.revisar_ahora(inicio=True)  # la línea del bloqueo de las comprobaciones, al día
+            self.revisar_ahora(inicio=True)  # si el código sigue cambiado, se vuelve a bloquear enseguida
         else:
             guardia.bloquear(t("lo bloqueaste tú desde Ráfaga Guardia"))
         self._firma = None

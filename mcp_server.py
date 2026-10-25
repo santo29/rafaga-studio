@@ -7,6 +7,7 @@ import ctypes
 import functools
 import inspect
 import os
+import threading
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -99,8 +100,9 @@ def herramienta(funcion):
             partes = [p for p in partes if p]
             if partes and not _preguntar("\n\n".join([t("Un agente conectado por MCP pide «{herramienta}».",
                                                           herramienta=funcion.__name__), *partes])):
-                # cuenta para la regla de Guardia: 3 «No» en 10 minutos es un agente que insiste, y se bloquea
-                guardia.registrar("mcp_no", "media", t("Dijiste «No» a un agente MCP que pedía «{herramienta}».",
+                # «baja»: un «No» suelto es una decisión tuya y no pone el escudo ámbar. La regla de Guardia
+                # cuenta por tipo: 3 «No» en 10 minutos es un agente que insiste, y se bloquea
+                guardia.registrar("mcp_no", "baja", t("Dijiste «No» a un agente MCP que pedía «{herramienta}».",
                                                        herramienta=funcion.__name__))
                 raise ToolError(t("el usuario no lo aceptó: no se hizo ni se gastó nada"))
         try:
@@ -115,5 +117,15 @@ for _nombre, _f in herramientas.TODAS.items():  # las mismas que usa el Director
     globals()[_nombre] = herramienta(_f)  # mcp_server.crear_video(…) sigue funcionando como antes
 
 
+def revisar_codigo() -> threading.Thread:
+    """Quien usa Ráfaga solo desde Claude, sin abrir la app, también corre el código de motor/: se comprueba al
+    arrancar, en segundo plano (unos 100 hashes). Si cambió, el evento «alta» bloquea y el envoltorio rechaza las
+    herramientas siguientes."""
+    hilo = threading.Thread(target=guardia.revisar_integridad, daemon=True)
+    hilo.start()
+    return hilo
+
+
 if __name__ == "__main__":
+    revisar_codigo()
     mcp.run()

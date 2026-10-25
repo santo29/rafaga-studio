@@ -68,7 +68,12 @@ def conectar(cliente: str) -> None:
 def desconectar(cliente: str) -> None:
     archivo = CLIENTES[cliente]
     datos = _leer(archivo)
-    if (datos.get("mcpServers") or {}).pop(NOMBRE, None) is not None:
+    # También el ámbito local de cada proyecto de Claude Code (~/.claude.json → projects), que gana al de usuario:
+    # así «Desconectar» y «Conectar» arreglan un registro cambiado ahí (Ráfaga Guardia lo revisa)
+    proyectos = datos.get("projects") if isinstance(datos.get("projects"), dict) else {}
+    registros = [datos.get("mcpServers") or {},
+                 *(p.get("mcpServers") for p in proyectos.values() if isinstance(p, dict))]
+    if [r.pop(NOMBRE) for r in registros if isinstance(r, dict) and NOMBRE in r]:
         _escribir(archivo, datos)
 
 

@@ -340,7 +340,8 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
         # ponytail: si las claves de Kling resultan medir 40 caracteres (como el token clásico de Cloudflare), esta
         # regla las rechaza: entonces hay que dejar pasar ese caso aquí.
         if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE) or re.match(AJENAS, clave):
-            guardia.registrar("clave_ajena", "media", t("Se rechazó una clave de otro servicio pegada en «Conectar» "
+            # «baja»: lo hace la persona al pegar la clave en el cuadro equivocado y no se manda (sin escudo ámbar)
+            guardia.registrar("clave_ajena", "baja", t("Se rechazó una clave de otro servicio pegada en «Conectar» "
                                                         "de {proveedor}: no se mandó.", proveedor=proveedor.capitalize()))
             raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
                                "la reconoce sola.", proveedor=proveedor.capitalize()))
@@ -441,7 +442,11 @@ def _reemplazar(archivo: Path, texto: str) -> None:
             return
         except PermissionError:
             time.sleep(0.05)
-    os.replace(temporal, archivo)
+    try:
+        os.replace(temporal, archivo)
+    except OSError:
+        Path(temporal).unlink(missing_ok=True)  # sin dejar un «…-xxxx.tmp» en datos/ por cada intento fallido
+        raise
 
 
 def _escribir(todas: dict) -> None:

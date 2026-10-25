@@ -5,8 +5,10 @@ offscreen. Sin red ni claves de verdad. Sola: python -m pruebas.guardia"""
 import ast
 import asyncio
 import base64
+import importlib.machinery
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -58,6 +60,14 @@ for secreto in (clave, "sk-ant", "Signature", "AKIA", "Juan", "Perez", "servidor
     assert secreto not in limpio, (secreto, limpio)
 assert "bucket.s3.amazonaws.com" in limpio and "cuentas.png" in limpio, limpio
 assert len(guardia.limpiar("x" * 1000)) <= 240
+# Un texto enorme no cuelga a nadie (antes, «a+a+a+…» tardaba un tiempo cuadrático) y un nombre de archivo largo se
+# ve entero; un token al final de una frase sigue tapado
+inicio = time.time()
+guardia.limpiar("\\\\srv\\share\\" + "a+" * 50_000)
+assert time.time() - inicio < 1, time.time() - inicio
+largo = "mi_video_final_version_2026_10_24_editado.gif"
+assert largo in guardia.limpiar(f"Se rechazó un archivo que no es lo que dice su nombre: {largo}")
+assert token not in guardia.limpiar(f"el token {token}. Nada más")
 nuevo_historial()
 guardia.registrar("prueba", "media", f"{clave} {firmada} {ruta}")
 guardado = guardia.ARCHIVO.read_text(encoding="utf-8")
@@ -101,6 +111,27 @@ cerrojo.write_text("")
 os.utime(cerrojo, (time.time() - 60, time.time() - 60))
 guardia.registrar("prueba", "baja", "tras un cerrojo viejo")
 assert "tras un cerrojo viejo" in {e["detalle"] for e in guardia.eventos()} and not cerrojo.exists()
+# Ni uno que otro programa mantiene fresco: la ventana (que también escribe aquí) no se congela 10 s por escritura
+parar = threading.Event()
+
+
+def refrescar():
+    while not parar.is_set():
+        cerrojo.touch()
+        time.sleep(0.3)
+
+
+hilo = threading.Thread(target=refrescar)
+hilo.start()
+try:
+    time.sleep(0.1)
+    inicio = time.time()
+    guardia.marcar_visto()
+    assert time.time() - inicio < 4 and guardia._leer()["visto"], time.time() - inicio
+finally:
+    parar.set()
+    hilo.join()
+    cerrojo.unlink(missing_ok=True)
 
 # ---------- Un historial roto nunca rompe nada ----------
 for roto in ("{roto", "[1, 2]", '{"eventos": "x", "bloqueo": 5, "visto": 3}', '{"eventos": [{"tipo": 1}, 7]}', ""):
@@ -117,6 +148,34 @@ guardia.bloquear("x")
 guardia.desbloquear()
 assert guardia.eventos() == [] and guardia.bloqueado() is None
 guardia.ARCHIVO = archivo_real
+# Otro programa lo abre en exclusiva: falla cerrado (cuenta como bloqueado), nadie lo pisa (se perdería el bloqueo de
+# verdad) y no quedan temporales; al soltarlo, todo sigue como estaba
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                wintypes.DWORD, wintypes.HANDLE]
+
+    def en_exclusiva():
+        asa = k32.CreateFileW(str(guardia.ARCHIVO), 0x80000000, 0, None, 3, 0, None)  # GENERIC_READ, sin compartir
+        assert asa and asa != wintypes.HANDLE(-1).value, ctypes.get_last_error()
+        return asa
+
+    nuevo_historial()
+    guardia.registrar("prueba", "baja", "antes")
+    asa = en_exclusiva()
+    try:
+        assert guardia.bloqueado()["ilegible"] and guardia.estado() == "peligro"
+        assert "No se puede leer" in falla(guardia.sin_bloqueo, error=RuntimeError)
+        guardia.registrar("prueba", "alta", "mientras está abierto")
+        guardia.desbloquear()
+        falla(claves._reemplazar, guardia.ARCHIVO, "{}", error=PermissionError)
+    finally:
+        k32.CloseHandle(asa)
+    assert tipos() == ["prueba"] and guardia.bloqueado() is None and not list(tmp.glob("guardia-*.tmp"))
 print("Historial de Ráfaga Guardia: limpio, compartido y a prueba de roturas.")
 
 # ---------- Cada defensa apunta su evento (con una línea, donde ya decide) ----------
@@ -153,6 +212,7 @@ assert r.startswith("ERROR") and tipos()[0] == "director" and "Juan" not in guar
 # cambiado por otro programa
 falla(claves.detectar, "ghp_" + "a" * 36, "kling", error=ValueError)
 assert tipos()[0] == "clave_ajena" and "ghp_" not in guardia.ARCHIVO.read_text(encoding="utf-8")
+assert guardia.eventos()[0]["gravedad"] == "baja"  # un despiste de la persona, ya resuelto: no pone el escudo ámbar
 claves.guardar({"proveedor": "groq", "clave": "gsk_prueba", "usos": ["texto"]})
 assert "claves_cambiadas" not in tipos()  # lo escribió la app: no avisa
 claves.ARCHIVO.write_text('{"groq": {"proveedor": "groq", "clave": "gsk_otra", "usos": ["texto"]}}', encoding="utf-8")
@@ -182,6 +242,7 @@ try:
     assert "no lo aceptó" in falla(mcp_server.crear_video, "un gato", imagen=str(tmp / "foto.png"), error=ToolError)
     assert tipos() == ["mcp_no", "mcp_fuera"] and {e["origen"] for e in guardia.eventos()} == {"mcp"}
     assert str(tmp) not in guardia.ARCHIVO.read_text(encoding="utf-8")
+    assert guardia.estado() == "ok"  # un «No» suelto es una decisión tuya: escudo verde (3 en 10 min bloquean)
 finally:
     mcp_server._preguntar = preguntar_real
     guardia.ORIGEN = "app"  # importar mcp_server firma lo de este proceso como «mcp»; el resto de la prueba es la app
@@ -191,12 +252,12 @@ print("Cada defensa apunta su evento en Ráfaga Guardia.")
 nuevo_historial()
 for n in range(guardia.INSISTENCIA):
     assert guardia.bloqueado() is None
-    guardia.registrar("mcp_no", "media", "Dijiste «No»", "mcp")
+    guardia.registrar("mcp_no", "baja", "Dijiste «No»", "mcp")
 assert "insistió" in guardia.bloqueado()["motivo"] and guardia.eventos()[0]["tipo"] == "bloqueo"
 assert guardia.eventos()[0]["gravedad"] == "alta" and guardia.estado() == "peligro"
 # Tras desbloquear, los «No» de antes no cuentan
 guardia.desbloquear()
-guardia.registrar("mcp_no", "media", "Dijiste «No»", "mcp")
+guardia.registrar("mcp_no", "baja", "Dijiste «No»", "mcp")
 assert guardia.bloqueado() is None
 # Fuera de la ventana de 10 minutos no cuentan
 nuevo_historial()
@@ -222,6 +283,7 @@ print("Reglas del bloqueo automático: 3 «No» en 10 minutos o el código cambi
 
 # ---------- Con el estudio bloqueado: ni el MCP, ni lo de pago del Director, ni las llamadas de pago ----------
 from motor import desde_prompt, ia, kling, musica, seedance  # noqa: E402
+from motor import publicar as subir  # noqa: E402  («publicar» es aquí lo que pide el Director)
 
 nuevo_historial()
 guardia.bloquear("prueba")
@@ -245,13 +307,30 @@ assert "bloqueado" in r and not confirmaciones
 _, r = director._usar("listar_opciones", {}, nada, nada, "", "", si)  # lo gratis del Director sigue
 assert not r.startswith("ERROR"), r
 claves.guardar({"proveedor": "gemini", "clave": "AIzaPrueba", "usos": ["texto", "musica"], "modelo_musica": "lyria-3.5"})
+claves.guardar({"proveedor": "elevenlabs", "clave": "e" * 32, "usos": ["voz"]})
+claves.guardar({"proveedor": "openai", "clave": "sk-prueba", "usos": ["transcripcion"],
+                "modelo_transcripcion": "whisper-1"})
 pagos = {"kling": lambda: kling._generar({"clave": "k"}, tmp / "x.png", "p", tmp / "x.mp4", 5, False),
          "seedance": lambda: seedance._generar({"clave": "k"}, None, "p", tmp / "x.mp4", 5, False),
          "video con voz": lambda: ia.video_hablado("p", "9:16", tmp / "x.mp4"),
          "imagen de Gemini": lambda: ia._imagen_gemini({"clave": "k"}, "p", 512, 512),
-         "música": lambda: musica.crear("una canción", "pop")}
-for nombre, llamada in pagos.items():
-    assert "bloqueado" in falla(llamada, error=RuntimeError), nombre
+         "música": lambda: musica.crear("una canción", "pop"),
+         "voz de ElevenLabs": lambda: ia.voz_elevenlabs("hola", "v", tmp / "v.mp3"),
+         "publicar en YouTube": lambda: subir.programar(str(tmp / "v.mp4"), "t")}
+post_real = ia.httpx.post
+ia.httpx.post = subir.httpx.post = lambda *a, **k: (_ for _ in ()).throw(AssertionError("salió a la red"))
+try:
+    for nombre, llamada in pagos.items():
+        assert "bloqueado" in falla(llamada, error=RuntimeError), nombre
+    # El crear_video del Director narra con desde_prompt.narrar: con una voz de ElevenLabs (costo no la pregunta),
+    # tampoco empieza
+    assert "bloqueado" in falla(desde_prompt.narrar, "hola", "eleven:abc", tmp / "v.mp3", error=RuntimeError)
+    # La transcripción de OpenAI (de pago) no sale: se hace gratis en el PC (aquí falla su ffmpeg: no es audio)
+    assert claves.para("transcripcion")["proveedor"] == "openai"
+    (tmp / "a.mp3").write_bytes(b"no es audio")
+    falla(ia.transcribir, tmp / "a.mp3", error=subprocess.CalledProcessError)
+finally:
+    ia.httpx.post = subir.httpx.post = post_real
 claves.ARCHIVO.unlink()
 # Desbloquear solo lo hace la página «Ráfaga Guardia»: ni el Director, ni el MCP, ni ninguna herramienta
 llamadas = []
@@ -282,6 +361,14 @@ try:
     r = guardia.revisar_integridad()
     assert r["estado"] == "ok" and "7 archivos" in r["texto"], r
     assert guardia._carpeta()["estado"] == "ok"
+    # Lo que hay en una instalación limpia y no es código de la app no avisa: ejemplos (sin __init__), Python con sus
+    # librerías, datos, las cachés __pycache__ y los documentos
+    for nombre in ("ejemplos/crear.py", "python/tools/Lib/os.py", "datos/guardia.json", "motor/__pycache__/a.pyc",
+                   "__pycache__/modal_app.cpython-314.pyc", "README.md", "requirements.lock"):
+        (app_falsa / nombre).parent.mkdir(parents=True, exist_ok=True)
+        (app_falsa / nombre).write_text("x", encoding="utf-8")
+    assert guardia.revisar_integridad()["estado"] == "ok"
+    extension = f"a{importlib.machinery.EXTENSION_SUFFIXES[0]}"  # a.cp314-win_amd64.pyd: se carga antes que a.py
     for cambio, deshacer in (
             (lambda: (app_falsa / "motor" / "a.py").write_text("robar()", encoding="utf-8"),
              lambda: (app_falsa / "motor" / "a.py").write_text("# motor/a.py\n", encoding="utf-8")),
@@ -289,6 +376,14 @@ try:
              lambda: (app_falsa / "ui" / "b.py").write_text("# ui/b.py\n", encoding="utf-8")),
             (lambda: (app_falsa / "json.py").write_text("robar()", encoding="utf-8"),  # un módulo plantado
              lambda: (app_falsa / "json.py").unlink()),
+            (lambda: (app_falsa / "json.pyc").write_bytes(b"robar()"),  # Python también los carga sin su .py
+             lambda: (app_falsa / "json.pyc").unlink()),
+            (lambda: (app_falsa / "json.pyw").write_text("robar()", encoding="utf-8"),
+             lambda: (app_falsa / "json.pyw").unlink()),
+            (lambda: ((app_falsa / "json").mkdir(), (app_falsa / "json" / "__init__.py").write_text("robar()")),
+             lambda: shutil.rmtree(app_falsa / "json")),  # un paquete plantado
+            (lambda: (app_falsa / "motor" / extension).write_bytes(b"MZ"),
+             lambda: (app_falsa / "motor" / extension).unlink()),
             (lambda: (app_falsa / "ui" / "paginas" / "plantada.py").write_text("x", encoding="utf-8"),
              lambda: (app_falsa / "ui" / "paginas" / "plantada.py").unlink()),
             (lambda: (app_falsa / "Ráfaga Studio.bat").write_text("start malo.exe", encoding="utf-8"),
@@ -301,8 +396,16 @@ try:
         r = guardia.revisar_integridad()
         assert r["estado"] == "peligro" and tipos()[-1] == "integridad", r
         assert guardia.eventos()[-1]["gravedad"] == "alta" and "código" in guardia.bloqueado()["motivo"]
+        assert "reinstala" in r["texto"] and "reinstala" in guardia.bloqueado()["motivo"]  # y qué hacer
         deshacer()
         assert guardia.revisar_integridad()["estado"] == "ok"
+    # El servidor MCP también lo comprueba al arrancar (quien solo usa Claude no abre la app): bloquea y rechaza
+    nuevo_historial()
+    (app_falsa / "motor" / "a.py").write_text("robar()", encoding="utf-8")
+    mcp_server.revisar_codigo().join(60)
+    assert "código" in guardia.bloqueado()["motivo"] and "bloqueado" in falla(mcp_server.listar_opciones,
+                                                                              error=ToolError)
+    (app_falsa / "motor" / "a.py").write_text("# motor/a.py\n", encoding="utf-8")
     os.environ["LOCALAPPDATA"] = str(tmp / "otra")  # instalada fuera del perfil
     assert guardia._carpeta()["estado"] == "peligro"
 finally:
@@ -323,6 +426,11 @@ assert json.loads((tmp / "dist" / "integridad.json").read_text(encoding="utf-8")
 iss = (RAIZ / "instalador" / "rafaga.iss").read_text(encoding="utf-8-sig")
 assert "instalador\\integridad.py" in iss and 'Source: "..\\dist\\integridad.json"' in iss
 assert 'Source: "..\\Ráfaga Studio.bat"' in iss and 'Source: "..\\motor\\*.py"; DestDir: "{app}\\motor"; Flags: ignoreversion recursesubdirs' in iss
+# Al actualizar, Inno no borra lo que la versión nueva ya no trae: sin esto, un .py viejo contaría como plantado y
+# bloquearía en cada arranque (ISCC no corre en las pruebas: se comprueba el texto)
+borrar = iss.split("[InstallDelete]", 1)[1].split("\n[", 1)[0]
+assert all(f'Name: "{{app}}\\{n}"' in borrar for n in ("motor", "ui", "*.py", "*.pyw", "*.pyc", "*.pyd")), borrar
+assert "datos" not in borrar.replace("«datos»", "")  # tus proyectos y claves nunca
 print("Integridad: un archivo cambiado, uno que falta o uno de más bloquea; sin manifiesto, modo desarrollo.")
 
 # ---------- La revisión completa ----------
@@ -344,12 +452,43 @@ conexion_mcp.CLIENTES[cliente].write_text(json.dumps(config), encoding="utf-8")
 assert [r["estado"] for r in guardia._mcp()] == ["peligro"]
 conexion_mcp.CLIENTES[cliente].write_text("{roto", encoding="utf-8")
 assert [r["estado"] for r in guardia._mcp()] == ["aviso"]
+# Un registro secuestrado que empieza y acaba como el bueno también es peligro: un -c o un script delante del
+# mcp_server.py (corren otro código), un env con el proxy y el certificado de otro, u otro tipo de conexión
+servidor = conexion_mcp.SERVIDOR
+for malo in ({**servidor, "args": ["-s", "-E", "-c", "import os; os.system('calc')", servidor["args"][-1]]},
+             {**servidor, "args": ["-s", "-E", "C:\\x\\otro.py", servidor["args"][-1]]},
+             {**servidor, "env": {"HTTPS_PROXY": "http://127.0.0.1:8888", "SSL_CERT_FILE": "C:\\x\\ca.pem"}},
+             {**servidor, "type": "http", "url": "http://127.0.0.1:9/mcp"}):
+    conexion_mcp.CLIENTES[cliente].write_text(json.dumps({"mcpServers": {conexion_mcp.NOMBRE: malo}}), encoding="utf-8")
+    assert [r["estado"] for r in guardia._mcp()] == ["peligro"], malo
+# El ámbito local de un proyecto de Claude Code gana al de usuario: uno distinto es peligro, uno igual no, y
+# «Desconectar» los quita todos (y nada más)
+falso = {"command": "C:\\atacante\\python.exe", "args": ["C:\\atacante\\falso.py"]}
+config = {"mcpServers": {conexion_mcp.NOMBRE: servidor, "otro": {"command": "x"}},
+          "projects": {"C:/x/proyecto": {"mcpServers": {conexion_mcp.NOMBRE: falso}}, "C:/x/otro": {"mcpServers": {}}}}
+conexion_mcp.CLIENTES[cliente].write_text(json.dumps(config), encoding="utf-8")
+assert [r["estado"] for r in guardia._mcp()] == ["peligro"]
+config["projects"]["C:/x/proyecto"]["mcpServers"][conexion_mcp.NOMBRE] = servidor
+conexion_mcp.CLIENTES[cliente].write_text(json.dumps(config), encoding="utf-8")
+assert [r["estado"] for r in guardia._mcp()] == ["ok"]
+config["projects"]["C:/x/proyecto"]["mcpServers"][conexion_mcp.NOMBRE] = falso
+conexion_mcp.CLIENTES[cliente].write_text(json.dumps(config), encoding="utf-8")
+conexion_mcp.desconectar(cliente)
+config = json.loads(conexion_mcp.CLIENTES[cliente].read_text(encoding="utf-8"))
+assert config["mcpServers"] == {"otro": {"command": "x"}} and set(config["projects"]) == {"C:/x/proyecto", "C:/x/otro"}
+assert all(conexion_mcp.NOMBRE not in p["mcpServers"] for p in config["projects"].values())
+assert [r["estado"] for r in guardia._mcp()] == ["ok"] and "Ningún Claude" in guardia._mcp()[0]["texto"]
+# Claude Desktop: sin «type», como lo escribe «Conectar»
+escritorio = list(conexion_mcp.CLIENTES)[1]
+conexion_mcp.conectar(escritorio)
+assert [r["estado"] for r in guardia._mcp()] == ["ok"]
+conexion_mcp.CLIENTES[escritorio].unlink()
 modelo = nubes.MODELOS / "torch" / "hub" / "checkpoints" / nubes.DEMUCS[0].rsplit("/", 1)[1]
 modelo.parent.mkdir(parents=True)
 modelo.write_bytes(b"pickle malicioso")
 assert guardia._demucs()["estado"] == "aviso"
 guardia.bloquear("prueba")
-assert {"estado": "peligro", "texto": "Bloqueado: prueba"} in guardia.revisar()
+assert guardia.revisar()[-1] == {"estado": "peligro", "texto": "Bloqueado: prueba", "bloqueo": True}
 roto_real, guardia._claves = guardia._claves, lambda: 1 / 0  # una comprobación que revienta no tumba las demás
 try:
     resultados = guardia.revisar()
@@ -473,6 +612,69 @@ try:
     rota.cerrar()
 finally:
     guardia.revisar = revisar_real
+# Con la app abierta dos veces: desbloquear en una no es «quitado desde fuera» para la otra (ni alarma ni vuelta al
+# bloqueo); lo dice el historial, donde guardia.desbloquear lo apunta el último
+p.reloj.stop()  # la página de antes no sigue los historiales nuevos de estas pruebas (los tomaría por manipulados)
+nuevo_historial()
+guardia.bloquear("prueba")
+a, b = pagina_guardia.PaginaGuardia(), pagina_guardia.PaginaGuardia()
+avisos_ab = []
+a._notificar = b._notificar = avisos_ab.append
+assert esperar(lambda: not a.tarea.isRunning() and not b.tarea.isRunning() and b.estado == "peligro")
+QMessageBox.question = lambda *x, **k: QMessageBox.Yes
+try:
+    a.bloqueo.click()
+    b._comprobar_cambios()
+    assert guardia.bloqueado() is None and "bloqueo_quitado" not in tipos() and not avisos_ab
+    assert esperar(lambda: not b.tarea.isRunning() and b.estado == "ok" and a.estado == "ok"), b.resultados
+finally:
+    QMessageBox.question = question_real
+    a.cerrar()
+    b.cerrar()
+# Un mismo incidente, un aviso de cada (integridad y bloqueo), también tras cada «Desbloquear» con el código aún
+# cambiado: sin una tercera notificación ni una entrada repetida en el historial
+guardia.RAIZ, guardia.MANIFIESTO = app_falsa, app_falsa / "integridad.json"
+(app_falsa / "motor" / "a.py").write_text("robar()", encoding="utf-8")
+nuevo_historial()
+avisos_uno, notificar_real = [], pagina_guardia.PaginaGuardia._notificar
+pagina_guardia.PaginaGuardia._notificar = lambda self, evento: avisos_uno.append(evento["tipo"])
+QMessageBox.question = lambda *x, **k: QMessageBox.Yes
+try:
+    c = pagina_guardia.PaginaGuardia()
+    assert esperar(lambda: not c.tarea.isRunning() and c.estado == "peligro")
+    esperar(lambda: False, 2)  # unos tics del reloj: ninguna revisión de más
+    assert avisos_uno == ["integridad", "bloqueo"] and tipos() == ["bloqueo", "integridad"], (avisos_uno, tipos())
+    c.bloqueo.click()
+    assert esperar(lambda: not c.tarea.isRunning() and guardia.bloqueado() and len(avisos_uno) == 4)
+    esperar(lambda: False, 2)
+    assert avisos_uno == ["integridad", "bloqueo"] * 2, avisos_uno
+    assert tipos() == ["bloqueo", "integridad", "desbloqueo", "bloqueo", "integridad"], tipos()
+    assert "reinstala" in c.texto_estado.text()  # qué hacer, también en la página
+    c._bloqueo = None
+    guardia.desbloquear()
+    c.cerrar()
+finally:
+    pagina_guardia.PaginaGuardia._notificar = notificar_real
+    QMessageBox.question = question_real
+    (app_falsa / "motor" / "a.py").write_text("# motor/a.py\n", encoding="utf-8")
+    guardia.RAIZ, guardia.MANIFIESTO = raiz_real, manifiesto_real
+# Otro programa abre guardia.json en exclusiva: la página lo enseña bloqueado (aunque su fecha no cambie) y, al
+# soltarlo, no lo toma por un bloqueo quitado desde fuera
+if os.name == "nt":
+    nuevo_historial()
+    guardia.registrar("prueba", "baja", "antes")
+    d = pagina_guardia.PaginaGuardia()
+    assert esperar(lambda: not d.tarea.isRunning() and d.estado == "ok")
+    asa = en_exclusiva()
+    try:
+        d._comprobar_cambios()
+        assert d.estado == "peligro" and "No se puede leer" in d.texto_estado.text()
+    finally:
+        k32.CloseHandle(asa)
+    d._comprobar_cambios()
+    assert guardia.bloqueado() is None and "bloqueo_quitado" not in tipos()
+    assert esperar(lambda: not d.tarea.isRunning() and d.estado == "ok"), d.resultados
+    d.cerrar()
 # Con el estudio bloqueado, un trabajo con video de pago no empieza (ni pregunta el costo)
 claves.guardar({"proveedor": "kling", "clave": "k" * 32, "usos": ["video", "video_voz"]})
 claves.elegir_por_defecto("video", "kling")

@@ -569,7 +569,7 @@ class PaginaTrabajo(QWidget):
                 n=clips, proveedor=ia.nombre_video(pago), costo=f"{mudos:.2f}")
         else:
             return True
-        if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: nada de pago empieza
+        if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: ningún video de pago empieza
             mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
             return False
         return QMessageBox.question(self, titulo, texto) == QMessageBox.Yes

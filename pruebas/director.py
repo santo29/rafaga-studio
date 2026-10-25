@@ -232,6 +232,91 @@ try:
 finally:
     sounddevice.InputStream = _entrada
 
+
+# Con muestras de verdad, bloque a bloque como las da sounddevice (n, 1) float32: algo con forma de habla (sílabas
+# con pausas) sobre el ruido de un micro de portátil. Medido con voz de Edge: a -30 dBFS de pico y un «sí» corto, el
+# umbral de antes (0.012, 0.25 s de voz) no oía nada y tras 8 s decía «No te entendí» fuera de la vista
+def habla(pico_db, segundos=2.0, ruido_db=-66.0, antes=0.7, despues=9.0):  # un micro vivo nunca da ceros
+    t = np.arange(int(voz.SR * segundos)) / voz.SR
+    silabas = np.sqrt(np.clip(np.sin(2 * np.pi * 2.5 * t), 0, None))  # 5 sílabas por segundo, con pausas
+    x = silabas * sum(np.sin(2 * np.pi * f * t) / k for k, f in enumerate((140, 280, 420, 560), 1))
+    x = x / np.abs(x).max() * 10 ** (pico_db / 20)
+    total = np.concatenate([np.zeros(int(voz.SR * antes)), x, np.zeros(int(voz.SR * despues))])
+    return (total + np.random.default_rng(1).normal(0, 10 ** (ruido_db / 20), len(total))).astype(np.float32)
+
+
+class MicroDeVerdad(Micro):
+    def __init__(self, muestras, **_):
+        self.muestras, self.lecturas = muestras, 0
+
+    def read(self, n):
+        bloque = self.muestras[self.lecturas * n:(self.lecturas + 1) * n]
+        self.lecturas += 1
+        return np.pad(bloque, (0, n - len(bloque))).reshape(-1, 1), False
+
+
+def oir(muestras):
+    micro = MicroDeVerdad(muestras)
+    sounddevice.InputStream = lambda **k: micro
+    niveles = []
+    try:
+        return voz.escuchar(threading.Event(), niveles.append), round(micro.lecturas * voz.BLOQUE, 2), niveles
+    finally:
+        sounddevice.InputStream = _entrada
+
+
+# -34 dBFS aquí da los mismos trozos (hasta 0.011) que la voz de Edge a -30 dBFS
+for pico, segundos, ruido_db in ((-34, 2.0, -66), (-6, 2.0, -66), (-20, 0.3, -66), (-30, 0.3, -66),
+                                 (-12, 2.0, -39)):  # baja, normal, un «sí» corto, uno bajito, con ventilador
+    audio, oido, niveles = oir(habla(pico, segundos, ruido_db))
+    assert len(audio) and oido < 0.7 + segundos + voz.SILENCIO + 0.5, (pico, segundos, ruido_db, oido)
+    assert max(niveles) > 0.2, max(niveles)  # la luz late también con un micro bajo
+for muestras in (habla(-80), habla(-30, ruido_db=-31)):  # nadie habla, o la voz no sale del ruido: no se manda nada
+    audio, oido, _ = oir(muestras)
+    assert len(audio) == 0 and oido == voz.SIN_VOZ, oido
+assert len(oir(habla(-6, 0.05))[0]) == 0  # un clic de teclado no es voz
+# Micro silenciado o bloqueado en Windows: llegan ceros. Se dice enseguida, no tras 8 s de luz sin respuesta
+try:
+    oir(np.zeros(voz.SR * 12, np.float32))
+    raise AssertionError("con el micro silenciado debe avisar")
+except RuntimeError as e:
+    assert "silenciado o bloqueado" in str(e) and "Privacidad" in str(e), e
+micro = MicroDeVerdad(np.zeros(voz.SR * 12, np.float32))
+sounddevice.InputStream = lambda **k: micro
+try:
+    voz.escuchar(threading.Event())
+except RuntimeError:
+    assert abs(micro.lecturas * voz.BLOQUE - voz.SIN_SONIDO) < 1e-9, micro.lecturas  # a los 3 s, no a los 8
+finally:
+    sounddevice.InputStream = _entrada
+# Sin micrófono (o desactivado): PortAudio dice «device -1»; el usuario lee qué hacer
+sounddevice.InputStream = lambda **k: (_ for _ in ()).throw(sounddevice.PortAudioError("Error querying device -1"))
+try:
+    voz.escuchar(threading.Event())
+    raise AssertionError("sin micrófono debe avisar")
+except RuntimeError as e:
+    assert str(e).startswith("No encuentro un micrófono que funcione") and "device -1" in str(e), e
+finally:
+    sounddevice.InputStream = _entrada
+
+# Whisper se carga una sola vez aunque lo pidan a la vez la voz (mientras hablas) y la transcripción
+import faster_whisper  # noqa: E402
+
+_modelo, cargas = faster_whisper.WhisperModel, []
+faster_whisper.WhisperModel = lambda *a, **k: (cargas.append(k), threading.Event().wait(0.2), "modelo")[-1]
+ia._WHISPER.pop("small", None)
+try:
+    hilos = [threading.Thread(target=ia.whisper) for _ in range(3)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join()
+    assert len(cargas) == 1 and cargas[0]["revision"] == ia.WHISPER_REVISION and ia.whisper() == "modelo"
+    assert ia.whisper_descargado()
+finally:
+    faster_whisper.WhisperModel = _modelo
+    ia._WHISPER.pop("small", None)
+
 # ---------- Herramienta del editor: une fotos y videos y exporta ----------
 edicion.CARPETA = tmp / "ediciones"
 foto = tmp / "foto.png"
@@ -340,6 +425,59 @@ assert [b.text() for b in ventana.grupo.buttons() if b.graphicsEffect()] == ["Ed
 ventana._iluminar(None)
 assert not any(b.graphicsEffect() for b in ventana.grupo.buttons())
 assert set(pagina_director.PAGINA) == set(herramientas.TODAS)  # cada herramienta tiene su página que iluminar
+
+# Ctrl+Espacio desde cualquier página: mantenerlo pulsado mientras hablas no enciende y apaga la escucha (Windows
+# repite la tecla), y la página baja hasta el estado: a 1280×720 al 150 % (~650 px de alto) quedaba por debajo de la
+# pantalla y ningún aviso de la voz se veía. Sin voz, se avisa en el chat y en voz alta, y la luz se apaga.
+import time  # noqa: E402
+
+from PySide6.QtCore import QPoint, QUrl  # noqa: E402
+from PySide6.QtGui import QShortcut  # noqa: E402
+
+
+def esperar(listo, segundos=10):
+    fin = time.time() + segundos
+    while not listo():
+        assert time.time() < fin, "no llegó a tiempo"
+        app.processEvents()
+        time.sleep(0.01)
+
+
+atajos = [a for a in ventana.findChildren(QShortcut) if a.key().toString() == "Ctrl+Space"]
+assert len(atajos) == 1 and not atajos[0].autoRepeat()
+d = ventana.director
+area = ventana.paginas.widget(ventana.orden.index(d))
+guardadas, oyendo, leidos = (voz.preparar, voz.escuchar, voz.entender, voz.hablar), threading.Event(), []
+voz.preparar = lambda: None  # Whisper no se carga en las pruebas
+voz.escuchar = lambda detener, nivel=None, dispositivo=None: (oyendo.set(), detener.wait(10), np.zeros(0))[-1]
+voz.entender = lambda audio: ""
+voz.hablar = lambda texto: leidos.append(texto) or (_ for _ in ()).throw(RuntimeError("sin red en las pruebas"))
+try:
+    ventana.resize(1280, 650)
+    ventana.show()
+    ventana.ir_a(0)
+    atajos[0].activated.emit()
+    assert oyendo.wait(5) and area.widget() is d and ventana.paginas.currentWidget() is area
+    esperar(lambda: area.verticalScrollBar().value() > 0)
+    arriba = d.estado.mapTo(d, QPoint(0, 0)).y() - area.verticalScrollBar().value()
+    assert d.estado.text().startswith("Te escucho") and 0 <= arriba <= area.viewport().height() - d.estado.height()
+    d.alternar_voz()  # «Parar» sin haber dicho nada
+    esperar(lambda: not d.escucha.isRunning() and leidos and not (d.lectura and d.lectura.isRunning()))
+    app.processEvents()
+    aviso = "No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa «Hablar» otra vez."
+    assert d.chat.toPlainText().endswith(aviso) and leidos == [aviso] and d.estado.text() == "", d.estado.text()
+    assert d.brillo.apagando and d.micro.text().endswith("Hablar")
+    # Un MP3 que no se puede reproducir solo da error (sin cambiar de estado): la luz no se queda encendida
+    malo = tmp / "respuesta-rota.mp3"
+    malo.write_bytes(b"no es un mp3" * 100)
+    d.salida.setMuted(True)
+    d.brillo.poner("pensando")
+    d.altavoz.setSource(QUrl.fromLocalFile(str(malo)))
+    d.altavoz.play()
+    esperar(lambda: d.brillo.apagando, 5)
+    d.altavoz.setSource(QUrl())
+finally:
+    voz.preparar, voz.escuchar, voz.entender, voz.hablar = guardadas
 ventana.close()
 
 # El MCP ofrece exactamente las mismas herramientas

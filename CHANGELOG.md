@@ -2,6 +2,19 @@
 
 ## Unreleased · Sin publicar
 
+- **The Director's voice assistant now answers:** it hears quiet laptop microphones and a short «yes» (before, the
+  volume threshold was too high: it listened 8 s, heard nothing and said so in a line below the screen). Pressing
+  «Talk» or Ctrl+Space scrolls to the chat; «I couldn't hear you» is said in the chat and out loud; a muted or blocked
+  microphone in Windows is reported after 3 s with where to turn it on; holding Ctrl+Space no longer switches listening
+  on and off; Ctrl+Space also answers the «Shall I do it?» window; a reply that can't be played no longer leaves the
+  light on; Whisper loads while you speak (the first command waits less) and its first download says so.
+- **El asistente de voz del Director ya responde:** oye los micrófonos bajitos de portátil y un «sí» corto (antes el
+  umbral de volumen era muy alto: escuchaba 8 s, no oía nada y lo decía en una línea por debajo de la pantalla). Al
+  pulsar «Hablar» o Ctrl+Espacio la página baja hasta el chat; «No te escuché bien» sale en el chat y en voz alta; un
+  micrófono silenciado o bloqueado en Windows se avisa a los 3 s con dónde activarlo; mantener Ctrl+Espacio pulsado ya
+  no enciende y apaga la escucha; Ctrl+Espacio también contesta la ventana «¿Lo hago?»; una respuesta que no se puede
+  reproducir ya no deja la luz encendida; Whisper se carga mientras hablas (la primera orden espera menos) y su primera
+  descarga se avisa.
 - **Record yourself in the video editor («🎥 Grabarte»):** talk over your video with your webcam in a corner circle, full
   screen or split screen (the main video moves, whole, into the other half; one click, then drag and resize it on the
   preview), or record just your voice, or import a video of your face. A 3-2-1 countdown, then the video plays from the

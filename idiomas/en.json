@@ -823,7 +823,6 @@
  "No se puede leer el archivo de tus claves.": "Your keys file cannot be read.",
  "No se puede leer el historial de Ráfaga Guardia: otro programa lo tiene abierto. Ciérralo o reinicia el PC.": "Ráfaga Guardia's history cannot be read: another program has it open. Close it or restart the PC.",
  "No te entendí. Di «sí» o «no».": "I didn't understand. Say “yes” or “no”.",
- "No te entendí. Pulsa «Hablar» e inténtalo otra vez.": "I didn't catch that. Press “Talk” and try again.",
  "No te entendí: contesta en la ventana.": "I didn't understand: answer in the window.",
  "No usar (zoom suave sobre la imagen)": "Don't use (gentle zoom on the image)",
  "Noche azul": "Blue night",
@@ -1413,5 +1412,9 @@
  "Para tu próxima grabación": "For your next recording",
  "Cancelar": "Cancel",
  "Cambia la grabación elegida": "Changes the selected recording",
- "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Click the video background to release it: then it applies to your next recording."
+ "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Click the video background to release it: then it applies to your next recording.",
+ "No encuentro un micrófono que funcione: conéctalo o actívalo en Windows ({error}).": "I can't find a working microphone: connect it or turn it on in Windows ({error}).",
+ "No me llega sonido del micrófono: está silenciado o bloqueado en Windows. Actívalo (tecla del micrófono del portátil, o Configuración › Sonido › Entrada y Privacidad › Micrófono) y pulsa «Hablar» otra vez.": "No sound is reaching me from the microphone: it's muted or blocked in Windows. Turn it on (the laptop's microphone key, or Settings › Sound › Input and Privacy › Microphone) and press “Talk” again.",
+ "Descargando el reconocimiento de voz (unos 460 MB, solo la primera vez)…": "Downloading speech recognition (about 460 MB, only the first time)…",
+ "No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa «Hablar» otra vez.": "I couldn't hear you well. Speak close to the microphone (or turn its volume up in Windows) and press “Talk” again."
 }

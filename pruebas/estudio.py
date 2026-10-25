@@ -13,6 +13,7 @@ import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
+from PySide6.QtGui import QShortcut  # noqa: E402
 from PySide6.QtWidgets import QApplication, QListWidget, QMessageBox, QPushButton  # noqa: E402
 
 from motor import claves, desde_prompt, diseno, diseno_ia, director, herramientas, ia, memoria, roles, voz  # noqa: E402
@@ -271,7 +272,8 @@ try:
     from ui.paginas import director as pagina_director  # noqa: E402
     from ui.paginas.director import PaginaDirector, ver_memoria  # noqa: E402
 
-    _hablar, _escuchar, _entender = voz.hablar, voz.escuchar, voz.entender
+    _hablar, _escuchar, _entender, _preparar = voz.hablar, voz.escuchar, voz.entender, voz.preparar
+    voz.preparar = lambda: None  # Whisper no se carga en las pruebas
     oido = ["sí, dale"]
     voz.hablar = lambda texto: (_ for _ in ()).throw(RuntimeError("sin red en las pruebas"))
     voz.escuchar = lambda detener, nivel=None, dispositivo=None: np.ones(voz.SR, np.float32)
@@ -310,12 +312,15 @@ try:
         pagina.caja.button(QMessageBox.No).click()
         esperar(lambda: not pagina.ocupado() and pagina.enviar_btn.isEnabled())
         assert not hechos
-        # Ahí, «Hablar» (o Ctrl+Espacio) contesta con la voz: no sale «Estoy trabajando» encima de la pregunta
+        # Ahí, Ctrl+Espacio contesta con la voz: no sale «Estoy trabajando» encima de la pregunta. Es un atajo de la
+        # propia ventana: con ella delante, el de la ventana principal no llega (y «Hablar» no se puede pulsar)
         ia.texto_json, _ = guion(CANCION, FIN)
         pagina._oido("una canción")
         esperar(lambda: pagina.caja is not None and "contesta en la ventana" in pagina.estado.text())
         oido[0] = "sí, dale"
-        pagina.alternar_voz()
+        atajo = pagina.caja.findChild(QShortcut)
+        assert atajo.key().toString() == "Ctrl+Space" and not atajo.autoRepeat()
+        atajo.activated.emit()
         esperar(lambda: not pagina.ocupado() and pagina.enviar_btn.isEnabled())
         assert [h[0] for h in hechos] == ["crear_cancion"] and not errores, errores
         hechos.clear()
@@ -359,7 +364,7 @@ try:
         pagina.cerrar()
         assert tarea.wait(5000) and not hechos
     finally:
-        voz.hablar, voz.escuchar, voz.entender = _hablar, _escuchar, _entender
+        voz.hablar, voz.escuchar, voz.entender, voz.preparar = _hablar, _escuchar, _entender, _preparar
         sys.excepthook, pagina_director.mensaje_error = _gancho, _aviso_error
 finally:
     ia.texto_json, claves.para = _pensar, _para

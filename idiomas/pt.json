@@ -823,7 +823,6 @@
  "No se puede leer el archivo de tus claves.": "Não é possível ler o arquivo das suas chaves.",
  "No se puede leer el historial de Ráfaga Guardia: otro programa lo tiene abierto. Ciérralo o reinicia el PC.": "Não é possível ler o histórico do Ráfaga Guardia: outro programa o mantém aberto. Feche-o ou reinicie o PC.",
  "No te entendí. Di «sí» o «no».": "Não entendi. Diga «sim» ou «não».",
- "No te entendí. Pulsa «Hablar» e inténtalo otra vez.": "Não entendi. Aperte «Falar» e tente de novo.",
  "No te entendí: contesta en la ventana.": "Não entendi: responda na janela.",
  "No usar (zoom suave sobre la imagen)": "Não usar (zoom suave sobre a imagem)",
  "Noche azul": "Noite azul",
@@ -1413,5 +1412,9 @@
  "Para tu próxima grabación": "Para a sua próxima gravação",
  "Cancelar": "Cancelar",
  "Cambia la grabación elegida": "Muda a gravação selecionada",
- "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Clique no fundo do vídeo para soltá-la: aí vale para a sua próxima gravação."
+ "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Clique no fundo do vídeo para soltá-la: aí vale para a sua próxima gravação.",
+ "No encuentro un micrófono que funcione: conéctalo o actívalo en Windows ({error}).": "Não encontro um microfone que funcione: conecte-o ou ative-o no Windows ({error}).",
+ "No me llega sonido del micrófono: está silenciado o bloqueado en Windows. Actívalo (tecla del micrófono del portátil, o Configuración › Sonido › Entrada y Privacidad › Micrófono) y pulsa «Hablar» otra vez.": "Não chega som do microfone: ele está silenciado ou bloqueado no Windows. Ative-o (tecla do microfone do notebook, ou Configurações › Som › Entrada e Privacidade › Microfone) e aperte «Falar» de novo.",
+ "Descargando el reconocimiento de voz (unos 460 MB, solo la primera vez)…": "Baixando o reconhecimento de voz (uns 460 MB, só na primeira vez)…",
+ "No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa «Hablar» otra vez.": "Não te ouvi bem. Fale perto do microfone (ou aumente o volume dele no Windows) e aperte «Falar» de novo."
 }

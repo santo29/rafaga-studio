@@ -7,13 +7,13 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea,
                                QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from motor import claves, director, memoria, roles, voz
+from motor import claves, director, ia, memoria, roles, voz
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Segmentos, Tarea, tarjeta, ver_imagen
 from ui.iconos import icono, poner
@@ -342,7 +342,7 @@ def ver_memoria(padre) -> QDialog:
 class Escucha(QThread):
     """Graba hasta que terminas de hablar y lo pasa a texto, sin congelar la ventana."""
     nivel = Signal(float)
-    entendiendo = Signal()
+    entendiendo = Signal(bool)  # si Whisper ya está en el PC (si no, primero se descarga)
     texto = Signal(str)
     fallo = Signal(str)
 
@@ -353,10 +353,12 @@ class Escucha(QThread):
 
     def run(self):
         try:
+            voz.preparar()
             audio = voz.escuchar(self.detener, self.nivel.emit)
             if self.cerrando:
                 return
-            self.entendiendo.emit()
+            if len(audio):  # sin voz no hay nada que entender: «No te escuché» sale enseguida
+                self.entendiendo.emit(ia.whisper_descargado())
             self.texto.emit(voz.entender(audio))
         except Exception as e:  # sin micrófono, sin permiso…: se avisa, no se cae la app
             traceback.print_exc()
@@ -454,6 +456,9 @@ class PaginaDirector(QWidget):
         self.salida = QAudioOutput(self)
         self.altavoz.setAudioOutput(self.salida)
         self.altavoz.playbackStateChanged.connect(self._fin_de_voz)
+        # un MP3 que no se puede reproducir solo da error, sin cambiar de estado: la luz se quedaba encendida y la
+        # pregunta «¿Lo hago?» nunca pasaba a escuchar la respuesta
+        self.altavoz.errorOccurred.connect(lambda *_: self._fin_de_voz(QMediaPlayer.StoppedState))
         self._decir("Director", t("¡Hola! Soy tu Director. Dime qué quieres crear hoy: un video, un anuncio, un "
                                   "diseño, una canción… y me encargo de todo."))
 
@@ -475,10 +480,14 @@ class PaginaDirector(QWidget):
         trabajo puede gastar cuota o dinero, y eso lo decide el usuario."""
         self.pedido.setText(pedido)
         self.pedido.setFocus()
-        # setFocus no desplaza la página, y la galería deja el campo debajo, fuera de la pantalla
+        self._a_la_vista(self.pedido)  # setFocus no desplaza la página
+
+    def _a_la_vista(self, widget):
+        """Desplaza la página hasta el widget: la galería deja el chat y el estado debajo, fuera de la pantalla (a
+        1280×720 con 150 %, ningún aviso de la voz se veía: solo la luz)."""
         area = self.parentWidget().parentWidget() if self.parentWidget() else None  # app.py la pone en un QScrollArea
         if isinstance(area, QScrollArea):
-            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(self.pedido))
+            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(widget))
 
     def ver_ejemplo(self, e: dict):
         guion = e.get("guion") or {}
@@ -594,6 +603,10 @@ class PaginaDirector(QWidget):
         caja.setDefaultButton(QMessageBox.No)  # un Enter por despiste no gasta
         caja.finished.connect(lambda _: self._contestar(
             caja.clickedButton() is not None and caja.standardButton(caja.clickedButton()) == QMessageBox.Yes))
+        # con esta ventana delante, el Ctrl+Espacio de la ventana principal no llega (ni se puede pulsar «Hablar»)
+        atajo = QShortcut(QKeySequence("Ctrl+Space"), caja)
+        atajo.setAutoRepeat(False)
+        atajo.activated.connect(self.alternar_voz)
         caja.open()
         if self.por_voz:
             self.intentos = 3
@@ -602,8 +615,7 @@ class PaginaDirector(QWidget):
     def _escuchar_respuesta(self):
         if not self.caja or (self.escucha and self.escucha.isRunning()):
             return
-        self.escucha = Escucha()
-        self.escucha.nivel.connect(lambda v: self.brillo and self.brillo.oir(v))
+        self.escucha = self._nueva_escucha()
         self.escucha.texto.connect(self._respuesta_oida)
         self.escucha.fallo.connect(
             lambda _: self.estado.setText(t("No pude usar el micrófono: contesta en la ventana.")))
@@ -655,18 +667,30 @@ class PaginaDirector(QWidget):
         if self.ocupado():
             return mensaje_error(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
         self._soltar_lectura()  # la respuesta hablada que se estaba preparando ya no suena: ahora hablas tú
-        self.escucha = Escucha()
-        self.escucha.nivel.connect(lambda v: self.brillo and self.brillo.oir(v))
-        self.escucha.entendiendo.connect(lambda: (self.estado.setText(t("Entendiendo lo que dijiste…")),
-                                                  self.brillo and self.brillo.poner("pensando")))
+        self.escucha = self._nueva_escucha()
         self.escucha.texto.connect(self._oido)
         self.escucha.fallo.connect(lambda e: (self.brillo and self.brillo.poner(None), self._volver_micro(),
                                               mensaje_error(self, t("No pude usar el micrófono"), e)))
         self.escucha.start()
         poner(self.micro, f"⏹  {t('Parar')}")
         self.estado.setText(t("Te escucho… habla y haz una pausa al terminar."))
+        self._a_la_vista(self.estado)  # con Ctrl+Espacio desde otra página, la de arriba es la galería
         if self.brillo:
             self.brillo.poner("escuchando")
+
+    def _nueva_escucha(self) -> Escucha:
+        """Un hilo que escucha, con la luz que late con tu voz y el aviso mientras entiende."""
+        escucha = Escucha()
+        escucha.nivel.connect(lambda v: self.brillo and self.brillo.oir(v))
+        escucha.entendiendo.connect(self._entendiendo)
+        return escucha
+
+    def _entendiendo(self, descargado: bool):
+        # la primera vez, Whisper se descarga (~460 MB, minutos): sin decirlo parecía que no respondía
+        self.estado.setText(t("Entendiendo lo que dijiste…") if descargado else
+                            t("Descargando el reconocimiento de voz (unos 460 MB, solo la primera vez)…"))
+        if self.brillo:
+            self.brillo.poner("pensando")
 
     def _volver_micro(self):
         poner(self.micro, f"🎙️  {t('Hablar')}")
@@ -674,10 +698,14 @@ class PaginaDirector(QWidget):
 
     def _oido(self, texto: str):
         self._volver_micro()
-        if not texto:
+        if not texto:  # en el chat y en voz alta: el estado de abajo se pierde de vista y la luz sola no dice nada
             if self.brillo:
                 self.brillo.poner(None)
-            self.estado.setText(t("No te entendí. Pulsa «Hablar» e inténtalo otra vez."))
+            aviso = t("No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa "
+                      "«Hablar» otra vez.")
+            self._decir("Director", aviso)
+            if self.en_voz.isChecked():
+                self._leer_en_voz(aviso)
             return
         self.pedido.setText(texto)
         self.enviar(por_voz=True)

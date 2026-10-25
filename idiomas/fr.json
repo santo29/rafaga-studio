@@ -823,7 +823,6 @@
  "No se puede leer el archivo de tus claves.": "Impossible de lire le fichier de vos clés.",
  "No se puede leer el historial de Ráfaga Guardia: otro programa lo tiene abierto. Ciérralo o reinicia el PC.": "Impossible de lire l'historique de Ráfaga Guardia : un autre programme l'a ouvert. Fermez-le ou redémarrez le PC.",
  "No te entendí. Di «sí» o «no».": "Je n'ai pas compris. Dites « oui » ou « non ».",
- "No te entendí. Pulsa «Hablar» e inténtalo otra vez.": "Je n'ai pas compris. Appuyez sur « Parler » et réessayez.",
  "No te entendí: contesta en la ventana.": "Je n'ai pas compris : répondez dans la fenêtre.",
  "No usar (zoom suave sobre la imagen)": "Ne pas utiliser (zoom doux sur l'image)",
  "Noche azul": "Nuit bleue",
@@ -1413,5 +1412,9 @@
  "Para tu próxima grabación": "Pour votre prochain enregistrement",
  "Cancelar": "Annuler",
  "Cambia la grabación elegida": "Modifie l'enregistrement choisi",
- "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Cliquez sur le fond de la vidéo pour le relâcher : cela vaudra alors pour votre prochain enregistrement."
+ "Haz clic en el fondo del video para soltarla: entonces vale para tu próxima grabación.": "Cliquez sur le fond de la vidéo pour le relâcher : cela vaudra alors pour votre prochain enregistrement.",
+ "No encuentro un micrófono que funcione: conéctalo o actívalo en Windows ({error}).": "Je ne trouve pas de microphone qui fonctionne : branchez-le ou activez-le dans Windows ({error}).",
+ "No me llega sonido del micrófono: está silenciado o bloqueado en Windows. Actívalo (tecla del micrófono del portátil, o Configuración › Sonido › Entrada y Privacidad › Micrófono) y pulsa «Hablar» otra vez.": "Aucun son ne m'arrive du microphone : il est coupé ou bloqué dans Windows. Activez-le (touche micro du portable, ou Paramètres › Son › Entrée et Confidentialité › Microphone) et appuyez à nouveau sur « Parler ».",
+ "Descargando el reconocimiento de voz (unos 460 MB, solo la primera vez)…": "Téléchargement de la reconnaissance vocale (environ 460 Mo, seulement la première fois)…",
+ "No te escuché bien. Habla cerca del micrófono (o súbele el volumen en Windows) y pulsa «Hablar» otra vez.": "Je ne vous ai pas bien entendu. Parlez près du microphone (ou montez son volume dans Windows) et appuyez à nouveau sur « Parler »."
 }

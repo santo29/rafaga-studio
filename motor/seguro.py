@@ -1,6 +1,7 @@
 """Validación de lo que entra desde fuera (MCP, interfaz, servicios): solo imágenes, audios y videos locales de verdad,
 solo enlaces web públicos y descargas acotadas. Es la frontera que impide sacar archivos privados (p. ej. datos/claves.json) o
 atacar la red local a través de las herramientas."""
+import functools
 import ipaddress
 import ntpath
 import os
@@ -193,6 +194,14 @@ class _SoloPublicas(httpcore.SyncBackend):
         raise ultimo
 
 
+@functools.cache
+def _tls():
+    """El contexto TLS (los certificados de confianza), preparado una sola vez: en un PC de 4 hilos crearlo cuesta 1,5 s,
+    y se pagaba en cada descarga. Un SSLContext se puede usar a la vez desde varios hilos."""
+    import httpx
+    return httpx.create_ssl_context()
+
+
 def redireccion(url: str, plazo: float = 15) -> str | None:
     """Adónde redirige `url` (o None), pidiéndolo por una conexión a una IP pública comprobada (ver _SoloPublicas).
     Sirve para seguir enlaces de «Compartir» sin que un cambio de DNS lleve la petición a la red local."""
@@ -201,7 +210,7 @@ def redireccion(url: str, plazo: float = 15) -> str | None:
     u = httpx.URL(enlace_web(url))
     tiempos = {"timeout": {"connect": plazo, "read": plazo, "write": plazo, "pool": plazo}}
     destino = httpcore.URL(scheme=u.raw_scheme, host=u.raw_host, port=u.port, target=u.raw_path)
-    with httpcore.ConnectionPool(ssl_context=httpx.create_ssl_context(), network_backend=_SoloPublicas()) as conexiones:
+    with httpcore.ConnectionPool(ssl_context=_tls(), network_backend=_SoloPublicas()) as conexiones:
         try:
             with conexiones.stream("GET", destino, headers=[(b"User-Agent", b"Mozilla/5.0")], extensions=tiempos) as r:
                 if r.status not in (301, 302, 303, 307, 308):
@@ -218,7 +227,7 @@ def descargar(url: str, cabeceras: dict | None = None, tope: int = 50 * 1024 ** 
     cuelga la app). Las cabeceras (la clave) solo viajan al primer host."""
     import httpx
     # ponytail: conexión directa, sin el proxy del sistema; con proxies «fake-ip» (Clash), solo si se activa (ver es_fake_ip).
-    conexiones = httpcore.ConnectionPool(ssl_context=httpx.create_ssl_context(), network_backend=_SoloPublicas())
+    conexiones = httpcore.ConnectionPool(ssl_context=_tls(), network_backend=_SoloPublicas())
     resultado = {}
 
     def bajar():

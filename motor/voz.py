@@ -2,6 +2,7 @@
 cuando terminas de hablar. Entiende con Whisper en este PC (gratis; tu voz no sale de aquí, aunque tengas Groq u
 OpenAI conectados) y contesta con las voces gratis de Edge. Sin ElevenLabs ni servicios de pago."""
 import math
+import os
 import re
 import tempfile
 import threading
@@ -56,6 +57,8 @@ def escuchar(detener: threading.Event, nivel=lambda v: None, dispositivo=None) -
     Si no se oyó ninguna voz, devuelve audio vacío: Whisper se inventa frases con el silencio. Si no llega ningún
     sonido (micro silenciado o bloqueado en Windows: el audio llega en ceros), lo dice en vez de esperar callado."""
     import sounddevice as sd
+    if silenciado():  # Windows lo dice al momento: no hace falta esperar 8 s de ceros para saberlo
+        raise MicroSilenciado(SILENCIADO())
     trozos, niveles, tamano = [], [], int(SR * BLOQUE)
     try:
         micro = sd.InputStream(samplerate=SR, channels=1, dtype="float32", blocksize=tamano, device=dispositivo)
@@ -69,12 +72,63 @@ def escuchar(detener: threading.Event, nivel=lambda v: None, dispositivo=None) -
             niveles.append(float(np.sqrt(np.mean(np.square(datos)))))
             nivel(min(float(np.sqrt(niveles[-1])) * 2.5, 1.0))  # con raíz, la luz late también con un micro bajo
             if len(niveles) * BLOQUE >= SIN_SONIDO and max(niveles) < MUDO:
-                raise RuntimeError(t("No me llega sonido del micrófono: está silenciado o bloqueado en Windows. "
-                                     "Actívalo (tecla del micrófono del portátil, o Configuración › Sonido › Entrada "
-                                     "y Privacidad › Micrófono) y pulsa «Hablar» otra vez."))
+                raise MicroSilenciado(SILENCIADO())
             if hay_que_parar(niveles):
                 break
     return np.concatenate(trozos) if trozos and hubo_voz(niveles) else np.zeros(0, np.float32)
+
+
+class MicroSilenciado(RuntimeError):
+    """El micrófono de Windows está silenciado o bloqueado: la ventana ofrece abrir los ajustes de sonido."""
+
+
+def SILENCIADO() -> str:  # noqa: N802 (una función y no una constante: el texto sale en el idioma de ese momento)
+    return t("No me llega sonido del micrófono: está silenciado o bloqueado en Windows. Actívalo (tecla del micrófono "
+             "del portátil, o Configuración › Sonido › Entrada y Privacidad › Micrófono) y pulsa «Hablar» otra vez.")
+
+
+def silenciado() -> bool | None:
+    """Si Windows tiene silenciado el micrófono por defecto (Core Audio, solo lectura: no graba ni cambia nada). None
+    si no se puede saber (otro sistema o un fallo): entonces decide lo que llega del micrófono, como antes."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import POINTER, byref, c_int, c_void_p, wintypes
+
+    class Guid(ctypes.Structure):
+        _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+
+    def guid(texto):
+        g = Guid()
+        ctypes.oledll.ole32.CLSIDFromString(ctypes.c_wchar_p("{" + texto + "}"), byref(g))
+        return g
+
+    def metodo(objeto, indice, *tipos):  # el método `indice` de la tabla virtual del objeto COM
+        tabla = ctypes.cast(objeto, POINTER(POINTER(c_void_p))).contents
+        return ctypes.WINFUNCTYPE(ctypes.HRESULT, c_void_p, *tipos)(tabla[indice])
+
+    ole32, objetos = ctypes.oledll.ole32, []
+    try:
+        ole32.CoInitialize(None)  # en el hilo que escucha COM aún no está iniciado
+        enumerador, dispositivo, volumen, mudo = c_void_p(), c_void_p(), c_void_p(), wintypes.BOOL()
+        ole32.CoCreateInstance(byref(guid("BCDE0395-E52F-467C-8E3D-C4579291692E")), None, 23,
+                               byref(guid("A95664D2-9614-4F35-A746-DE8DB63617E6")), byref(enumerador))
+        objetos.append(enumerador)
+        metodo(enumerador, 4, c_int, c_int, POINTER(c_void_p))(enumerador, 1, 0, byref(dispositivo))  # captura, consola
+        objetos.append(dispositivo)
+        metodo(dispositivo, 3, POINTER(Guid), wintypes.DWORD, c_void_p, POINTER(c_void_p))(
+            dispositivo, byref(guid("5CDF2C82-841E-4546-9722-0CF74078229A")), 23, None, byref(volumen))
+        objetos.append(volumen)
+        metodo(volumen, 15, POINTER(wintypes.BOOL))(volumen, byref(mudo))  # IAudioEndpointVolume::GetMute
+        return bool(mudo.value)
+    except (OSError, ValueError):  # sin micrófono, o Core Audio que no responde: no se sabe
+        return None
+    finally:
+        for objeto in reversed(objetos):
+            if objeto:
+                ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)(
+                    ctypes.cast(objeto, POINTER(POINTER(c_void_p))).contents[2])(objeto)  # Release
+        ole32.CoUninitialize()
 
 
 def preparar():

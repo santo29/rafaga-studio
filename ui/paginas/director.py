@@ -7,7 +7,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QIcon, QKeySequence, QMovie, QPixmap, QShortcut
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea,
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog, QF
 
 from motor import claves, director, ia, memoria, roles, voz
 from motor.idioma import t
-from ui.comun import boton, etiqueta, mensaje_error, Reproductor, Segmentos, Tarea, tarjeta, ver_imagen
+from ui.comun import boton, etiqueta, mensaje, mensaje_error, Reproductor, Segmentos, Tarea, tarjeta, ver_imagen
 from ui.iconos import icono, poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
@@ -675,14 +675,24 @@ class PaginaDirector(QWidget):
         self._soltar_lectura()  # la respuesta hablada que se estaba preparando ya no suena: ahora hablas tú
         self.escucha = self._nueva_escucha()
         self.escucha.texto.connect(self._oido)
-        self.escucha.fallo.connect(lambda e: (self.brillo and self.brillo.poner(None), self._volver_micro(),
-                                              mensaje_error(self, t("No pude usar el micrófono"), e)))
+        self.escucha.fallo.connect(self._micro_fallo)
         self.escucha.start()
         poner(self.micro, f"⏹  {t('Parar')}")
         self.estado.setText(t("Te escucho… habla y haz una pausa al terminar."))
         self._a_la_vista(self.estado)  # con Ctrl+Espacio desde otra página, la de arriba es la galería
         if self.brillo:
             self.brillo.poner("escuchando")
+
+    def _micro_fallo(self, error: str):
+        """El micrófono no sirvió: se dice también en voz alta (si no, parecía que el asistente no respondía) y, si
+        Windows lo tiene silenciado, la ventana lleva a sus ajustes de sonido."""
+        if self.brillo:
+            self.brillo.poner(None)
+        self._volver_micro()
+        if self.en_voz.isChecked():
+            self._leer_en_voz(error)
+        botones = [(t("Abrir ajustes de sonido"), lambda: QDesktopServices.openUrl(QUrl("ms-settings:sound")))]             if error == voz.SILENCIADO() else []
+        mensaje(self, t("No pude usar el micrófono"), error, QMessageBox.Warning, botones)
 
     def _nueva_escucha(self) -> Escucha:
         """Un hilo que escucha, con la luz que late con tu voz y el aviso mientras entiende."""

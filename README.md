@@ -57,6 +57,20 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 |---|---|---|---|
 | <img src="ejemplos/leyenda-ia.gif" width="260" alt="Anime with AI motion"> | <img src="ejemplos/presentacion-rafaga.jpg" width="260" alt="Presentation cover"> | <img src="ejemplos/post-cafe.jpg" width="170" alt="Brand post"> | <img src="ejemplos/miniatura-leyenda.jpg" width="260" alt="YouTube thumbnail"> |
 
+| Album cover (1:1) | Event flyer (A4) | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Album cover for a fictional dembow artist"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer for a fictional neon party"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo for a fictional barbershop"> |
+| “Alto Voltaje” by a fictional dembow artist · neon dark | Party flyer with date, time and venue · neon dark | Crown emblem for “Barbería El Rey” · 3D render |
+
+| YouTube thumbnail (16:9) | T-shirt print | Brand ad (4:5) |
+|---|---|---|
+| <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="YouTube thumbnail for chapter 2 of an anime"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Neon skull T-shirt print"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Coffee brand ad"> |
+| “La leyenda de Ráfaga”, chapter 2 · anime with a neon glow | Neon skull for a black tee · neon dark | “Café Brisa Alta”, in the same look as its post · 3D render |
+
+The six designs above were laid out by Claude as Director in editable layers; the art was drawn by Gemini (Nano Banana
+at 2K, about US$0.05 per image) and the studio fitted the text and put each piece together. Brands and people are
+fictional.
+
 Every example is reproducible: the requests, scripts and layered designs are in
 [`ejemplos/ejemplos.json`](ejemplos/ejemplos.json) and [`ejemplos/disenos.json`](ejemplos/disenos.json).
 `python ejemplos/crear.py` rebuilds the videos and `python ejemplos/crear_disenos.py` the designs. The talking apple

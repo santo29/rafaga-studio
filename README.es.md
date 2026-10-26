@@ -39,6 +39,19 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 |---|---|---|
 | <img src="ejemplos/presentacion-rafaga.jpg" width="320" alt="Portada de presentación de Ráfaga Studio"> | <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
 
+| Portada de álbum (1:1) | Flyer de evento (A4) | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Portada de álbum de un artista de dembow ficticio"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer de la fiesta Noche Neón"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo de Barbería El Rey"> |
+| «Alto Voltaje», de un artista de dembow ficticio · neón oscuro | Flyer de fiesta con fecha, hora y lugar · neón oscuro | Emblema con corona de «Barbería El Rey» · render 3D |
+
+| Miniatura de YouTube (16:9) | Estampado para camiseta | Anuncio de marca (4:5) |
+|---|---|---|
+| <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="Miniatura del capítulo 2 de La leyenda de Ráfaga"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Estampado de calavera neón"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Anuncio de Café Brisa Alta"> |
+| «La leyenda de Ráfaga», capítulo 2 · anime con brillo neón | Calavera neón para camiseta negra · neón oscuro | «Café Brisa Alta», con el mismo estilo que su post · render 3D |
+
+Estos seis diseños los maquetó Claude como Director en capas editables; el arte lo dibujó Gemini (Nano Banana en 2K,
+unos US$0,05 por imagen) y el estudio encajó los textos y montó cada pieza. Las marcas y las personas son ficticias.
+
 Los guiones y los diseños (en capas editables) los escribió Claude como Director. Las imágenes (FLUX), las voces, los subtítulos, el movimiento y el
 montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` y `python ejemplos/crear_disenos.py` (los pedidos, guiones y diseños están en
 `ejemplos/ejemplos.json` y `ejemplos/disenos.json`).

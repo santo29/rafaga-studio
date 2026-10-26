@@ -19,7 +19,8 @@ pedidos, pendientes = sys.argv[1:], False
 for e in json.loads((CARPETA / "disenos.json").read_text(encoding="utf-8")):
     if pedidos and e["id"] not in pedidos:
         continue
-    r = diseno_ia.crear("", e["tipo"], False, lambda texto, f: print(f"{f:4.0%} {texto}"), propuesta=e["propuesta"])
+    r = diseno_ia.crear("", e["tipo"], False, lambda texto, f: print(f"{f:4.0%} {texto}"), propuesta=e["propuesta"],
+                        estilo=e.get("estilo", "auto"), calidad=e.get("calidad", "1K"))
     if r["avisos"]:  # una foto que no salió: no sirve de muestra
         print(f"PENDIENTE {e['id']}: " + " | ".join(r["avisos"]))
         pendientes = True

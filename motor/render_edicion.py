@@ -83,6 +83,10 @@ _VUELTA = 2  # segundos que tarda el Brillo Ráfaga en dar la vuelta al cuadro
 _LATIDO = 0.8  # segundos entre latido y latido del efecto «pulso»
 # (preset, crf) del tramo y del video final. Los tramos de exportar casi sin pérdida: luego se codifican otra vez
 _CALIDAD = {False: (("ultrafast", 26), ("ultrafast", 28)), True: (("ultrafast", 16), ("veryfast", 20))}
+# Las de exportar: (alto respecto al de video.FORMATOS, MB por segundo de sus tramos casi sin pérdida). «4K», el doble:
+# 3840×2160 en 16:9 y 2160×3840 en 9:16. El crf no cambia: es calidad constante, a cualquier tamaño. Sus tramos,
+# medidos: ~12 MB/s de un video de móvil en 1080p y hasta ~45 de un 4K con mucho grano (4 hilos: ~4 min por 10 s)
+CALIDADES = {"720p": (2 / 3, 2), "1080p": (1, 4), "4K": (2, 24)}
 # La música bajo la voz: a -30 dB de voz ya baja; una voz normal (-20 dB) la deja ~9 dB más baja. Entra en 40 ms y,
 # al callarte, vuelve en ~1 s (el detector RMS hace el release el doble de lento): sin bombeo entre palabra y palabra
 _BAJAR = "sidechaincompress=threshold=0.03:ratio=8:attack=40:release=250"
@@ -127,7 +131,7 @@ def _limpiar(cache: Path, patron: str, usados: set) -> None:
 
 def _tamano(formato: str, alto: int) -> tuple[int, int]:
     ancho_f, alto_f = video.FORMATOS[formato]
-    h = min(alto, alto_f) // 2 * 2  # pares: yuv420p
+    h = min(alto, 2 * alto_f) // 2 * 2  # pares: yuv420p. Como mucho, el doble del formato (4K: ver CALIDADES)
     return round(ancho_f * h / alto_f / 2) * 2, h
 
 
@@ -1141,22 +1145,23 @@ def vista_previa(proyecto: dict, carpeta: Path, aviso=lambda t, f: None, desde: 
 
 
 def exportar(proyecto: dict, carpeta: Path, destino: Path, calidad: str = "1080p", aviso=lambda t, f: None) -> Path:
-    """MP4 H.264 + AAC listo para subir: «1080p» es el tamaño de video.FORMATOS y «720p», sus 2/3."""
+    """MP4 H.264 + AAC listo para subir: «1080p» es el tamaño de video.FORMATOS, «720p» sus 2/3 y «4K» el doble
+    (ver CALIDADES). Las capas de diseño se pintan a ese tamaño (texto nítido) y los subtítulos escalan con él."""
     p = edicion.validar(proyecto)
-    if calidad not in ("720p", "1080p"):
-        raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 720p y 1080p.", calidad=calidad))
+    if not isinstance(calidad, str) or calidad not in CALIDADES:
+        raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 720p, 1080p y 4K.", calidad=calidad))
     destino = diseno._local(destino)
     if destino.suffix.lower() != ".mp4":
         destino = destino.with_name(f"{destino.name}.mp4")
     destino.parent.mkdir(parents=True, exist_ok=True)
-    alto = video.FORMATOS[p["formato"]][1]
-    alto = alto if calidad == "1080p" else alto * 2 // 3
+    veces, mb = CALIDADES[calidad]
+    alto = round(video.FORMATOS[p["formato"]][1] * veces)
     # Los tramos casi sin pérdida ocupan ~3,6 MB por segundo a 1080p: mejor avisar ya que fallar al cabo de mucho rato.
     # Los de las capas de video (una grabación larga a pantalla completa), según la parte del cuadro que ocupan
     ancho, alto_video = video.FORMATOS[p["formato"]]
     segundos = sum(map(edicion.duracion_clip, p["clips"])) + sum(
         c["duracion"] * c["ancho"] * c["alto"] / (ancho * alto_video) for c in p["capas"] if c["tipo"] == "video")
-    hace_falta = segundos * (4 if calidad == "1080p" else 2) * 1.2 * 1024 ** 2
+    hace_falta = segundos * mb * 1.2 * 1024 ** 2
     if shutil.disk_usage(_cache(carpeta)).free < hace_falta:
         cuanto = f"{hace_falta / 1024 ** 3:.1f} GB" if hace_falta >= 1024 ** 3 else f"{hace_falta / 1024 ** 2:.0f} MB"
         raise ValueError(t("Hacen falta unos {cuanto} libres en el disco para exportar: libera espacio y vuelve a "

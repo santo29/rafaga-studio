@@ -682,6 +682,58 @@ with tempfile.TemporaryDirectory() as d:
         render.shutil.disk_usage = uso_real
     assert not (d / "no_cabe.mp4").exists()
 
+    # ---------- Exportar en 4K: el doble de cada lado, con el texto pintado a ese tamaño (nítido, no ampliado), la
+    # cámara y los subtítulos a escala y la vista previa igual de pequeña ----------
+    assert render._tamano("16:9", 2160) == (3840, 2160) and render._tamano("9:16", 3840) == (2160, 3840)
+    assert render._tamano("16:9", 10 ** 6) == (3840, 2160)  # nunca más que 4K
+    g = edicion.anadir_grabacion({**proyecto(gris), "formato": "16:9"}, str(verde), 0, "sup_der", "circulo")
+    g["clips"][0]["hasta"] = 0.5
+    g["capas"][0].update(hasta=0.5, borde="#FF0000", grosor_borde=30)
+    g["capas"].append({"tipo": "texto", "texto": "Hola", "x": 100, "y": 200, "ancho": 800, "alto": 300,
+                       "tamano": 160, "negrita": True, "inicio": 0, "duracion": 0.5})
+    g = edicion.validar({**g, "subtitulos": {"activos": True, "palabras": [
+        {"palabra": "hola", "inicio": 0, "fin": 0.5}]}})
+    # Lo que pide el disco, a escala: con sitio para 1080p pero no para 4K (sus tramos ocupan 6 veces más)
+    uso_real = render.shutil.disk_usage
+    render.shutil.disk_usage = lambda ruta: uso_real(ruta)._replace(free=2 * 4 * 1.2 * 1024 ** 2 * (0.5 + 0.5 * (
+        g["capas"][0]["ancho"] * g["capas"][0]["alto"]) / (1920 * 1080)))
+    try:
+        e1 = render.exportar(g, carpeta, d / "1080p.mp4")
+        falla(render.exportar, g, carpeta, d / "4k.mp4", "4K")
+    finally:
+        render.shutil.disk_usage = uso_real
+    t0 = time.perf_counter()
+    e4 = render.exportar(g, carpeta, d / "4k.mp4", "4K")
+    tiempo_4k = time.perf_counter() - t0
+    assert info(e4) == (3840, 2160, 15) and info(e1) == (1920, 1080, 15), (info(e4), info(e1))
+    assert not list((carpeta / "cache").glob("*-exp*.mov"))
+    assert info(render.vista_previa(g, carpeta))[:2] == (1138, 640)  # la vista previa no cambia
+    f1, f4 = cuadro(e1, 7), cuadro(e4, 7)
+
+    def letras(f, k):  # lo blanco del texto, en su caja (en píxeles del video: k por píxel del diseño)
+        return (f[200 * k:500 * k, 100 * k:900 * k] > 200).all(axis=2)
+
+    def salto(f, k):  # lo que cambia de media un píxel al de al lado en los bordes del texto: nítido, de golpe
+        cambios = np.abs(np.diff(f[200 * k:500 * k, 100 * k:900 * k].mean(axis=2), axis=1))
+        return cambios[cambios > 8].mean()
+    assert 3.6 < letras(f4, 2).sum() / letras(f1, 1).sum() < 4.4, (letras(f4, 2).sum(), letras(f1, 1).sum())
+    # El de 1080p ampliado (lo que daría escalar el video) tiene cada borde el doble de ancho: el salto, la mitad
+    ampliado = np.frombuffer(ffmpeg_salida("-i", e1, "-vf", "select=eq(n\\,7),scale=3840:2160", "-frames:v", "1",
+                                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-").stdout,
+                             np.uint8).reshape(2160, 3840, 3).astype(int)
+    assert salto(f4, 2) > 0.85 * salto(f1, 1) and salto(f4, 2) > 1.5 * salto(ampliado, 2), (
+        salto(f4, 2), salto(f1, 1), salto(ampliado, 2))
+    capa = g["capas"][0]  # la cámara: verde en el centro, borde rojo, en su sitio a doble tamaño
+    cx, cy, r = capa["x"] + capa["ancho"] / 2, capa["y"] + capa["alto"] / 2, capa["ancho"] / 2
+    assert f4[int(2 * cy), int(2 * cx), 1] > 200 and f4[int(2 * cy), int(2 * cx), 0] < 90, f4[int(2 * cy), int(2 * cx)]
+    assert f4[int(2 * (cy - r) + 12), int(2 * cx), 0] > 180 and f4[int(2 * (cy - r) + 12), int(2 * cx), 1] < 90
+    assert abs(f4[int(2 * (cy - r) + 6), int(2 * (cx - r) + 6)] - 128).max() < 25  # fuera del círculo, el fondo
+
+    def subtitulo(f):  # la caja de la palabra que suena (amarilla)
+        ys, xs = np.nonzero((f[..., 0] > 200) & (f[..., 1] > 200) & (f[..., 2] < 80))
+        return np.array([xs.min(), ys.min(), xs.max(), ys.max()])
+    assert np.abs(subtitulo(f4) - 2 * subtitulo(f1)).max() <= 5, (subtitulo(f4), subtitulo(f1))
+
     # ---------- Lo hostil se rechaza antes de llegar a ffmpeg ----------
     secreto = d / "claves.mp4"
     secreto.write_text('{"openai": "sk-SECRETO"}', encoding="utf-8")
@@ -695,7 +747,8 @@ with tempfile.TemporaryDirectory() as d:
     falla(render.fotograma, p, carpeta, float("nan"))
     falla(render.fotograma, p, r"\\atacante.example\s", 0.5)
     falla(render.exportar, p, carpeta, r"\\atacante.example\s\video.mp4")
-    falla(render.exportar, p, carpeta, d / "x.mp4", "4k")
+    for calidad in ("4k", "8K", "2160p", ["4K"], None):
+        falla(render.exportar, p, carpeta, d / "x.mp4", calidad)
     falla(render.forma_de_onda, r"\\atacante.example\s\a.mp3", carpeta, 100, 20)
     falla(render.forma_de_onda, str(secreto), carpeta, 100, 20)
     falla(render.forma_de_onda, str(musica), carpeta, 10 ** 9, 20)
@@ -735,4 +788,5 @@ with tempfile.TemporaryDirectory() as d:
         (otra / "cache").glob("tmp-*")), (errores, time.perf_counter() - t0)
 
 print(f"Pruebas del render del editor pasadas (vista previa {tiempo_vista:.1f} s, exportar {tiempo_export:.1f} s, "
-      f"primera vista con capas {tiempo_primera:.1f} s y tras cambiar un texto {tiempo_segunda:.1f} s).")
+      f"0,5 s en 4K {tiempo_4k:.1f} s, primera vista con capas {tiempo_primera:.1f} s y tras cambiar un texto "
+      f"{tiempo_segunda:.1f} s).")

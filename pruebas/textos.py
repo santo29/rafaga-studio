@@ -195,18 +195,61 @@ class ClaudeFalso:
                                                                                                json=cuerpo))
 
 
-para, abrir_openai, abrir_claude = claves.para, openai.OpenAI, anthropic.Anthropic
+para, cargar, gratis, abrir_openai, abrir_claude = (claves.para, claves.cargar, ia._texto_gratis, openai.OpenAI,
+                                                     anthropic.Anthropic)
 openai.OpenAI, anthropic.Anthropic = OpenAIFalso, ClaudeFalso
+claves.cargar = lambda: {}
+ia._texto_gratis = lambda *a: (_ for _ in ()).throw(RuntimeError("sin red en las pruebas"))
 try:
     for proveedor, nombre in (("groq", "Groq"), ("anthropic", "Claude")):
         claves.para = lambda uso, p=proveedor: {"proveedor": p, "clave": "x", "modelo_texto": "m"}
         try:
             ia.texto_json("i", "p", {"type": "object"})
             raise AssertionError("debió fallar")
-        except RuntimeError as e:
+        except RuntimeError as e:  # si ninguna otra puede, el motivo que se enseña es el de la IA elegida
             assert str(e) == f"La IA de texto ({nombre}) respondió 401: Invalid API Key", str(e)
+
+    # Sin saldo (402) en la IA elegida: se usa la siguiente IA de texto conectada. Pasó con Gemini prepago sin saldo:
+    # todo el estudio se quedaba sin IA de texto aunque Groq (gratis) estaba conectado
+    sin_saldo = {"error": {"message": "Your prepayment credits are depleted."}}
+    pedidos = []
+
+    class OpenAIPorServicio:
+        def __init__(self, api_key, base_url, **k):
+            self.base = base_url
+            self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.crear))
+
+        def crear(self, **k):
+            pedidos.append(self.base)
+            if "googleapis" in self.base:
+                raise openai.APIStatusError("402", body=sin_saldo,
+                                            response=httpx.Response(402, request=pedido, json=sin_saldo))
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content='{"palabra": "listo"}'))])
+
+    openai.OpenAI = OpenAIPorServicio
+    gemini_c = {"proveedor": "gemini", "clave": "x", "modelo_texto": "m"}
+    groq_c = {"proveedor": "groq", "clave": "y", "modelo_texto": "m"}
+    claves.para = lambda uso: gemini_c
+    claves.cargar = lambda: {"gemini": gemini_c, "groq": groq_c}
+    esquema = {"type": "object", "properties": {"palabra": {"type": "string"}}, "required": ["palabra"]}
+    assert ia.texto_json("i", "p", esquema) == {"palabra": "listo"}
+    assert pedidos == [claves.OPENAI_COMPAT["gemini"], claves.OPENAI_COMPAT["groq"]], pedidos  # una vez cada una
+    # Un error del pedido (400) no es falta de saldo: no se prueba otra IA con el mismo pedido malo
+    pedidos.clear()
+    malo = {"error": {"message": "bad schema"}}
+    OpenAIPorServicio.crear = lambda self, **k: (pedidos.append(self.base), (_ for _ in ()).throw(
+        openai.APIStatusError("400", body=malo, response=httpx.Response(400, request=pedido, json=malo))))[1]
+    try:
+        ia.texto_json("i", "p", esquema)
+        raise AssertionError("debió fallar")
+    except ia.SinServicio:
+        raise AssertionError("un 400 no es falta de servicio")
+    except RuntimeError as e:
+        assert "400" in str(e) and len(pedidos) == 1
 finally:
-    claves.para, openai.OpenAI, anthropic.Anthropic = para, abrir_openai, abrir_claude
+    claves.para, claves.cargar, ia._texto_gratis, openai.OpenAI, anthropic.Anthropic = (para, cargar, gratis,
+                                                                                         abrir_openai, abrir_claude)
 # Lo que se enseña de cualquier error: los mensajes de la app tal cual; los de Python, no
 assert texto_de_error(ValueError("Escribe qué quieres.")) == "Escribe qué quieres."
 assert texto_de_error(KeyError("mensaje")) == "Algo falló de forma inesperada. Inténtalo de nuevo."

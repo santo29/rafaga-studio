@@ -3,6 +3,7 @@ import json
 import math
 import re
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
 
@@ -55,7 +56,6 @@ def alinear(escritas: list[str], oidas: list[dict]) -> list[dict]:
     lo que coincide toma su tiempo, lo que Whisper oyó mal («SUVIMOS», «VAI LA») se cambia por lo escrito en ese mismo
     tramo, lo que no oyó se reparte en el hueco entre sus vecinas y lo que oyó sin estar escrito no sale. Un coro que
     se canta más veces de las que está escrito se vuelve a buscar en la letra."""
-    from difflib import SequenceMatcher
     if not escritas or not oidas:
         return []
     a, b = [_nucleo(p) for p in escritas], [_nucleo(p["palabra"]) for p in oidas]
@@ -133,14 +133,19 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     ancho, alto = video.FORMATOS[formato]
     # Con la letra, el karaoke enseña lo ESCRITO (con su ortografía repasada, línea a línea para no mover palabras)
     # en los tiempos de lo oído: Whisper oía «SUVIMOS AL MALECÓN» y «VAI LA» y eso salía en pantalla
-    lineas = [x for x in ia.sin_acotaciones(letra).splitlines() if x.strip()]
+    lineas, notas = [x for x in ia.sin_acotaciones(letra).splitlines() if x.strip()], []
     if lineas and _nucleo(lineas[0]) == _nucleo(titulo):  # la letra.txt del estudio empieza por el título
         lineas = lineas[1:]
-    if lineas:
-        palabras = alinear([p for x in ia.ortografia(lineas) for p in x.split()], palabras)
-    ia.repasar([plan], ("descripcion", "hashtags"))
+    escritas = [p for x in ia.ortografia(lineas, notas=notas) for p in x.split()] if lineas else []
+    # Solo si se parece a lo que suena: una ruta («letra.txt») o solo el coro sustituían toda la canción
+    if escritas and SequenceMatcher(None, [_nucleo(p) for p in escritas], [_nucleo(p["palabra"]) for p in palabras],
+                                    autojunk=False).ratio() >= 0.4:
+        palabras = alinear(escritas, palabras)
+    elif escritas and palabras:
+        notas.append(t("La letra que diste no coincide con lo que se oye: el karaoke usa lo que se oye."))
+    ia.repasar([plan], ("descripcion", "hashtags"), notas=notas)
 
-    partes, animar_ia, ultima, notas, de_donde = [], True, None, [], ""
+    partes, animar_ia, ultima, de_donde = [], True, None, ""
     pagados = 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)
     try:
         for i, descripcion in enumerate(escenas):

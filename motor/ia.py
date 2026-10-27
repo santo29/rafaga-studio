@@ -421,7 +421,8 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
 
 
 class SinServicio(RuntimeError):
-    """La IA de texto no atendió (401, 402, 403, 429 o 5xx): ese pedido no se cobró y se puede probar otra."""
+    """La IA de texto no atendió (401, 402, 403, 429 o 5xx): ese pedido no se cobró y se puede probar otra. También
+    Gemini al dibujar, con cualquier error: los anuncios pegan entonces la foto sobre una escena (no se paga dos veces)."""
 
 
 _SIN_SERVICIO = {401, 402, 403, 429}
@@ -483,7 +484,8 @@ ORTOGRAFIA = (
     "nuestro», «Rafa no doubles» → «Rafa no dobles», «Pesadelos» → «Pesadillas», «Miren que bien» → «Miren qué bien»). "
     "No cambies nada más: ni el estilo, ni el orden, ni el sentido. Cada texto corregido tiene EXACTAMENTE las mismas "
     "palabras que el original, una por una. Un hashtag sigue siendo una sola palabra con su #. Las marcas, los nombres "
-    "propios y las palabras en inglés puestas a propósito se quedan como están. Devuelve los mismos textos, en el mismo "
+    "propios y las palabras en inglés puestas a propósito se quedan como están. Respeta el habla y la jerga a "
+    "propósito (pa', to', vamo', klk, tiguere, dique): no son faltas. Devuelve los mismos textos, en el mismo "
     "orden y la misma cantidad.")
 _ESQUEMA_ORTOGRAFIA = {"type": "object", "properties": {"textos": {"type": "array", "items": {"type": "string"}}},
                        "required": ["textos"], "additionalProperties": False}
@@ -495,7 +497,7 @@ _TILDES = {p.lower().replace("á", "a").replace("é", "e").replace("í", "i").re
     "fácil difícil rápido rápida rápidos rápidas música músicas número números último última últimos únicos único "
     "única análisis auténtico auténtica auténticos teléfono página páginas económico económica increíble increíbles "
     "día días tecnología energía compañía café inglés país países corazón razón jóvenes éxito éxitos cámara útil "
-    "típico típica típicos típicas clásico clásica república había tenía sabía podía vivía sueño sueños pequeño "
+    "típico típica típicos típicas clásico clásica república había tenía podía vivía sueño sueños pequeño "
     "pequeña pequeños pequeñas año años mañana mañanas español española españoles España niño niña niños niñas señor "
     "señora dueño dueña diseño diseños montaña compañero compañera baño cumpleaños otoño").split()}
 _SIN_TILDE = re.compile(r"(?<!\w)[A-Za-z]+(?!\w)")
@@ -511,9 +513,13 @@ def _tildes(texto: str) -> str:
                                       and "ss" not in baja else None)
         if not nueva:
             return palabra
-        if palabra.isupper() and len(palabra) > 1:
-            return nueva.upper()
-        return nueva[0].upper() + nueva[1:] if palabra[0].isupper() else nueva
+        # Con mayúscula a mitad de frase es un nombre (Nina, Montana): se deja. Tras un # no: es un hashtag
+        antes = texto[:m.start()].rstrip(" \t")[-1:]
+        if palabra[0].isupper() and not palabra.isupper() and antes and antes not in ".!?…¿¡#«\"“:\n":
+            return palabra
+        # Las mayúsculas, letra por letra (la tilde o la eñe ocupa la misma letra): «#CineDeCienciaFiccion» salía
+        # «#Cinedecienciaficción»
+        return "".join(n.upper() if o.isupper() else n for o, n in zip(palabra, nueva))
     return _SIN_TILDE.sub(poner, texto)
 
 
@@ -534,14 +540,16 @@ def _misma_frase(original: str, corregido) -> bool:
     return len(a) == len(b) and all(x == y or SequenceMatcher(None, x, y).ratio() >= 0.5 for x, y in zip(a, b))
 
 
-def ortografia(textos: list[str], idioma: str | None = None) -> list[str]:
+def ortografia(textos: list[str], idioma: str | None = None, notas: list | None = None) -> list[str]:
     """Los mismos textos con la ortografía corregida y nada más (ver ORTOGRAFIA). Lo pide a Groq si está conectado
-    (gratis) o a la IA de texto elegida, una sola vez; la corrección de un texto que cambia sus palabras no se usa. Sin
-    IA que responda, en español se ponen las tildes y eñes que faltan en las palabras más comunes (_tildes).
-    idioma: código de idioma.IDIOMAS (por defecto, el de la app)."""
+    (gratis) o a la IA de texto elegida, una sola vez; la corrección de un texto que cambia sus palabras no se usa. Los
+    que la IA no corrigió (sin IA que responda, o una corrección rechazada), en español, llevan las tildes y eñes que
+    faltan en las palabras más comunes (_tildes); los que sí, tal cual: «sabia» o «Cafe Brisa» pueden ir así a
+    propósito. idioma: código de idioma.IDIOMAS (por defecto, el de la app). notas: si se pasa una lista, se le añade
+    el aviso de que no se pudo repasar (si no, el texto con faltas salía en el video sin que nadie lo supiera)."""
     from .idioma import IDIOMAS, actual
     idioma = idioma if idioma in IDIOMAS else actual()
-    corregidos = list(textos)
+    corregidos, por_ia = list(textos), set()
     pendientes = [i for i, x in enumerate(textos) if isinstance(x, str) and x.strip()]
     todas, elegida = claves.cargar(), claves.para("texto")
     # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos
@@ -555,14 +563,23 @@ def ortografia(textos: list[str], idioma: str | None = None) -> list[str]:
                 for i, nuevo in zip(pendientes, nuevos):
                     if _misma_frase(textos[i], nuevo):
                         corregidos[i] = nuevo.strip()
+                        por_ia.add(i)
         except Exception as error:  # noqa: BLE001  sin repaso antes que sin video: el texto sale como vino
-            print(f"[Ráfaga] Sin repaso de ortografía ({claves.nombre(c['proveedor'])}): {error}", flush=True)
-    return [_tildes(x) if idioma == "es" and isinstance(x, str) else x for x in corregidos]
+            from . import nubes
+            causa = f"{claves.nombre(c['proveedor'])}: {nubes._causa(error, c['proveedor'])}"
+            print(f"[Ráfaga] Sin repaso de ortografía ({causa})", flush=True)
+            nota = t("No se pudo repasar la ortografía ({causa}).", causa=causa)
+            if notas is not None and nota not in notas:  # una vez por trabajo, aunque se repase en dos pedidos
+                notas.append(nota)
+    return [_tildes(x) if idioma == "es" and isinstance(x, str) and i not in por_ia else x
+            for i, x in enumerate(corregidos)]
 
 
-def repasar(objetos: list[dict], campos: tuple[str, ...], idioma: str | None = None) -> None:
+def repasar(objetos: list[dict], campos: tuple[str, ...], idioma: str | None = None,
+            notas: list | None = None) -> None:
     """Repasa la ortografía (ver ortografia) de esos campos de varios diccionarios, en su sitio y en un solo pedido.
-    Un campo puede ser un texto o una lista de textos (los hashtags); los que no están se saltan."""
+    Un campo puede ser un texto o una lista de textos (los hashtags); los que no están se saltan. notas: como en
+    ortografia."""
     sitios = []
     for o in objetos:
         for campo in campos:
@@ -571,7 +588,7 @@ def repasar(objetos: list[dict], campos: tuple[str, ...], idioma: str | None = N
                 sitios.append((o, campo, None))
             elif isinstance(valor, list):
                 sitios += [(o, campo, i) for i, x in enumerate(valor) if isinstance(x, str)]
-    nuevos = ortografia([o[c] if i is None else o[c][i] for o, c, i in sitios], idioma)
+    nuevos = ortografia([o[c] if i is None else o[c][i] for o, c, i in sitios], idioma, notas)
     for (o, c, i), nuevo in zip(sitios, nuevos):
         if i is None:
             o[c] = nuevo
@@ -934,9 +951,8 @@ def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path
                        "contents": [{"parts": partes}],
                        "generationConfig": {"responseModalities": ["IMAGE"],
                                             "imageConfig": {"aspectRatio": relacion, "imageSize": calidad}}})
-    if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave
-        raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
-                             detalle=motivo(r)))
+    if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave. No se cobró
+        raise SinServicio(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code, detalle=motivo(r)))
     for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
         datos = parte.get("inlineData") or parte.get("inline_data") or {}
         if datos.get("data"):

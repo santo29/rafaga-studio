@@ -397,6 +397,7 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         raise ValueError(t("El número de capítulo va de 1 a {n}.", n=MAX_EPISODIOS))
     ep = carpeta / "episodios" / f"{numero:02d}" if numero else None
     rehacer = bool(ep and (ep / "guion.json").is_file() and escrito is None)
+    notas = []
     if rehacer:
         guion = _leer_guion(ep, numero)
     else:
@@ -420,7 +421,8 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         if not guion["planos"]:
             raise RuntimeError(t("La IA no escribió ningún plano. Inténtalo de nuevo."))
         # La ortografía de lo que se dice y sale escrito («RAFA NO DOUBLES», «Miren que bien»), antes de narrar
-        ia.repasar([guion, *[p for p in guion["planos"] if isinstance(p, dict)]], ("titulo", "resumen", "texto"))
+        ia.repasar([guion, *[p for p in guion["planos"] if isinstance(p, dict)]], ("titulo", "resumen", "texto"),
+                   notas=notas)
         ep.mkdir(parents=True, exist_ok=True)
         for vieja in ep.glob("video_final_imagen_*.png"):  # un guion nuevo pide imágenes nuevas (si no, se reusarían)
             vieja.unlink()
@@ -440,7 +442,6 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         if not dibujar:
             raise RuntimeError(t("se dibuja con «Dibujar lo que falta»"))
         return _dibujar(carpeta, escenas[int(destino.stem.rsplit("_", 1)[1])], prompt, ancho, alto, destino)
-    notas = []
     try:
         final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
                                     datos["narrador"], aviso, crear_imagen=crear_imagen, notas=notas, hablados=hechas,

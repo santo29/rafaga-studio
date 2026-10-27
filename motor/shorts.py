@@ -109,9 +109,11 @@ def _elegir(clips: list[dict], cantidad: int, dur_min: float, dur_max: float, pa
         libre = (max([o["fin"] for o in elegidos if o["inicio"] <= c["inicio"]] + [0.0]),
                  min([o["inicio"] for o in elegidos if o["inicio"] > c["inicio"]] + [total]))
         ini, fin = _medir(c["inicio"], c["fin"], dur_min, dur_max, palabras, libre)
-        # En su hueco tiene que quedar algo de su propio momento (si no, repetiría lo que ya sale en otro short) y
-        # dar para un short; el primero sale siempre (un video más corto que lo pedido)
-        if min(fin, c["fin"]) > max(ini, c["inicio"]) and (fin - ini >= dur_min * 0.8 or not elegidos):
+        # En su hueco tiene que quedar al menos la mitad de su propio momento (el resto ya sale en el short que se
+        # alargó hasta aquí: con solo algo, salía uno que empezaba a mitad de lo suyo) y dar para un short; el primero
+        # sale siempre (un video más corto que lo pedido). Mejor menos shorts que uno así.
+        if min(fin, c["fin"]) - max(ini, c["inicio"]) >= 0.5 * (c["fin"] - c["inicio"]) and \
+                (fin - ini >= dur_min * 0.8 or not elegidos):
             elegidos.append({**c, "inicio": ini, "fin": fin})
             momentos.append((c["inicio"], c["fin"]))
     return elegidos
@@ -265,7 +267,7 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
     if not _a_medida(clips[0], dur_min, dur_max):  # solo si el video entero es más corto que lo pedido
         avisos.append(t("Ningún momento del video duraba entre {minimo} y {maximo} s: estos shorts tienen otra "
                         "duración.", minimo=dur_min, maximo=dur_max))
-    ia.repasar(clips, ("titulo", "descripcion", "hashtags"))  # lo que se publica, sin faltas
+    ia.repasar(clips, ("titulo", "descripcion", "hashtags"), notas=avisos)  # lo que se publica, sin faltas
 
     for i, c in enumerate(clips, 1):
         aviso(t("Montando short {n} de {total}…", n=i, total=len(clips)), 0.55 + 0.43 * (i - 1) / max(len(clips), 1))

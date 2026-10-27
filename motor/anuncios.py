@@ -7,8 +7,8 @@ from typing import Callable
 
 import httpx
 
-from . import ia, memoria, seguro, video
-from .desde_prompt import FALTAS, idioma_codigo, idioma_de, montar, relanzar_con_gasto
+from . import ia, memoria, nubes, seguro, video
+from .desde_prompt import FALTAS, PALABRAS_POR_SEGUNDO, idioma_codigo, idioma_de, montar, relanzar_con_gasto
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -77,7 +77,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
     plan = ia.texto_json(INSTRUCCIONES, (
         f"Producto: {producto}\nDetalles: {detalles}\nPúblico: {publico}\nOferta y llamada a la acción: {oferta}\n"
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
-        f"(~{int(segundos * 2.5)} palabras, {max(3, round(segundos / 5))} escenas).\nVariantes: {variantes}"
+        f"(~{int(segundos * PALABRAS_POR_SEGUNDO)} palabras, {max(3, round(segundos / 5))} escenas)."
+        f"\nVariantes: {variantes}"
         + idioma_de(voz)
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")
         + memoria.para("anuncios")), ESQUEMA)
@@ -88,10 +89,10 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         v["escenas"] = v["escenas"][:max(3, round(segundos / 5)) + 2]
         for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
             e["narracion"] = e["narracion"][:400]
+    resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
     # La ortografía, antes de narrar y de quemar nada («FUSEL ESTE AROMA», el ángulo «Deseño», «#CaféBrise»)
     ia.repasar([x for v in plan["variantes"] for x in (v, *v["escenas"])],
-               ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion"), idioma_codigo(voz))
-    resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
+               ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion"), idioma_codigo(voz), notas)
     if not web:
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
 
@@ -100,19 +101,24 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         ninguna imagen, la foto sola (antes se repetía la escena anterior, sin el producto)."""
         try:
             return ia.imagen_con_producto(p, foto_local, w, h, d)
-        except httpx.HTTPStatusError:  # la edición con referencia no atendió (sin saldo, sin cuota): no se cobró
-            pass
-        except Exception as error:  # noqa: BLE001  sin IA de imágenes que responda: la foto sola
-            return foto_sola(error, d)
+        except (httpx.HTTPStatusError, ia.SinServicio) as error:  # la edición con referencia no atendió (sin saldo,
+            edicion = error  # sin cuota): no se cobró, y la foto se pega sobre una escena, con su aviso
+        except Exception as error:  # noqa: BLE001  sin IA de imágenes que responda, o una edición que pudo cobrarse
+            return foto_sola(error, d)  # sin llegar (no se paga otra imagen): la foto sola
         try:
-            return ia.pegar_producto(p, foto_local, w, h, d)
+            hecha = ia.pegar_producto(p, foto_local, w, h, d)
         except Exception as error:  # noqa: BLE001
             return foto_sola(error, d)
+        nota(edicion, d, t("la foto del producto pegada en la escena"))
+        return hecha
+
+    def nota(error, d, origen):
+        causa = nubes._causa(error, "").replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+        notas_k.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.",
+                         n=int(d.stem.rsplit("_", 1)[1]) + 1, causa=causa, origen=origen))
 
     def foto_sola(error, d):
-        causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-        notas_k.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.",
-                         n=int(d.stem.rsplit("_", 1)[1]) + 1, causa=causa, origen=t("la foto de respaldo")))
+        nota(error, d, t("la foto de respaldo"))
         return foto_local
 
     for k, v in enumerate(plan["variantes"], 1):

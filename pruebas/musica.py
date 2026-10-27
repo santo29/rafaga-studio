@@ -38,7 +38,7 @@ CANCION = {"titulo": "Viernes", "estilo": "hard 808s", "letra": "[Chorus]\nDale 
 reales = ia.texto_json, musica._gemini, musica.httpx.post, cabina.separar_cancion, video_musical.crear, ia.ortografia
 # El repaso de ortografía se lo pediría a la IA de texto conectada (aquí, una clave falsa de Gemini): sin red en las
 # pruebas (se prueba con una IA falsa en pruebas/calidad.py)
-ia.ortografia = lambda textos, idioma=None: list(textos)
+ia.ortografia = lambda textos, idioma=None, notas=None: list(textos)
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     d = Path(d)
     claves.ARCHIVO, claves.AJUSTES = d / "claves.json", d / "ajustes.json"

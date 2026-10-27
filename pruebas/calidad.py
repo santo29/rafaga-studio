@@ -53,7 +53,7 @@ CORRIGE = {"FUSEL ESTE AROMA": "HUELE ESTE AROMA", "Deseño": "Deseo", "Rafa no 
            "el malecón es nostro": "el malecón es nuestro", "Miren que bien": "Miren qué bien",
            "Subimos al malecón": "Subimos al malecón", "El malecón es nostro": "El malecón es nuestro",
            "a bailar con mi gente, el malecón es nostro": "a bailar con mi gente, el malecón es nuestro",
-           "una frase normal": "otra frase distinta y mucho más larga que la de antes",  # reescribe: no vale
+           "una cancion normal": "otra frase distinta y mucho más larga que la de antes",  # reescribe: no vale
            "#CaféBrise": "Café Brisa"}  # deja de ser hashtag: no vale
 usadas = []
 
@@ -72,26 +72,39 @@ try:
         == ["Un sueño pequeño de más", "PEQUEÑOS DISEÑOS", "la canción", "#Música", "passion"]
     assert ia.ortografia(["mas cafe"], "en") == ["mas cafe"]  # en otro idioma, nada de tildes del español
     assert usadas == []  # sin clave de texto no se pregunta a nadie (la gratis sin clave espera 30 s por pedido)
+    # Las mayúsculas de un hashtag, letra por letra (salía «#Cinedecienciaficción»); «sabia» puede ser el adjetivo, y
+    # con mayúscula a mitad de frase es un nombre (Nina, Montana)
+    assert ia._tildes("#CineDeCienciaFiccion #ModoVacacion") == "#CineDeCienciaFicción #ModoVacación"
+    assert ia._tildes("Una decisión sabia, dice Nina Simone en Montana.") == \
+        "Una decisión sabia, dice Nina Simone en Montana."
+    assert ia._tildes("Mas facil.\nNino feliz, ¿Mas?") == "Más fácil.\nNiño feliz, ¿Más?"
     # Con Groq (gratis) conectado se le pide a él, aunque la elegida para los guiones sea otra (de pago)
     claves.guardar({"proveedor": "anthropic", "clave": "sk-ant-prueba", "usos": ["texto"]})
     claves.guardar({"proveedor": "groq", "clave": "gsk_prueba", "usos": ["texto"]})
     claves.elegir_por_defecto("texto", "anthropic")
-    textos = list(CORRIGE) + ["", "Un sueno"]
+    textos = list(CORRIGE) + ["", "La naturaleza es sabia", "Nina baila", "Cafe Brisa"]
     hechos = ia.ortografia(textos, "es")
     assert usadas == ["groq"], usadas
     claves.borrar("anthropic")  # nada de Claude de aquí en adelante (investigar_web lo llamaría de verdad)
     assert hechos[:6] == ["HUELE ESTE AROMA", "Deseo", "Rafa no dobles", "Pesadillas con robots gigantes",
                           "el malecón es nuestro", "Miren qué bien"], hechos
-    assert hechos[9:] == ["una frase normal", "#CaféBrise", "", "Un sueño"], hechos  # lo que cambia de frase, no
+    # Lo que cambia de frase no se usa (y lleva las tildes de respaldo); lo que la IA dejó igual, igual: «sabía»,
+    # «Niña» o «Café Brisa» estropeaban palabras y marcas bien escritas
+    assert hechos[9:] == ["una canción normal", "#CaféBrise", "", "La naturaleza es sabia", "Nina baila",
+                          "Cafe Brisa"], hechos
     # Dentro de diccionarios (en su sitio), con listas de hashtags, y si la IA falla, el texto sigue como vino
     v = {"angulo": "Deseño", "hashtags": ["#CaféBrise", "#Musica"], "narracion": "FUSEL ESTE AROMA", "otro": 1}
     ia.repasar([v], ("angulo", "hashtags", "narracion", "falta"), "es")
-    assert v == {"angulo": "Deseo", "hashtags": ["#CaféBrise", "#Música"], "narracion": "HUELE ESTE AROMA", "otro": 1}
+    assert v == {"angulo": "Deseo", "hashtags": ["#CaféBrise", "#Musica"], "narracion": "HUELE ESTE AROMA", "otro": 1}
 
     def caida(*a):
         raise ia.SinServicio("402 sin saldo")
     ia._texto_con = caida
-    assert ia.ortografia(["Miren que bien", "mas"], "es") == ["Miren que bien", "más"]
+    avisos = []
+    assert ia.ortografia(["Miren que bien", "mas"], "es", avisos) == ["Miren que bien", "más"]
+    v = {"angulo": "mas"}
+    ia.repasar([v], ("angulo",), "es", avisos)  # el aviso, una vez por trabajo
+    assert v == {"angulo": "más"} and avisos == ["No se pudo repasar la ortografía (Groq: 402 sin saldo)."], avisos
     ia._texto_con = corrector
     usadas.clear()
 
@@ -140,6 +153,11 @@ try:
         assert r["titulo"] == "Domingo en el Malecón", r["titulo"]  # de las etiquetas, no «cancion»
         assert [p["palabra"] for p in karaoke[-1]] == escrita, karaoke[-1]  # sin «SUVIMOS», «VAI LA» ni «Shout»
         assert "perforated" in dibujos[-1]  # la güira, descrita (9)
+        # Una letra que no es la que suena (una ruta, o solo un trozo del coro) no sustituye lo que se oye
+        for mala in ("letra.txt", "Subimos al malecón"):
+            carpeta_nueva()
+            r = video_musical.crear(str(cancion), letra=mala)
+            assert karaoke[-1] == oidas and any("no coincide con lo que se oye" in a for a in r["avisos"]), r
         carpeta_nueva()
         r = herramientas.crear_video_musical(str(cancion), titulo="Mi título")
         assert json.loads(r)["titulo"] == "Mi título"
@@ -173,6 +191,8 @@ try:
                                       "viento y el sol")
     assert corto == "La pareja baila merengue en el malecón bajo el…" and len(corto) <= 50, corto
     assert desde_prompt.titulo_corto("Un gato que baila. Con sombrero") == "Un gato que baila"
+    assert desde_prompt.titulo_corto("¿Qué pasa en el malecón? Mira") == "¿Qué pasa en el malecón?"  # con su «?»
+    assert desde_prompt.titulo_corto("¡Dale, mi gente!") == "¡Dale!"
 
     # ---------- 6. La canción para publicar: sin acotaciones ni marcas, con el hashtag de su género ----------
     letra = ("[Intro]\n(Shout: ¡Wepa, wepa!)\n[Chorus]\nEl malecón es nostro (Shout: ¡Dale!)\nque brilla el sol\n\n\n"
@@ -182,7 +202,7 @@ try:
     claves.guardar({"proveedor": "gemini", "clave": "AIza-prueba", "usos": ["musica"], "modelo_musica": "lyria-3.5"})
     reales = ia.texto_json, musica._gemini
     ia.texto_json = lambda i, p, e: {"titulo": "Domingo en el Malecón", "estilo": "merengue", "letra": letra,
-                                     "descripcion": "Un merengue pa gozar", "hashtags": ["#MúsicaRomántica",
+                                     "descripcion": "Un merengue pa gozar", "hashtags": ["#DomingoEnElMalecón",
                                                                                       "#merenguetípico"]}
     musica._gemini = lambda c, estilo, letra, segundos: b"ID3cancion"
     try:
@@ -191,7 +211,8 @@ try:
         publicado = r["resultados"][0]
         assert publicado["descripcion"] == "Un merengue pa gozar\n\nEl malecón es nuestro\nque brilla el sol", \
             publicado["descripcion"]  # corregida por la IA de texto (gratis) y sin «Shout» ni «Fade out»
-        assert publicado["hashtags"] == ["#MerengueTípico", "#MúsicaRomántica"], publicado["hashtags"]
+        assert publicado["hashtags"] == ["#MerengueTípico", "#DomingoEnElMalecón"], publicado["hashtags"]
+        assert "nunca de otro género" in " ".join(musica.INSTRUCCIONES.split())  # «#MúsicaRomántica» en un merengue
         assert "(Shout" in (Path(r["carpeta"]) / "letra.txt").read_text(encoding="utf-8")  # la del modelo, intacta
     finally:
         ia.texto_json, musica._gemini = reales
@@ -207,7 +228,8 @@ try:
                                {"narracion": "Pídelo hoy.", "imagen": "a happy woman drinking coffee"}]}]}
     dibujos, con_foto, pegadas, cierres, narradas = [], [], [], [], []
     reales = (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.pegar_producto, ia.video_desde_imagen,
-              desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre, ia.investigar_web)
+              desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre, ia.investigar_web,
+              ia.video_de_pago, ia.nota_pago, desde_prompt._ya_animada)
     ia.investigar_web = lambda pregunta: None
     ia.texto_json = lambda i, p, e: json.loads(json.dumps(plan))
     ia.imagen = lambda prompt, w, h, d, *a: dibujos.append(prompt) or d
@@ -229,15 +251,23 @@ try:
         assert len(dibujos) == 2 and cierres[-1][0] == "PÍDELO HOY" and cierres[-1][1].name == "producto.png"
         assert narradas[0] == "HUELE ESTE AROMA" and r["resultados"][0]["titulo"].startswith("1. Deseo — ")  # (3)
         assert usadas == ["groq"]
-        # Si la edición con referencia no atiende (402, no cobró), la foto se pega sobre una escena; si no sale
-        # ninguna imagen, la foto sola (antes se repetía la escena anterior, sin el producto)
+        # Si la edición con referencia no atiende (402, no cobró; con Gemini llega como RuntimeError), la foto se pega
+        # sobre una escena, y se dice por qué; si no sale ninguna imagen, la foto sola (antes se repetía la escena
+        # anterior, sin el producto)
         def sin_saldo(*a, **k):
             httpx.Response(402, request=httpx.Request("POST", "https://x.example/v1/images/edits")).raise_for_status()
-        ia.imagen_con_producto = sin_saldo
-        carpeta_nueva()
-        r = anuncios.crear(str(foto), "Café Brisa Alta", "", "", "", "Demostración del producto", variantes=1,
-                           segundos=15)
-        assert len(pegadas) == 1 and not r["avisos"][1:], r["avisos"]
+
+        def gemini_sin_saldo(*a, **k):  # lo que hace _imagen_gemini con un 402 (abajo, con su httpx falso)
+            raise ia.SinServicio("Gemini respondió 402: sin saldo")
+        for falla in (sin_saldo, gemini_sin_saldo):
+            ia.imagen_con_producto, n = falla, len(pegadas)
+            carpeta_nueva()
+            r = anuncios.crear(str(foto), "Café Brisa Alta", "", "", "", "Demostración del producto", variantes=1,
+                               segundos=15)
+            assert len(pegadas) == n + 1 and len(r["avisos"]) == 2, r["avisos"]
+            assert "escena 2 no salió (" in r["avisos"][1] and "402" in r["avisos"][1] and \
+                "Se usó la foto del producto pegada en la escena." in r["avisos"][1], r["avisos"]
+            assert "x.example" not in r["avisos"][1]  # sin direcciones (nubes._causa)
         ia.imagen_con_producto = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Ninguna IA de imágenes"))
         escenas_de.clear()
         carpeta_nueva()
@@ -246,10 +276,38 @@ try:
         assert escenas_de[1].name == "producto.png", escenas_de
         assert any("escena 2 no salió (Ninguna IA de imágenes)" in a and "foto de respaldo" in a
                    for a in r["avisos"]), r["avisos"]
+        # Con video de pago, la foto de respaldo repetida no se anima: se cobraba un clip de Kling por cada escena con
+        # la misma foto (las tres piden «the product» y no sale ninguna imagen)
+        ia.texto_json = lambda i, p, e: {"variantes": [{**plan["variantes"][0], "escenas": [
+            {"narracion": "Uno.", "imagen": "the product on a table"},
+            {"narracion": "Dos.", "imagen": "hands holding the product"},
+            {"narracion": "Tres.", "imagen": "the product in a kitchen"}]}]}
+        ia.video_de_pago, ia.nota_pago = lambda: "kling", lambda pago, n: f"pagados {n}"
+        desde_prompt._ya_animada = lambda clip, img: False
+        animadas = []
+        ia.video_desde_imagen = lambda img, prompt, f, s, destino, pago: animadas.append(img) or destino
+        carpeta_nueva()
+        r = anuncios.crear(str(foto), "Café Brisa Alta", "", "", "", "Demostración del producto", variantes=1,
+                           segundos=15)
+        assert animadas == [] and not any("pagados" in a for a in r["avisos"]), r["avisos"]
+        assert sum("foto de respaldo" in a for a in r["avisos"]) == 3, r["avisos"]
     finally:
         (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.pegar_producto, ia.video_desde_imagen,
          desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre,
-         ia.investigar_web) = reales
+         ia.investigar_web, ia.video_de_pago, ia.nota_pago, desde_prompt._ya_animada) = reales
+    # Gemini sin saldo (402) dibujando es «no atendió» (SinServicio, no se cobró), como el 402 de la edición con
+    # referencia: así los anuncios pegan la foto en vez de dejar la foto sola
+    reales = ia.httpx.post, ia.modelo_imagen_gemini, ia.guardia.sin_bloqueo
+    ia.httpx.post = lambda *a, **k: httpx.Response(402, json={"error": {"message": "sin saldo"}},
+                                                   request=httpx.Request("POST", "https://x.example"))
+    ia.modelo_imagen_gemini, ia.guardia.sin_bloqueo = lambda clave: "gemini-imagen", lambda: None
+    try:
+        ia._imagen_gemini({"clave": "AIza-prueba"}, "a cup", 64, 64, foto)
+        raise AssertionError("debió fallar")
+    except ia.SinServicio as error:
+        assert "402" in str(error) and "sin saldo" in str(error), error
+    finally:
+        ia.httpx.post, ia.modelo_imagen_gemini, ia.guardia.sin_bloqueo = reales
     usadas.clear()
 finally:
     ia._texto_con = texto_con_real
@@ -271,11 +329,16 @@ assert abs(video.duracion(video.cierre(base, "OFERTA", "9:16", tmp / "sin_foto.m
 # ---------- 4. Shorts: a la medida pedida, sin pisarse, y con videos sin voz ----------
 frases = [{"palabra": f"p{i}." if i % 6 == 5 else f"p{i}", "inicio": i * 0.5, "fin": i * 0.5 + 0.4}
           for i in range(1440)]  # 12 minutos, una frase cada 3 s
-clips = [{"inicio": 26.9, "fin": 39.7, "puntuacion": 90}, {"inicio": 39.3, "fin": 52.1, "puntuacion": 80}]
-elegidos = shorts._elegir(clips, 2, 20, 45, frases, 720)
-assert len(elegidos) == 2, elegidos
+clips = [{"inicio": 26.9, "fin": 39.7, "puntuacion": 90}, {"inicio": 39.3, "fin": 52.1, "puntuacion": 80},
+         {"inicio": 80.0, "fin": 92.8, "puntuacion": 70}]
+elegidos = shorts._elegir(clips, 3, 20, 45, frases, 720)
+# El segundo momento ya sale casi entero en el primero alargado (hasta 48,2): no va otro short que empiece a mitad de
+# lo suyo (salía 48,2-69,2, con 3,9 s de su momento y 17 s que la IA no eligió)
+assert [c["puntuacion"] for c in elegidos] == [90, 70], elegidos
 for c in elegidos:
     assert 20 <= c["fin"] - c["inicio"] <= 45, c
+    propio = next(m for m in clips if m["puntuacion"] == c["puntuacion"])
+    assert min(c["fin"], propio["fin"]) - max(c["inicio"], propio["inicio"]) >= 0.5 * (propio["fin"] - propio["inicio"])
 a, b = sorted(elegidos, key=lambda c: c["inicio"])
 assert a["fin"] <= b["inicio"], (a, b)  # nunca se pisan
 assert any(abs(c["fin"] - 0.3 - p["fin"]) < 1e-9 for c in elegidos[:1] for p in frases if p["palabra"].endswith("."))
@@ -350,6 +413,16 @@ assert desde_prompt.al_tiempo(largas, 30)
 assert sum(len(e["narracion"].split()) for e in largas) / desde_prompt.PALABRAS_POR_SEGUNDO + 0.25 * len(largas) \
     <= 33, largas
 assert not desde_prompt.al_tiempo([{"narracion": "Hola a todos.", "imagen": "x"}] * 3, 30)  # ya cabe: igual
+# El guion del informe: 79 palabras que la voz de Emilio dijo en 37,3 s (el video salió de 38,6 con 30 pedidos). Con
+# 2,5 palabras por segundo parecía caber y no se acortaba
+informe = [{"narracion": x, "imagen": "x"} for x in (
+    "El merengue dominicano es pura alegría, pero esconde historias fascinantes que casi nadie conoce.",
+    "Primero, sus instrumentos unen tres continentes: la tambora africana, la güira taína y el acordeón europeo.",
+    "Segundo, su paso típico nació cuando un pueblo entero imitó a un héroe de guerra herido para bailar con él.",
+    "Tercero, fue prohibido por las élites por considerarlo vulgar, y hoy es Patrimonio de la Humanidad.",
+    "¿Cuál dato te sorprendió más? Cuéntanos en los comentarios y ponte a bailar.")]
+assert sum(len(e["narracion"].split()) for e in informe) == 79 and desde_prompt.al_tiempo(informe, 30)
+assert sum(len(e["narracion"].split()) for e in informe) / 2.12 <= 30, informe  # a la velocidad real de la voz
 muchas = [{"narracion": " ".join(["palabra"] * 30), "imagen": str(i)} for i in range(8)]
 desde_prompt.al_tiempo(muchas, 30)
 assert len(muchas) == 3 and [e["imagen"] for e in muchas][0] == "0" and muchas[-1]["imagen"] == "7"  # gancho y cierre
@@ -391,6 +464,8 @@ assert desde_prompt.con_glosario("money on a table in a Paris cafe", "Ahorra din
 assert desde_prompt.con_glosario("a colmado at night", "").count("colmado is a small corner grocery") == 1
 assert "motorcycle taxi" in desde_prompt.con_glosario("a motoconcho in traffic")
 assert desde_prompt.con_glosario("the seguiras dance") == "the seguiras dance"  # dentro de otra palabra: nada
+assert desde_prompt.PESOS in desde_prompt.con_glosario("a vendor counting RD$500 bills")  # con la cifra pegada
+assert desde_prompt.PESOS in desde_prompt.con_glosario("a price tag of RD$ 1,500")
 
 # ---------- 8. Música de fondo del editor: baja, sin silencio al final y con fundido ----------
 fondo = {"id": "m1", "tipo": "musica", "archivo": "x.wav", "inicio": 0, "desde": 0, "hasta": 40.0, "volumen": 1,

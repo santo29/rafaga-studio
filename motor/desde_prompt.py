@@ -91,7 +91,9 @@ def idioma_codigo(voz: str) -> str:
     return codigo if codigo in IDIOMAS else actual()
 
 
-PALABRAS_POR_SEGUNDO = 2.5  # lo que dice la voz gratis, más o menos: el pedido a la IA usa la misma cuenta
+# Lo que dice la voz gratis, por lo bajo (Emilio, de Edge, va a 2,12: 79 palabras en 37,3 s), y el pedido a la IA usa
+# la misma cuenta: con 2,5, un guion de 38,6 s pasaba por uno de menos de 33 y no se acortaba
+PALABRAS_POR_SEGUNDO = 2.0
 
 
 def al_tiempo(escenas: list[dict], segundos: float) -> bool:
@@ -163,7 +165,7 @@ GLOSARIO = (
      "the flag of the Dominican Republic: a centered white cross divides it into four rectangles, ultramarine blue at "
      "top left and bottom right, vermilion red at top right and bottom left, with the national coat of arms in the "
      "center of the cross"),
-    (r"pesos? dominicanos?|dominican pesos?|rd\$", PESOS),
+    (r"pesos? dominicanos?|dominican pesos?|rd\$[\d.,]*", PESOS),  # con su cifra: el «5» de «RD$500» es \w
     (r"yaniqueques?|johnny ?cakes?", "yaniqueques are large thin golden crispy fried dough discs, sold by Dominican "
                                      "beach vendors stacked in a glass box or a basket"),
     (r"colmados?", "a Dominican colmado is a small corner grocery open to the street, shelves packed with goods, a "
@@ -265,7 +267,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         hablado = (f"\nCada escena será un video de IA de {SEGUNDOS_HABLADO} segundos con su propio sonido: como "
                    f"mucho 18 palabras de narración por escena.") if animado else ""
         guion = ia.texto_json(INSTRUCCIONES, (
-            f"Pedido: {prompt}\nDuración: unos {segundos} segundos (~{int(segundos * 2.5)} palabras de narración), "
+            f"Pedido: {prompt}\nDuración: unos {segundos} segundos "
+            f"(~{int(segundos * PALABRAS_POR_SEGUNDO)} palabras de narración), "
             f"unas {escenas_aprox} escenas. Formato {formato}.{con_foto}{hablado}{idioma_de(voz)}"
             + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "") + memoria.para("video")), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
@@ -295,7 +298,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         notas.append(t("La narración pasaba de los {segundos} s pedidos: se acortó el guion para que quepa.",
                        segundos=segundos))
     # La ortografía, antes de narrar: lo que se dice es lo que sale en los subtítulos y lo que se publica
-    ia.repasar([guion, *guion["escenas"]], ("titulo", "descripcion", "hashtags", "narracion"), idioma_codigo(voz))
+    ia.repasar([guion, *guion["escenas"]], ("titulo", "descripcion", "hashtags", "narracion"), idioma_codigo(voz),
+               notas)
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:
@@ -361,7 +365,9 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
 def titulo_corto(texto: str, largo: int = 50) -> str:
     """Un título corto y limpio sacado de un pedido: su primera frase u oración, sin cortar una palabra a medias
     (con prompt[:60] salía «…bajo el brazo de él con »)."""
-    primera = re.split(r"[.,;:!?\n]", ia.sin_markdown(texto, "linea"), maxsplit=1)[0].strip()
+    primera = re.split(r"[.,;:\n]|(?<=[!?])", ia.sin_markdown(texto, "linea"), maxsplit=1)[0].strip()
+    # el «¿» nunca se queda sin su «?» (salía «¿Qué pasa en el malecón»), tampoco cortado en una coma
+    primera += "".join(cierra for abre, cierra in ("¿?", "¡!") if abre in primera and cierra not in primera)
     return ia.recortar(primera[:1].upper() + primera[1:], largo)
 
 
@@ -505,7 +511,10 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         try:
             img = ultima = crear_imagen(f"{con_glosario(e['imagen'], e['narracion'])}, {guion['estilo_visual']}",
                                         ancho, alto, carpeta / f"{nombre}_imagen_{i:02d}.png")
-            nueva, de_donde = True, t("la imagen anterior")
+            # La foto de respaldo devuelta (anuncios: la del producto sola, si no salió la escena) no es nueva: con
+            # video de pago se cobraba un clip por cada escena que la repetía
+            nueva = img != respaldo
+            de_donde = t("la imagen anterior") if nueva else t("la foto de respaldo")
         except Exception as error:
             if ultima is None:  # ni una imagen todavía: fondo de color para que el video salga igual
                 ultima, de_donde = video.fondo(formato, carpeta / f"{nombre}_fondo.png", i), t("un fondo de color")

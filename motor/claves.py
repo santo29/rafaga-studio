@@ -210,11 +210,8 @@ NO_CHAT = re.compile(r"embed|tts|whisper|transcri|audio|realtime|image|dall-e|mo
 
 def elegir_modelo_texto(proveedor: str, modelos: list[dict]) -> str | None:
     ids = [m["id"].removeprefix("models/") for m in modelos]
-    if proveedor == "anthropic":
-        # Opus 5.5 es el modelo por defecto; si la cuenta no lo tiene, el Opus más nuevo (la lista viene del más nuevo al más viejo).
-        if "claude-opus-5-5" in ids:
-            return "claude-opus-5-5"
-        return next((i for i in ids if "opus" in i), ids[0] if ids else None)
+    if proveedor == "anthropic":  # el que se eligió en «Claves de IA» (y lo pone cargar() aunque se cambie después)
+        return modelo_claude()
     if proveedor == "gemini":
         # «gemini-flash-latest» es siempre el Flash estable más nuevo (el de más cuota gratis); si no, el Flash con el
         # número más alto. Por orden alfabético salía Gemma (un modelo abierto más flojo, «gemma» > «gemini»)
@@ -602,11 +599,25 @@ def _leer() -> dict:
 
 def cargar() -> dict:
     try:
-        return _leer()
+        todas = _leer()
     except NoSeDescifra:  # Windows no puede descifrarlas ahora: la app sigue sin claves y el archivo queda como está
         guardia.registrar("claves_dpapi", "media", t("Windows no pudo descifrar tus claves guardadas (¿otra cuenta u "
                                                      "otro PC?): la app siguió sin ellas."))
         return {}
+    if "anthropic" in todas:  # Claude usa el modelo elegido ahora en «Claves de IA», no el de cuando se conectó
+        todas["anthropic"] = {**todas["anthropic"], "modelo_texto": modelo_claude()}
+    return todas
+
+
+# Los modelos de Claude que se pueden elegir en «Claves de IA» (el dueño pidió solo estos dos), con su nombre corto
+# (la actividad de la IA lo enseña): Opus 5.5 es el de fábrica
+MODELOS_CLAUDE = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
+
+
+def modelo_claude() -> str:
+    """El modelo de Claude elegido en «Claves de IA» (ajustes.json, «modelo_claude»); Opus 5.5 si no se eligió."""
+    elegido = ajustes().get("modelo_claude")
+    return elegido if elegido in MODELOS_CLAUDE else next(iter(MODELOS_CLAUDE))
 
 
 def _leer_para_cambiar() -> dict:

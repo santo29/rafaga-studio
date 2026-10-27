@@ -1,5 +1,7 @@
 """Llamadas a IA usando la clave que el usuario haya conectado (ver claves.py)."""
 import base64
+import contextlib
+import contextvars
 import json
 import math
 import re
@@ -439,8 +441,12 @@ _SIN_SERVICIO = {401, 402, 403, 429}
 # US$ por millón de tokens (entrada, salida) de la IA de texto, por lo alto, para el gasto estimado de «Actividad de la
 # IA» (un guion cuesta céntimos: no se pregunta). Groq y Pollinations van con su plan gratis. Gemini, lo que cobra con
 # la facturación activada (con su cuota gratis no cuesta nada, pero no se puede saber cuál usa la clave).
-PRECIO_TEXTO = {"anthropic": (5.0, 25.0), "openai": (2.5, 15.0), "gemini": (0.5, 3.0), "openrouter": (3.0, 15.0),
-                "xai": (3.0, 15.0), "deepseek": (0.6, 2.5)}
+# Claude, por modelo (los dos que se eligen en «Claves de IA»: claves.MODELOS_CLAUDE); «anthropic», el de fábrica.
+PRECIO_TEXTO = {"anthropic": (4.0, 20.0), "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0),
+                "openai": (2.5, 15.0), "gemini": (0.5, 3.0), "openrouter": (3.0, 15.0), "xai": (3.0, 15.0),
+                "deepseek": (0.6, 2.5)}
+LEER_CACHE_CLAUDE = 0.20  # US$ por millón de tokens leídos de la caché (Opus 5.5 y Sonnet 5.5); escribirla, 1,25 × entrada
+BUSQUEDA_WEB = 0.01  # US$ por búsqueda web de Claude (US$10 las mil)
 
 
 def costo_texto(proveedor: str, entrada, salida) -> float:
@@ -512,6 +518,40 @@ def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
     return error
 
 
+# Los pedidos dentro de `with charla():` son turnos de conversación (el Director): ver _texto_con
+_CHARLA = contextvars.ContextVar("charla_claude", default=False)
+PLAZO_CLAUDE = 120  # s sin recibir nada de Claude (en streaming llega algo cada pocos segundos): la conexión se cayó
+
+
+@contextlib.contextmanager
+def charla():
+    """Los pedidos de dentro son turnos de una conversación: con Claude piensan poco y guardan sus instrucciones en caché."""
+    marca = _CHARLA.set(True)
+    try:
+        yield
+    finally:
+        _CHARLA.reset(marca)
+
+
+def _claude(c: dict):
+    """El cliente de Claude con plazos: el de fábrica espera 10 min por intento y lo repite dos veces (30 min sin
+    noticias: así se vio el investigador de nichos «colgado»)."""
+    import anthropic
+    return anthropic.Anthropic(api_key=c["clave"], timeout=anthropic.Timeout(PLAZO_CLAUDE, connect=15.0))
+
+
+def _costo_claude(modelo: str, uso, largo: float = 0, busquedas: int = 0) -> float:
+    """Lo que costó un pedido a Claude con los tokens que dice su respuesta: la entrada, la que se escribió en caché
+    (1,25 × entrada) y la que se leyó de ella, la salida y cada búsqueda web. Sin `uso`, la entrada se estima (`largo`)."""
+    entrada, salida = PRECIO_TEXTO.get(modelo, PRECIO_TEXTO["anthropic"])
+
+    def tokens(campo, otro=0):
+        return float(getattr(uso, campo, otro) or 0)
+    return (tokens("input_tokens", largo) * entrada + tokens("cache_creation_input_tokens") * entrada * 1.25
+            + tokens("cache_read_input_tokens") * LEER_CACHE_CLAUDE + tokens("output_tokens") * salida) / 1_000_000 \
+        + busquedas * BUSQUEDA_WEB
+
+
 def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: bool = False) -> dict:
     """Un pedido JSON a la IA de texto `c` (Claude, o cualquiera compatible con OpenAI). Cada respuesta queda en la
     actividad de la IA con lo que costó (sus tokens). rapido: sin razonamiento escondido (_sin_razonar)."""
@@ -519,11 +559,19 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
     largo = (len(instrucciones) + len(pedido) + len(json.dumps(esquema))) / 3  # tokens, si el servicio no los dice
     if c["proveedor"] == "anthropic":
         import anthropic
-        cliente = anthropic.Anthropic(api_key=c["clave"])
+        # Lo rápido (un paso del Director, entender un pedido) y el repaso de ortografía: piensa poco y responde en
+        # segundos. Los guiones y los análisis, «medium» (el de fábrica de Opus 5.5; Sonnet 5.5 traería «high», más lento).
+        charla = _CHARLA.get()
+        rapido = rapido or charla or esquema is _ESQUEMA_ORTOGRAFIA
         try:
-            with cliente.messages.stream(
-                model=c["modelo_texto"], max_tokens=32000, system=instrucciones,
-                output_config={"effort": "medium", "format": {"type": "json_schema", "schema": esquema}},
+            with _claude(c).messages.stream(
+                model=modelo, max_tokens=16000 if rapido else 32000,
+                # El Director manda las mismas instrucciones (largas) en cada paso: en caché cuestan y tardan menos desde
+                # el segundo. En un pedido suelto no se recupera lo que cuesta escribirla (1,25 ×): ahí no se pide
+                system=[{"type": "text", "text": instrucciones, "cache_control": {"type": "ephemeral"}}] if charla
+                else instrucciones,
+                output_config={"effort": "low" if rapido else "medium",
+                               "format": {"type": "json_schema", "schema": esquema}},
                 messages=[{"role": "user", "content": pedido}],
             ) as s:
                 r = s.get_final_message()
@@ -532,9 +580,7 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         except Exception as e:  # sin conexión, cortado…: también se apunta
             actividad.anotar("texto", c["proveedor"], modelo, error=e)
             raise
-        uso = getattr(r, "usage", None)
-        actividad.anotar("texto", c["proveedor"], modelo,
-                         costo_texto("anthropic", getattr(uso, "input_tokens", largo), getattr(uso, "output_tokens", 0)),
+        actividad.anotar("texto", c["proveedor"], modelo, _costo_claude(modelo, getattr(r, "usage", None), largo),
                          t("Claude rechazó el pedido.") if r.stop_reason == "refusal" else None)
         if r.stop_reason == "refusal":
             raise RuntimeError(t("Claude rechazó el pedido."))
@@ -852,31 +898,46 @@ def pegar_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path
     return destino
 
 
-def investigar_web(pregunta: str) -> str | None:
-    """Investigación en vivo en internet con Claude (búsqueda web). None si la IA de texto no es Claude."""
+def investigar_web(pregunta: str, plazo: float = 300) -> str | None:
+    """Investigación en vivo en internet con Claude (búsqueda web). None si la IA de texto no es Claude.
+    Como mucho `plazo` segundos: al cumplirse se corta y devuelve lo que ya escribió (o None si nada). Es un paso
+    intermedio (lo analiza otra IA después): esfuerzo «low» y hasta 5 búsquedas, que busque menos y lo junte antes."""
     c = claves.para("texto")
     if not c or c.get("proveedor") != "anthropic":
         return None
     import anthropic
-    cliente = anthropic.Anthropic(api_key=c["clave"])
+    modelo, fin = c.get("modelo_texto") or "", time.monotonic() + plazo
     mensajes = [{"role": "user", "content": pregunta}]
     for _ in range(6):  # la búsqueda puede pausar el turno; se retoma hasta 5 veces
+        cortado = False
         try:
-            r = cliente.messages.create(
-                model=c["modelo_texto"], max_tokens=16000, output_config={"effort": "medium"},
-                tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 10}], messages=mensajes)
+            # En streaming: el plazo se mira con cada trozo que llega y la conexión nunca espera 10 min a ciegas
+            with _claude(c).messages.stream(
+                    model=modelo, max_tokens=16000, output_config={"effort": "low"},
+                    tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
+                    messages=mensajes) as s:
+                for _evento in s:
+                    if time.monotonic() > fin:
+                        cortado = True
+                        break
+                # ponytail: cortado, la salida que se apunta es la de hasta ahora (la del final no llega): por lo bajo
+                r = s.current_message_snapshot if cortado else s.get_final_message()
+        except anthropic.APIStatusError as e:  # en claro («respondió 400: Your credit balance is too low»), no el JSON
+            error = _error_texto(c, e.status_code, motivo(e.response))
+            if isinstance(error, SinServicio):  # _error_texto deja apuntar esos a quien llama
+                actividad.anotar("texto", "anthropic", modelo, error=error.corto)
+            raise error from None
         except Exception as e:
-            actividad.anotar("texto", "anthropic", c.get("modelo_texto") or "", error=e)
+            actividad.anotar("texto", "anthropic", modelo, error=e)
             raise
-        uso = getattr(r, "usage", None)  # cada búsqueda web cuesta aparte (US$0,01): va en la misma línea
+        uso = getattr(r, "usage", None)  # cada búsqueda web cuesta aparte: va en la misma línea
         busquedas = getattr(getattr(uso, "server_tool_use", None), "web_search_requests", 0) or 0
-        actividad.anotar("texto", "anthropic", c.get("modelo_texto") or "",
-                         costo_texto("anthropic", getattr(uso, "input_tokens", 0), getattr(uso, "output_tokens", 0))
-                         + busquedas * 0.01)
-        if r.stop_reason != "pause_turn":
+        actividad.anotar("texto", "anthropic", modelo, _costo_claude(modelo, uso, busquedas=busquedas),
+                         t("Se cortó: tardó más de {segundos} s.", segundos=round(plazo)) if cortado else None)
+        if cortado or r.stop_reason != "pause_turn":
             break
         mensajes = [*mensajes, {"role": "assistant", "content": r.content}]
-    return "\n".join(b.text for b in r.content if b.type == "text")
+    return "\n".join(b.text for b in r.content if b.type == "text") or None
 
 
 def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:

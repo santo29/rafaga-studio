@@ -403,10 +403,11 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         contexto = _contexto(pedido, historial, pasos)
         try:
             # rapido: elegir el paso no necesita que el modelo piense antes (ver ia._sin_razonar); los guiones y los
-            # diseños los escribe cada herramienta con toda su calidad
-            r = ia.texto_json(instrucciones(enteras), contexto, ESQUEMA, rapido=True)
-            if enteras is not None and str(r.get("herramienta", "")).strip() not in enteras | {""}:
-                r = ia.texto_json(instrucciones(), contexto, ESQUEMA, rapido=True)
+            # diseños los escribe cada herramienta con toda su calidad. charla: con Claude, las instrucciones en caché
+            with ia.charla():
+                r = ia.texto_json(instrucciones(enteras), contexto, ESQUEMA, rapido=True)
+                if enteras is not None and str(r.get("herramienta", "")).strip() not in enteras | {""}:
+                    r = ia.texto_json(instrucciones(), contexto, ESQUEMA, rapido=True)
         except Exception as e:  # la IA falla a mitad: lo que ya se hizo no se pierde
             if not pasos:
                 raise

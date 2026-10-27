@@ -3,6 +3,7 @@ después), «Comprobar conexiones» dice el estado real de cada servicio con la 
 ANTES de empezar si un servicio no atiende, y cada «sin saldo» pasa a otra opción gratis o se dice claro sin cobrar.
 Las respuestas de los servicios son de mentira, pero pasan por las funciones de verdad.
 python -m pruebas.conexiones"""
+import base64
 import json
 import os
 import subprocess
@@ -217,6 +218,8 @@ assert claves.estados().keys() == esperado.keys() and claves.estados()["gemini"]
 assert hechos["gemini"]["detalle"] == "402: Your prepayment credits are depleted."
 assert "Recarga en AI Studio" in hechos["gemini"]["paso"] and "Conseguir clave" in hechos["groq"]["paso"]
 assert "internet" in hechos["anthropic"]["paso"]
+# El detalle, en claro: no «ConnectError», el nombre de la clase en inglés
+assert hechos["anthropic"]["detalle"].startswith("Sin conexión con api.anthropic.com"), hechos["anthropic"]
 # Gemini: un solo token del modelo de texto más barato (solo un pedido de verdad dice «sin saldo prepago»)
 gemini_pedido = [p for p in pedidos if p[0] == "POST"]
 assert len(gemini_pedido) == 1 and claves.GEMINI_BARATO in gemini_pedido[0][1]
@@ -246,6 +249,45 @@ finally:
     httpx.post = sin_red
 assert modelos == [claves.GEMINI_BARATO, "gemini-flash-latest"]
 assert 0 < actividad.ultimas(1)[0]["costo"] < 0.0001  # menos de una centésima de centavo
+# De pago y sin consulta de saldo (OpenAI, Claude, xAI…): su lista gratis responde bien aunque la cuenta no tenga
+# crédito, así que no se dice «Funciona» sino que la clave vale. Groq (gratis) sí funciona
+OPENAI = {**GROQ, "proveedor": "openai", "clave": "sk-proj-PRUEBA"}
+conectar(OPENAI, GROQ)
+httpx.get = lambda url, **k: respuesta(200, {"data": [{"id": "gpt"}]}, "GET", url)
+try:
+    assert {p: e["estado"] for p, e in claves.comprobar().items()} == {"openai": "clave_ok", "groq": "ok"}
+finally:
+    httpx.get = sin_red
+assert claves.estados()["openai"]["paso"] == "" and not claves.antes_de(["texto"])  # no es un problema
+claves.recordar("openai", 200)  # una llamada de verdad salió bien: ahora sí se sabe que funciona
+assert claves.estados()["openai"]["estado"] == "ok"
+# Modal sin internet: «modal app list» falla, pero no es la clave (antes mandaba a crear otra); cada sonda, en un hilo
+# daemon (Python no espera a ninguno al salir: cerrar la app no se queda colgado)
+MODAL = {"proveedor": "modal", "clave": "ak-PRUEBA as-PRUEBA", "usos": ["video"]}
+conectar(MODAL)
+correr, daemons = subprocess.run, []
+
+
+def modal_responde(salida):
+    def run(*a, **k):
+        daemons.append(threading.current_thread().daemon)
+        if isinstance(salida, Exception):
+            raise salida
+        return subprocess.CompletedProcess(a, 1 if salida else 0, "", salida)
+    return run
+
+
+for salida, que in (("Error: Could not connect to the Modal server.", "sin_conexion"),
+                    (subprocess.TimeoutExpired("modal", 60), "sin_conexion"),
+                    ("Error: Token validation failed.", "clave"), ("", "clave_ok")):
+    subprocess.run = modal_responde(salida)
+    try:
+        hecho = claves.comprobar()["modal"]
+    finally:
+        subprocess.run = correr
+    assert hecho["estado"] == que, (salida, hecho)
+    assert que != "sin_conexion" or "internet" in hecho["paso"] and "rechazó" not in hecho["detalle"], hecho
+assert daemons == [True] * 4, daemons
 print("Comprobar conexiones: bien.")
 
 # ---------- Antes de empezar: lo que no atiende se dice, y lo de pago que no puede salir ni empieza ----------
@@ -263,11 +305,14 @@ estado("gemini", "sin_saldo")
 no = claves.impide(["video_voz"])
 assert no.startswith("No se puede hacer el video que habla: Gemini no tiene saldo (comprobado hoy a las ") and \
     "aistudio.google.com" in no and "No se cobró nada." in no, no
+# Como ni se pide, ninguna respuesta buena lo desbloquea sola: dice cómo, también a un agente MCP
+assert "Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» en «Claves de IA». O desmarca" in no, no
 estado("gemini", "sin_cuota")  # una cuota por minuto no impide: puede liberarse enseguida
 assert claves.impide(["video_voz"]) is None
 # La canción: en automático y con ElevenLabs conectado, pasa a ElevenLabs y lo dice con su costo; sin él, no empieza
 estado("gemini", "sin_saldo")
 assert "No se puede hacer la canción: Gemini no tiene saldo" in claves.impide(["musica"])
+assert "pulsa «Comprobar conexiones»" in claves.impide(["musica"])
 claves.guardar(ELEVEN)
 assert claves.impide(["musica"]) is None
 assert claves.antes_de(["musica"]) == [f"Gemini no tiene saldo: la canción la hará ElevenLabs (hasta unos "
@@ -283,9 +328,18 @@ ia.texto_json = lambda instrucciones, pedido, esquema, uso="texto": {"mensaje": 
                                                                     "argumentos": "{}"}
 try:
     director.dirigir("hazme un video", al_decir=dichos.append)
+    assert dichos == ["Gemini no tiene saldo: usaré Groq para el texto."], dichos
+    # Una vez por conversación, no al empezar cada respuesta (ni en cada frase del modo voz); si deja de valer y
+    # vuelve, se dice otra vez
+    director.dirigir("y otro", al_decir=dichos.append)
+    assert len(dichos) == 1, dichos
+    estado("gemini", "ok")
+    director.dirigir("otro más", al_decir=dichos.append)
+    estado("gemini", "sin_saldo")
+    director.dirigir("y el último", al_decir=dichos.append)
 finally:
     ia.texto_json = real_texto
-assert dichos == ["Gemini no tiene saldo: usaré Groq para el texto."], dichos
+assert dichos == ["Gemini no tiene saldo: usaré Groq para el texto."] * 2, dichos
 args, r = director._usar("crear_video", {"prompt": "una manzana que habla", "animado": True}, lambda *a: None,
                          usadas.append, "una manzana que habla", "", lambda p: preguntas.append(p) or True)
 assert r.startswith("ERROR: No se puede hacer el video que habla: Gemini no tiene saldo"), r
@@ -397,18 +451,65 @@ try:
     e = falla(ia.imagen_con_producto, "a cat", foto, 64, 64, tmp / "e.png", respaldo=False, error=RuntimeError)
     assert str(e) == "Pollinations respondió 402: Payment Required" and "mozilla" not in str(e), e
     assert actividad.ultimas(1)[0]["resultado"] == "fallo" and "402" in actividad.ultimas(1)[0]["motivo"]
-    # Con respaldo (Crear con foto, Anuncios): la escena sale igual, con la foto sobre un fondo nuevo, y se dice
-    from motor import video  # noqa: E402
+    # Con respaldo (Crear con foto, Anuncios): la escena sale igual, con la foto sobre un fondo nuevo, y se dice una
+    # sola vez aunque fallen varias escenas igual
+    from motor import anuncios, video  # noqa: E402
     fondos, avisos = [], []
-    imagen_real, ffmpeg_real = ia.imagen, video.ffmpeg
+    NOTA = ("La edición con la imagen de referencia falló (Pollinations respondió 402: Payment Required): la escena se "
+            "hizo con la foto encima de un fondo nuevo.")
+    imagen_real, ffmpeg_real, cierre_real = ia.imagen, video.ffmpeg, video.cierre
+    montar_real, proyectos_real = anuncios.montar, anuncios.PROYECTOS
     ia.imagen = lambda p, w, h, d, calidad="1K": fondos.append(p) or d
     video.ffmpeg = lambda *a, **k: None
     try:
-        assert ia.imagen_con_producto("a cat", foto, 64, 64, tmp / "e2.png", avisos=avisos) == tmp / "e2.png"
+        for n in (2, 3):
+            assert ia.imagen_con_producto("a cat", foto, 64, 64, tmp / f"e{n}.png", avisos=avisos) == tmp / f"e{n}.png"
+        assert len(fondos) == 2 and avisos == [NOTA], avisos
+        # Anuncios también lo dice (antes la escena salía con la foto pegada y solo quedaba en la actividad)
+
+        def montar_falso(v, carpeta, formato, voz, aviso, nombre, crear_imagen, **k):
+            for i, e in enumerate(v["escenas"]):
+                crear_imagen(f"{e['imagen']}, {v['estilo_visual']}", 64, 64, carpeta / f"{nombre}_{i}.png")
+            return carpeta / f"{nombre}.mp4"
+        plan = {"variantes": [{"angulo": "Antojo", "gancho": "g", "titulo": "Café", "texto_anuncio": "x",
+                               "hashtags": [], "estilo_visual": "photo",
+                               "escenas": [{"narracion": "n", "imagen": "the product on a table"}] * 3}]}
+        anuncios.montar, anuncios.PROYECTOS, ia.texto_json = montar_falso, tmp / "anuncios", lambda *a, **k: plan
+        video.cierre = lambda montado, texto, formato, destino: montado
+        p = anuncios.crear(str(foto), "Café", "d", "gente", "", "UGC", variantes=1)
+        assert p["avisos"][-1:] == [f"Anuncio 1: {NOTA}"], p["avisos"]
     finally:
-        ia.imagen, video.ffmpeg = imagen_real, ffmpeg_real
-    assert len(fondos) == 1 and avisos == ["La edición con la imagen de referencia falló (Pollinations respondió 402: "
-                                           "Payment Required): la escena se hizo con la foto encima de un fondo nuevo."]
+        ia.imagen, video.ffmpeg, video.cierre, ia.texto_json = imagen_real, ffmpeg_real, cierre_real, real_texto
+        anuncios.montar, anuncios.PROYECTOS = montar_real, proyectos_real
+
+    # La edición de pago ya respondió bien y lo que falla es después (la imagen no vale, el disco): ya se cobró. Nunca
+    # se paga otra imagen por detrás (Cobrado), y la actividad cuenta su costo
+    no_es_imagen = base64.b64encode(b"<html>no es una imagen</html>").decode()
+    httpx.post = lambda url, **k: respuesta(200, {"data": [{"b64_json": no_es_imagen}]}, "POST", url)
+    conectar({**OPENAI, "usos": ["texto", "imagen"], "modelo_imagen": "gpt-image-1"}, imagen="openai")
+    ia.imagen, fondos = (lambda *a, **k: fondos.append(a) or a[3]), []
+    try:
+        e = falla(ia.imagen_con_producto, "a cat", foto, 64, 64, tmp / "e4.png", avisos=avisos, error=ia.Cobrado)
+        assert str(e) == "no devolvió una imagen" and not fondos, (e, fondos)
+        apunte = actividad.ultimas(1)[0]
+        assert (apunte["proveedor"], apunte["resultado"], apunte["costo"]) == ("openai", "fallo",
+                                                                               ia.PRECIO_EDITAR_OPENAI), apunte
+        # Gemini (Nano Banana) igual, con su precio; y los dibujos de una serie tampoco se pagan dos veces
+        conectar({**GEMINI, "usos": ["texto", "imagen", "musica"]}, imagen="gemini")
+        ia._elegidos[(GEMINI["clave"], claves.elegir_modelo_imagen_gemini)] = ia.IMAGEN_GEMINI
+        httpx.post = lambda url, **k: respuesta(200, {"candidates": [{"content": {"parts": [{"inlineData": {
+            "data": no_es_imagen}}]}}]}, "POST", url)
+        falla(ia.imagen_con_producto, "a cat", foto, 64, 64, tmp / "e5.png", avisos=avisos, error=ia.Cobrado)
+        assert actividad.ultimas(1)[0]["costo"] == ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]["1K"]
+        (tmp / "serie2" / "personajes").mkdir(parents=True)
+        (tmp / "serie2" / "personajes" / "p3.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        falla(serie._dibujar, tmp / "serie2", {"ref": {"id": "p3", "nombre": "Don Tito"}}, "x", 64, 64,
+              tmp / "p1.png", {}, 1, error=ia.Cobrado)
+        assert not fondos and avisos == [NOTA], (fondos, avisos)  # ni fondo, ni dibujo sin lámina, ni otra nota
+    finally:
+        ia.imagen = imagen_real
+    conectar(POLLI, imagen="pollinations")
+    httpx.post = lambda url, **k: ediciones.append(url) or respuesta(402, "Payment Required", "POST", url)
 
     # Dibujos animados: el plano se dibuja igual sin su lámina (antes repetía el anterior) y los siguientes ya no la
     # intentan (fallaría igual)
@@ -464,6 +565,17 @@ try:
     musica.PROYECTOS = tmp / "proyectos_a_mano"  # otra carpeta: van en el mismo segundo
     e = falla(musica.crear, "otra", "Dembow moderno", error=RuntimeError)
     assert "Gemini no tiene saldo para Lyria (402)" in str(e) and "mozilla" not in str(e) and len(llamadas) == 1, e
+    # Fallan los dos: el motivo de ElevenLabs también en claro (no «[Errno 11001] getaddrinfo failed»)
+    claves.elegir_por_defecto("musica", "auto")
+    musica.PROYECTOS = tmp / "proyectos_sin_red"
+
+    def post_sin_eleven(url, **k):
+        if "googleapis" in url:
+            return respuesta(402, SIN_SALDO, "POST", url)
+        raise httpx.ConnectError("[Errno 11001] getaddrinfo failed", request=httpx.Request("POST", url))
+    httpx.post = post_sin_eleven
+    e = falla(musica.crear, "otra más", "Dembow moderno", error=RuntimeError)
+    assert "Sin conexión con api.elevenlabs.io" in str(e) and "getaddrinfo" not in str(e), e
 finally:
     ia.texto_json, httpx.post = real_texto, sin_red
 print("Música sin saldo: bien.")
@@ -524,10 +636,11 @@ def esperar(condicion, plazo=10):
     assert condicion(), "no terminó a tiempo"
 
 
-conectar(GEMINI, GROQ, {"proveedor": "cloudflare", "clave": "0123456789abcdef0123456789abcdef " + "T" * 40,
-                        "usos": ["imagen"]})
+conectar(GEMINI, GROQ, OPENAI, {"proveedor": "cloudflare", "clave": "0123456789abcdef0123456789abcdef " + "T" * 40,
+                                "usos": ["imagen"]})
 estado("gemini", "sin_saldo")
 estado("groq", "ok")
+estado("openai", "clave_ok")
 actividad.anotar("texto", "gemini", "gemini-flash-latest", error="402: Your prepayment credits are depleted.",
                  paso_a="groq")
 actividad.anotar("musica", "elevenlabs", "music_v2_5", 0.45)
@@ -537,6 +650,10 @@ assert (pagina.estados["gemini"].text(), pagina.estados["groq"].text(), pagina.e
 assert "#FF4D8D" in pagina.estados["gemini"].styleSheet() and "#3DDC97" in pagina.estados["groq"].styleSheet()
 assert "Comprobar conexiones" in pagina.estados["cloudflare"].toolTip()  # sin comprobar todavía
 assert "Recarga en AI Studio" in pagina.estados["gemini"].toolTip()
+# OpenAI: la clave vale, pero su saldo no se ve sin usarla: ni «Funciona» en verde ni un paso que dar
+assert pagina.estados["openai"].text() == "La clave vale" and "#A9A9B6" in pagina.estados["openai"].styleSheet()
+assert pagina.estados["openai"].toolTip().startswith("Su saldo solo se ve al usarla: si se acaba, la actividad de la "
+                                                     "IA lo dice.\ncomprobado hoy a las ")
 assert not pagina.pasos.isHidden() and pagina.pasos.text() == ("⚠️ Gemini no tiene saldo. Recarga en AI Studio: "
                                                                "aistudio.google.com → tu proyecto → Billing.")
 assert pagina.comprobado.text().startswith("Comprobado hoy a las ")
@@ -552,7 +669,7 @@ suelta, comprobadas = threading.Event(), []
 
 
 def comprobar_falso(proveedores=None):
-    comprobadas.append(proveedores)
+    comprobadas.append((proveedores, threading.current_thread().daemon))  # daemon: cerrar la app no la espera
     suelta.wait(10)
     estado("gemini", "ok")
     return {"gemini": claves.estados()["gemini"]}
@@ -568,7 +685,7 @@ try:
     pagina.comprobar_ahora()  # una sola a la vez
     suelta.set()
     esperar(lambda: pagina.comprobar.isEnabled())
-    assert comprobadas == [None] and pagina.estados["gemini"].text() == "Funciona" and pagina.pasos.isHidden()
+    assert comprobadas == [(None, True)] and pagina.estados["gemini"].text() == "Funciona" and pagina.pasos.isHidden()
     assert pagina.comprobar.text() == "Comprobar conexiones"
     # La de cuando se abre la app: si falla, ninguna ventana (se ve en su pastilla y se repite con el botón)
     claves.comprobar = lambda proveedores=None: (_ for _ in ()).throw(RuntimeError("sin red"))
@@ -583,9 +700,31 @@ try:
     assert pagina.comprobar.isEnabled()
     pagina._refrescar()
     assert pagina.tabla.isHidden() and not pagina.sin_actividad.isHidden()
-    pagina.cerrar()
 finally:
     claves.comprobar, pagina_claves.mensaje_error = comprobar_real, error_real
+# Cerrar la app con la comprobación del arranque aún en marcha (Modal tarda hasta 60 s; Gemini, hasta 40): sale enseguida
+# y sin caerse. Con un QThread vivo salía con 0xC0000409 («QThread destroyed while running»)
+conectar(GROQ)
+cierre = subprocess.run([sys.executable, "-s", "-E", "-c", """if True:
+    import sys, time
+    from pathlib import Path
+    import httpx
+    import pruebas  # sus archivos de prueba: nada del dueño
+    from motor import claves
+    claves.ARCHIVO, claves.AJUSTES = Path(sys.argv[1]), Path(sys.argv[2])
+    httpx.get = httpx.post = lambda *a, **k: sys.exit("salió a la red")
+    claves.comprobar = lambda proveedores=None: time.sleep(30) or {}
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    from ui.paginas.claves import PaginaClaves
+    app = QApplication(sys.argv)
+    pagina = PaginaClaves()
+    pagina.comprobar_ahora(al_abrir=True)
+    QTimer.singleShot(300, app.quit)
+    sys.exit(app.exec())
+""", str(claves.ARCHIVO), str(claves.AJUSTES)], cwd=RAIZ, capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+assert cierre.returncode == 0, (cierre.returncode, cierre.stderr[-2000:])
 
 # Crear: con lo último comprobado, lo de pago imposible ni empieza (ni se pregunta su costo), y lo que pasa a otro
 # servicio se dice antes y se queda a la vista

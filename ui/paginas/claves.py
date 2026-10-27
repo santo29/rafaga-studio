@@ -1,21 +1,25 @@
 """Página «Claves de IA»: conectar claves, comprobar que funcionan, ver en qué se va el dinero (la actividad de la IA),
 elegir proveedor por defecto y la nube Modal."""
+import threading
 import time
+import traceback
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from motor import actividad, claves, nube
-from motor.idioma import t
+from motor.idioma import t, texto_de_error
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 from ui.paginas.guardia import _estilo_chip  # la misma pastilla de vidrio que la gravedad de Ráfaga Guardia
 
 # Lo que dice cada estado comprobado junto a su servicio, y su color: verde funciona, ámbar espera o revisa, rojo no
-# funciona hasta que hagas algo (recargar o cambiar la clave)
-ESTADOS = {"ok": (t("Funciona"), "#3DDC97"), "sin_saldo": (t("Sin saldo"), "#FF4D8D"),
+# funciona hasta que hagas algo (recargar o cambiar la clave); gris, la clave vale pero su saldo no se ve sin usarla
+# (claves.SALDO_INVISIBLE: no se dice «Funciona» de lo que no se ha comprobado)
+ESTADOS = {"ok": (t("Funciona"), "#3DDC97"), "clave_ok": (t("La clave vale"), "#A9A9B6"),
+           "sin_saldo": (t("Sin saldo"), "#FF4D8D"),
            "clave": (t("Clave no válida"), "#FF4D8D"), "sin_cuota": (t("Sin cuota ahora"), "#FFB454"),
            "sin_conexion": (t("Sin conexión"), "#FFB454"), "error": (t("Falló al comprobar"), "#FFB454"),
            "comprobando": (t("Comprobando…"), "#A9A9B6"), "conectada": (t("Conectada"), "#A9A9B6")}
@@ -78,6 +82,8 @@ SERVICIOS = [
 
 
 class PaginaClaves(QWidget):
+    revisada = Signal(str, bool)  # la comprobación terminó: su error en claro ("" si no) y si era la de al abrir
+
     def __init__(self):
         super().__init__()
         lay = QVBoxLayout(self)
@@ -233,7 +239,9 @@ class PaginaClaves(QWidget):
         fila.addWidget(self.instalar)
         nube_lay.addLayout(fila)
         lay.addWidget(nube_caja)
-        self.tarea = self.revision = None  # conectar o instalar, y la comprobación de conexiones (van a la vez)
+        self.tarea = None  # conectar o instalar (la comprobación de conexiones va a la vez, aparte)
+        self.comprobando = False
+        self.revisada.connect(self._comprobado)
         self._refrescar()
 
     def showEvent(self, evento):  # lo apuntado mientras se trabajaba en otra página
@@ -243,30 +251,37 @@ class PaginaClaves(QWidget):
 
     def comprobar_ahora(self, al_abrir: bool = False):
         """Comprueba en otro hilo cada servicio conectado (claves.comprobar). al_abrir: la de cuando se abre la app;
-        si falla, no salta ninguna ventana (se ve en su pastilla y se puede repetir con el botón)."""
-        if (self.revision and self.revision.isRunning()) or not claves.cargar():
+        si falla, no salta ninguna ventana (se ve en su pastilla y se puede repetir con el botón).
+        Un hilo daemon y no un QThread (Tarea): Modal tarda hasta 60 s, y cerrar la app con un QThread vivo la tumbaba
+        («QThread destroyed while running»). El resultado vuelve por la señal `revisada`, en el hilo de la ventana."""
+        if self.comprobando or not claves.cargar():
             return
+        self.comprobando = True
         self.comprobar.setEnabled(False)
         self.comprobar.setText(t("Comprobando…"))
         self._pintar_estados(comprobando=True)
-        self.revision = Tarea(lambda aviso: {"estados": claves.comprobar()})
-        if not al_abrir:
-            self.revision.fallo.connect(lambda e: mensaje_error(self, t("No se pudo comprobar"), e))
-        self.revision.finished.connect(self._comprobado)
-        self.revision.start()
 
-    def _comprobado(self):
+        def revisar():
+            try:
+                claves.comprobar()
+                error = ""
+            except Exception as e:  # se cuenta en claro; el detalle, en la consola
+                traceback.print_exc()
+                error = texto_de_error(e)
+            try:
+                self.revisada.emit(error, al_abrir)
+            except RuntimeError:  # la ventana ya se cerró: no hay a quién contárselo
+                pass
+        threading.Thread(target=revisar, daemon=True).start()
+
+    def _comprobado(self, error: str, al_abrir: bool):
+        self.comprobando = False
         self.comprobar.setEnabled(True)
         self.comprobar.setText(t("Comprobar conexiones"))
         self._pintar_estados()
         self._pintar_actividad()  # la comprobación de Gemini es un pedido de verdad: también sale ahí
-
-    def cerrar(self):
-        """Al cerrar la app: un hilo vivo al salir la tumbaría. Cada servicio tiene 20 s de plazo; pasado un rato, se
-        cierra igual."""
-        if self.revision:
-            self.revision.blockSignals(True)
-            self.revision.wait(5_000)
+        if error and not al_abrir:
+            mensaje_error(self, t("No se pudo comprobar"), error)
 
     def _pintar_estados(self, comprobando: bool = False):
         """La pastilla de cada servicio (Funciona, Sin saldo, Clave no válida…), con el detalle y qué hacer al pasar
@@ -283,8 +298,10 @@ class PaginaClaves(QWidget):
             texto, color = ESTADOS["comprobando" if comprobando else e.get("estado", "conectada")]
             pastilla.setText(texto)
             pastilla.setStyleSheet(_estilo_chip(color))
-            pastilla.setToolTip("\n".join(d for d in (e.get("detalle"), e.get("paso"), claves._cuando(e)) if d) if e
-                                else t("Pulsa «Comprobar conexiones» para saber si funciona."))
+            saldo = t("Su saldo solo se ve al usarla: si se acaba, la actividad de la IA lo dice.") \
+                if e.get("estado") == "clave_ok" else ""
+            pastilla.setToolTip("\n".join(d for d in (e.get("detalle"), e.get("paso"), saldo, claves._cuando(e)) if d)
+                                if e else t("Pulsa «Comprobar conexiones» para saber si funciona."))
             if e:
                 fechas.append(e["fecha"])
             if e.get("estado", "ok") != "ok" and e.get("paso"):

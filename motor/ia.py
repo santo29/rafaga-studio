@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from . import actividad, claves, guardia, seguro
-from .idioma import dinero, t
+from .idioma import dinero, t, texto_de_error
 
 VIDEO_MAXIMO = 300 * 1024 ** 2  # un clip de IA de 5 s pesa unos pocos MB
 ESPACIO_IMAGEN = "black-forest-labs/FLUX.1-schnell"  # imágenes gratis sin clave y con calidad (el oficial de FLUX)
@@ -534,14 +534,23 @@ PRECIO_EDITAR_OPENAI = 0.08
 def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
     """La IA de imágenes conectada (con referencia: ver puede_referencia) hace `pedido` a partir de la foto. Queda en la
     actividad de la IA, y un error del servicio se cuenta en claro (su código y su «message»): salía el texto de httpx
-    en inglés con un enlace a mozilla.org (pasó con Pollinations sin saldo, 402)."""
+    en inglés con un enlace a mozilla.org (pasó con Pollinations sin saldo, 402). Lo que falle después de que OpenAI o
+    Gemini (de pago) respondieron bien ya se cobró: sale como Cobrado, y nadie prueba otra imagen que se pagaría dos
+    veces (ver imagen_con_producto)."""
     c = claves.para("imagen")
+    gemini = c["proveedor"] == "gemini"
     modelo = c.get("modelo_imagen") if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
+
+    def precio() -> float:  # al final: el de Gemini depende del modelo que eligió al pedir
+        return precio_imagen_gemini(c["clave"], calidad) if gemini else \
+            PRECIO_EDITAR_OPENAI if c["proveedor"] == "openai" else 0.0
+    respondio = False  # un servicio de pago ya respondió bien (y cobró)
     try:
-        if c["proveedor"] == "gemini":
-            destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad))
-            actividad.anotar("imagen", "gemini", _modelo_gemini_usado(c["clave"]),
-                             precio_imagen_gemini(c["clave"], calidad))
+        if gemini:
+            datos = _imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad, cobrado=True)
+            respondio = True
+            destino.write_bytes(datos)
+            actividad.anotar("imagen", "gemini", _modelo_gemini_usado(c["clave"]), precio())
             return destino
         if c["proveedor"] == "openai":
             guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
@@ -556,14 +565,18 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
         if r.is_error:
             raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio=claves.nombre(c["proveedor"]),
                                  codigo=r.status_code, detalle=motivo(r)))
+        respondio = c["proveedor"] == "openai"
         d = r.json()["data"][0]
         destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
                                          else seguro.descargar(d["url"])))
     except Exception as e:
-        actividad.anotar("imagen", c["proveedor"], modelo if c["proveedor"] != "gemini" else
-                         _modelo_gemini_usado(c["clave"]), error=e)
+        cobrado = respondio or isinstance(e, Cobrado)
+        actividad.anotar("imagen", c["proveedor"], _modelo_gemini_usado(c["clave"]) if gemini else modelo,
+                         precio() if cobrado else 0.0, error=e)
+        if cobrado and not isinstance(e, Cobrado):
+            raise Cobrado(texto_de_error(e)) from e
         raise
-    actividad.anotar("imagen", c["proveedor"], modelo, PRECIO_EDITAR_OPENAI if c["proveedor"] == "openai" else 0.0)
+    actividad.anotar("imagen", c["proveedor"], modelo, precio())
     return destino
 
 
@@ -611,21 +624,24 @@ def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino:
     """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
     si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto).
     Si la edición con referencia falla (sin saldo, servicio caído), la escena se hace igual como sin ella (fondo y foto
-    encima) en vez de quedarse sin imagen y repetir la anterior; se dice en `avisos`. respaldo=False: el error sube
-    (los dibujos animados se dibujan entonces sin su lámina: ver serie._dibujar)."""
+    encima) en vez de quedarse sin imagen y repetir la anterior; se dice en `avisos`, una vez. respaldo=False: el error
+    sube (los dibujos animados se dibujan entonces sin su lámina: ver serie._dibujar). Si la edición ya se cobró
+    (Cobrado), no hay respaldo: la otra imagen se pagaría dos veces."""
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
               "label and logo)." + (" Photorealistic." if realista else ""))
     if puede_referencia():
         try:
             return _con_referencia(pedido, foto, ancho, alto, destino)
+        except Cobrado:  # ya se pagó: otra imagen lo pagaría dos veces
+            raise
         except Exception as error:
             if not respaldo:
                 raise
-            from .idioma import texto_de_error
-            if avisos is not None:
-                avisos.append(t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto "
-                                "encima de un fondo nuevo.", causa=texto_de_error(error)))
+            nota = t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto encima de "
+                     "un fondo nuevo.", causa=texto_de_error(error))
+            if avisos is not None and nota not in avisos:  # con 5 escenas que fallan igual, una sola nota
+                avisos.append(nota)
     # ponytail: sin edición con referencia el producto se pega encima del fondo; queda menos natural.
     from .video import ffmpeg
     # Pedir «the product» y a la vez «no product» se contradecía: el hueco va en la propia escena
@@ -911,9 +927,11 @@ def precio_imagen_gemini(clave: str, calidad: str) -> float:
 
 
 def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path | None = None,
-                   calidad: str = "1K") -> bytes:
+                   calidad: str = "1K", cobrado: bool = False) -> bytes:
     """Una imagen con Gemini (Nano Banana, de pago): solo si el usuario lo eligió para las imágenes. Con
-    `referencia`, la edita manteniendo igual a quien sale en ella. calidad: 1K, 2K o 4K (PRECIO_IMAGEN_GEMINI)."""
+    `referencia`, la edita manteniendo igual a quien sale en ella. calidad: 1K, 2K o 4K (PRECIO_IMAGEN_GEMINI).
+    cobrado=True: lo que falle después de que Gemini respondió bien sale como Cobrado (ver _con_referencia). En la
+    rotación de ia.imagen no: tras Gemini solo quedan opciones gratis."""
     guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     partes = [{"text": prompt}]
     if referencia:
@@ -931,11 +949,16 @@ def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path
             claves.recordar("gemini", 402, motivo(r))
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
                              detalle=motivo(r)))
-    for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
-        datos = parte.get("inlineData") or parte.get("inline_data") or {}
-        if datos.get("data"):
-            return _imagen_real(base64.b64decode(datos["data"]))
-    raise RuntimeError(t("Gemini no devolvió ninguna imagen"))
+    try:
+        for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
+            datos = parte.get("inlineData") or parte.get("inline_data") or {}
+            if datos.get("data"):
+                return _imagen_real(base64.b64decode(datos["data"]))
+        raise RuntimeError(t("Gemini no devolvió ninguna imagen"))
+    except Exception as error:
+        if not cobrado:
+            raise
+        raise Cobrado(texto_de_error(error)) from error
 
 
 def _bloque_video(nodo):
@@ -1057,8 +1080,8 @@ def _video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | 
                 raise RuntimeError(t("Gemini no pudo terminar el video"))
             return _clip_real(seguro.descargar(f"{archivo}:download?alt=media", cabecera, tope=VIDEO_MAXIMO,
                                                plazo=300), destino)
-        except Exception as error:  # Google ya lo hizo, y lo cobra
-            raise Cobrado(str(error) or type(error).__name__) from error
+        except Exception as error:  # Google ya lo hizo, y lo cobra (el motivo en claro: no el texto de httpx)
+            raise Cobrado(texto_de_error(error)) from error
     finally:  # lo guardado en Google (el pedido, la foto y el video) no se queda allí, salga bien o mal
         if archivo:
             _borrar(archivo, cabecera)

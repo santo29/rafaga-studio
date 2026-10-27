@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 
 from . import guardia, seguro
-from .idioma import t
+from .idioma import t, texto_de_error
 
 NOMBRE = "Kling"
 CONSOLA = "https://kling.ai/dev/api-key"
@@ -173,8 +173,8 @@ def _generar(info: dict, imagen: Path, prompt: str, destino: Path, segundos: flo
                 raise RuntimeError(t("{nombre} no devolvió ningún video", nombre=NOMBRE))
             ia._clip_real(seguro.descargar(url, tope=ia.VIDEO_MAXIMO, plazo=300), destino)  # la CDN, sin la clave
             return modelo
-        except Exception as error:  # la tarea ya existe y Kling la cobra
-            raise ia.Cobrado(str(error) or type(error).__name__) from error
+        except Exception as error:  # la tarea ya existe y Kling la cobra (el motivo en claro: no el texto de httpx)
+            raise ia.Cobrado(texto_de_error(error)) from error
     if sin_saldo is not None:  # ninguno pudo y alguno por saldo: ese es el motivo que hay que contar
         raise ia.SinSaldo(_motivo(sin_saldo, 1102, info["clave"]))
     raise RuntimeError(t("Tu cuenta de Kling no puede usar ninguno de sus modelos de video; revisa tus paquetes en "

@@ -363,7 +363,7 @@ def _dibujar(carpeta: Path, escena: dict, prompt: str, ancho: int, alto: int, de
             return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False,
                                           respaldo=False)
         except Exception as error:
-            if sin_lamina is None:
+            if sin_lamina is None or isinstance(error, ia.Cobrado):  # Cobrado: otro dibujo se pagaría dos veces
                 raise
             sin_lamina["motivo"] = texto_de_error(error)
     hecho = ia.imagen(prompt, ancho, alto, destino)

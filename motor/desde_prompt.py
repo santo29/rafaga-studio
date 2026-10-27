@@ -275,8 +275,11 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
         if (quien == "kling" or (quien == "seedance" and referencia)) and not (referencia and i == 0):
             ref = carpeta / f"video_final_imagen_{i:02d}.png"  # arrancan en la imagen de SU escena
             if not ref.is_file():  # un reintento la reutiliza
-                ref = (crear_imagen or ia.imagen)(f"{e['imagen']}, {guion['estilo_visual']}", *video.FORMATOS[formato],
-                                                  ref)
+                try:
+                    ref = (crear_imagen or ia.imagen)(f"{e['imagen']}, {guion['estilo_visual']}",
+                                                      *video.FORMATOS[formato], ref)
+                except ia.Cobrado as error:  # se cobró la imagen, no el video (ni se pidió): no cuenta como clip
+                    raise RuntimeError(str(error)) from error
         try:
             return ia.video_hablado(prompt_hablado(e, guion), formato, carpeta / f"video_final_hablado_{i:02d}.mp4",
                                     ref, quien)

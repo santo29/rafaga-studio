@@ -620,8 +620,12 @@ def publico() -> list[dict]:
 # ---------- Comprobar conexiones: el estado real de cada servicio conectado, antes de que un trabajo falle ----------
 
 CONEXIONES = ARCHIVO.with_name("conexiones.json")  # el último estado de cada servicio (nunca su clave)
-ESTADOS = ("ok", "sin_saldo", "sin_cuota", "clave", "sin_conexion", "error")
+ESTADOS = ("ok", "clave_ok", "sin_saldo", "sin_cuota", "clave", "sin_conexion", "error")
 NO_ATIENDE = {"sin_saldo", "sin_cuota", "clave"}  # con estos, un trabajo que lo usa falla seguro: se avisa antes
+# De pago, y su comprobación gratis (la lista de modelos, la cuenta, las tareas) solo dice si la clave vale: responde
+# bien aunque no quede saldo (OpenAI da luego 429 insufficient_quota; Claude, 400 «credit balance is too low»). Con
+# ellos no se dice «Funciona» sino «clave_ok»; su «sin saldo» llega en la primera llamada de verdad (recordar)
+SALDO_INVISIBLE = {"openai", "anthropic", "xai", "replicate", "pollinations", "kling", "seedance", "modal"}
 BLOQUEA = {"sin_saldo", "clave"}  # y con estos, un paso que solo se puede hacer pagando ni empieza
 VIGENCIA = 12 * 3600  # un estado más viejo ya no se usa para avisar (pudo recargar): en la página se ve igual
 # Dónde se recarga el saldo de cada servicio de pago (sin «https://»: se lee mejor en un aviso)
@@ -712,9 +716,15 @@ def _sonda(proveedor: str, info: dict):
                 return "sin_saldo", t("Se acabaron las letras de tu plan de este mes.")
         return r
     if proveedor == "modal":  # su token, con su propia herramienta (sin GPU ni costo)
+        import subprocess
         try:
             _ids_modelos("modal", clave)
-        except RuntimeError as e:
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            # Sin red, «modal app list» también falla (o no acaba): no es que la clave no valga. Sin detalle: su texto
+            # diría «Modal rechazó el token», y el paso ya dice qué hacer
+            if isinstance(e, subprocess.TimeoutExpired) or \
+                    re.search(r"\bconnect|network|timed? ?out|resolve|getaddrinfo", str(e), re.IGNORECASE):
+                return "sin_conexion", ""
             return "clave", str(e)
         return "ok", ""
     if proveedor in VIDEO_DE_PAGO:  # consultar tareas es gratis (ver kling.validar y seedance.validar)
@@ -729,8 +739,8 @@ def _sonda(proveedor: str, info: dict):
         except httpx.HTTPStatusError as e:
             return e.response
         return "ok", ""
-    # ponytail: Pollinations no tiene (que sepamos) una consulta de saldo; su lista de modelos solo dice si la clave
-    # vale. Su «sin saldo» se ve en la actividad de la IA cuando pasa.
+    # ponytail: Pollinations, OpenAI y xAI no tienen (que sepamos) una consulta de saldo gratis; su lista de modelos solo
+    # dice si la clave vale (SALDO_INVISIBLE). Su «sin saldo» se ve en la actividad de la IA cuando pasa.
     return httpx.get(f"{OPENAI_COMPAT[proveedor]}/models", headers={"Authorization": f"Bearer {clave}"}, timeout=20)
 
 
@@ -743,23 +753,35 @@ def _comprobar_uno(proveedor: str, info: dict) -> dict:
         else:
             estado = clasificar(r.status_code, motivo(r) if r.status_code >= 400 else "")
             detalle = "" if estado == "ok" else f"{r.status_code}: {motivo(r)}"
-    except httpx.TransportError as e:
-        estado, detalle = "sin_conexion", type(e).__name__
-    except Exception as e:  # una respuesta rara no tumba las demás comprobaciones
-        estado, detalle = "error", type(e).__name__
+    except Exception as e:  # sin red (sin_conexion) o una respuesta rara, que no tumba las demás comprobaciones
+        from .idioma import texto_de_error  # en claro: no «ConnectError» ni «KeyError»
+        estado, detalle = "sin_conexion" if isinstance(e, httpx.TransportError) else "error", texto_de_error(e)
+    if estado == "ok" and proveedor in SALDO_INVISIBLE:  # la clave vale; el saldo no se ve desde aquí
+        estado = "clave_ok"
     return {"estado": estado, "detalle": guardia.limpiar(detalle)[:240], "paso": paso(proveedor, estado),
             "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
+
+
+PLAZO_COMPROBAR = 90  # s: cada sonda tiene el suyo (20 s; Modal, 60): esto solo cubre una que se quede colgada
 
 
 def comprobar(proveedores=None) -> dict:
     """Comprueba cada servicio conectado (o solo `proveedores`) con la petición más barata que dice su estado real
     (_sonda), todos a la vez. Devuelve {proveedor: {"estado", "detalle", "paso", "fecha"}} y lo recuerda en
-    conexiones.json: así los trabajos avisan ANTES de empezar (antes_de, impide). Nunca guarda claves."""
-    from concurrent.futures import ThreadPoolExecutor
+    conexiones.json: así los trabajos avisan ANTES de empezar (antes_de, impide). Nunca guarda claves.
+    Cada sonda va en un hilo daemon y no en un ThreadPoolExecutor, al que Python espera al salir: cerrar la app con la
+    comprobación en marcha no la deja colgada. La que no termina en PLAZO_COMPROBAR no se guarda."""
     todas = cargar()
     elegidos = [p for p in (proveedores or todas) if p in todas and p in USOS]
-    with ThreadPoolExecutor(max(1, min(6, len(elegidos)))) as grupo:
-        resultados = dict(zip(elegidos, grupo.map(lambda p: _comprobar_uno(p, todas[p]), elegidos)))
+    hechos = {}
+    hilos = [threading.Thread(target=lambda p=p: hechos.__setitem__(p, _comprobar_uno(p, todas[p])), daemon=True)
+             for p in elegidos]
+    for h in hilos:
+        h.start()
+    fin = time.monotonic() + PLAZO_COMPROBAR
+    for h in hilos:
+        h.join(max(0.0, fin - time.monotonic()))
+    resultados = {p: hechos[p] for p in elegidos if p in hechos}
     with _cerrojo_estados, guardia._cerrojo(CONEXIONES):
         guardados = {p: e for p, e in estados().items() if p in todas}  # las claves quitadas ya no salen
         guardados.update(resultados)
@@ -865,13 +887,19 @@ def antes_de(usos) -> list[str]:
 
 def impide(usos) -> str | None:
     """Por qué un paso que solo se hace pagando no puede empezar (el servicio que lo haría no tiene saldo o su clave
-    no vale, según el último estado comprobado); None si puede. Así no se espera minutos para un fallo seguro."""
+    no vale, según el último estado comprobado); None si puede. Así no se espera minutos para un fallo seguro.
+    Como impide que se haga el pedido, ninguna respuesta buena lo desbloquea sola: se dice cómo (pasó: recargó y
+    seguía bloqueado hasta 12 h)."""
+
+    def que_hacer(proveedor: str, estado: str) -> str:
+        return f"{paso(proveedor, estado)} " + t("Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» "
+                                                 "en «Claves de IA».")
     if "video_voz" in usos:
         quien = (para("video_voz") or {}).get("proveedor")
         if quien and (malo := _vigente(quien, BLOQUEA)):
             return t("No se puede hacer el video que habla: {problema} ({cuando}). {paso} O desmarca «Video animado "
                      "con IA». No se cobró nada.", problema=frase(quien, malo["estado"]), cuando=_cuando(malo),
-                     paso=paso(quien, malo["estado"]))
+                     paso=que_hacer(quien, malo["estado"]))
     if "musica" in usos:
         c = para("musica") or {}
         respaldo = "elevenlabs" in cargar() and ajustes().get("musica", "auto") == "auto" and \
@@ -880,5 +908,5 @@ def impide(usos) -> str | None:
                                                                                     and respaldo):
             return t("No se puede hacer la canción: {problema} ({cuando}). {paso} No se cobró nada.",
                      problema=frase(c["proveedor"], malo["estado"]), cuando=_cuando(malo),
-                     paso=paso(c["proveedor"], malo["estado"]))
+                     paso=que_hacer(c["proveedor"], malo["estado"]))
     return None

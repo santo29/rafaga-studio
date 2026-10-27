@@ -200,6 +200,9 @@ def clips(nombre: str, args: dict) -> int:
 # Las herramientas que escriben con la IA de texto (salvo que el agente traiga su guion, biblia o propuesta)
 CON_TEXTO = {"crear_video", "sacar_shorts", "investigar_nichos", "crear_anuncios", "crear_cancion",
              "crear_video_musical", "crear_diseno", "crear_serie", "crear_episodio"}
+# Los avisos de servicios que no atienden ya dichos en el chat, de toda la conversación y no de cada mensaje (salía
+# «Gemini no tiene saldo: usaré Groq» al empezar cada respuesta). El que deja de valer se olvida: si vuelve, se dice
+_DICHOS = set()
 
 
 def usos(nombre: str, args: dict) -> list[str]:
@@ -344,12 +347,12 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     de_antes = _norma("\n".join(str(m.get("hecho", "")) for m in historial if m.get("rol") == "director"))
     pasos, resultados, formato, mensaje = [], [], "9:16", ""
     rechazadas = set()  # los trabajos (herramienta y argumentos) a los que ya dijo que no: no se le vuelve a preguntar
-    dichos = set()  # los avisos de servicios que no atienden ya dichos en el chat: cada uno, una vez
+    _DICHOS.intersection_update(claves.antes_de(["texto", "imagen", "musica", "video"]))
 
     def avisar(avisos):
         for texto in avisos:
-            if texto not in dichos:
-                dichos.add(texto)
+            if texto not in _DICHOS:
+                _DICHOS.add(texto)
                 al_decir(texto)
     avisar(claves.antes_de(["texto"]))  # el Director escribe con la IA de texto: si no atiende, lo dice antes
 

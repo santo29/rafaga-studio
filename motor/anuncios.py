@@ -99,7 +99,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         try:
             montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
                              hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados, pago=pago,
-                             crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d)
+                             crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d,
+                                                                                     avisos=notas_k)
                              if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
             archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4") \
                 if (oferta or producto).strip() else montado

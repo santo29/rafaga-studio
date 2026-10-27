@@ -186,7 +186,7 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
             try:
                 datos = producir(respaldo)
             except Exception as de_eleven:  # si los dos fallan, los dos motivos: el de Gemini es el que se arregla
-                raise RuntimeError(f"{de_gemini}\n\n{de_eleven}") from de_eleven
+                raise RuntimeError(f"{de_gemini}\n\n{texto_de_error(de_eleven)}") from de_eleven
         audio.write_bytes(datos)
     except Exception as e:
         if not con_voz:

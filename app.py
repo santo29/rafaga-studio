@@ -230,7 +230,6 @@ class Ventana(QMainWindow):
             self.edicion.tareas.clear()
         self.edicion._limpiar(self.edicion.carpeta)
         self.guardia.cerrar()
-        self.claves.cerrar()
 
     def _editar_video(self, archivo, formato):
         if self.edicion.editar_video(archivo, formato):

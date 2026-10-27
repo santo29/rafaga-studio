@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 
 from . import guardia, seguro
-from .idioma import t
+from .idioma import t, texto_de_error
 
 NOMBRE = "Seedance"
 CONSOLA = "https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey"
@@ -168,8 +168,8 @@ def _generar(info: dict, imagen: Path | None, prompt: str, destino: Path, segund
                     raise RuntimeError(t("{nombre} no devolvió ningún video", nombre=NOMBRE))
                 ia._clip_real(seguro.descargar(url, tope=ia.VIDEO_MAXIMO, plazo=300), destino)  # la CDN, sin la clave
                 return modelo
-            except Exception as error:  # hecho (o aún en marcha) y BytePlus lo cobra
-                raise ia.Cobrado(str(error) or type(error).__name__) from error
+            except Exception as error:  # hecho (o aún en marcha) y BytePlus lo cobra (el motivo en claro)
+                raise ia.Cobrado(texto_de_error(error)) from error
         finally:  # el registro (con la foto y el pedido) no se queda allí; si no se borra, BytePlus lo quita en 7 días
             try:
                 httpx.delete(url_tarea, headers=cabecera, timeout=30)

@@ -20,6 +20,10 @@ for modulo in (kling, seedance):
 
 red, bajadas, guion = [], [], {}  # guion: (método, url) -> respuestas en orden (la última se repite)
 video_bajado = [MP4]
+_cdn = httpx.Request("GET", "https://cdn.example/v.mp4")
+error_cdn = httpx.HTTPStatusError("Client error '404 Not Found' for url 'https://cdn.example/v.mp4'\nFor more "
+                                  "information check: https://developer.mozilla.org/404", request=_cdn,
+                                  response=httpx.Response(404, text="Not Found", request=_cdn))
 
 
 def falsa(metodo):
@@ -199,6 +203,11 @@ try:
     escenario({k3: [tarea], lista: [hecha]})
     video_bajado[0] = RuntimeError("el servicio respondió con el error 403")
     falla(kling.animar, info3, foto, "x", tmp / "k16.mp4", error=ia.Cobrado)
+    # El error crudo de httpx (en inglés, con el enlace a mozilla.org) llega en claro a la nota de la escena
+    escenario({k3: [tarea], lista: [hecha]})
+    video_bajado[0] = error_cdn
+    e = falla(kling.animar, info3, foto, "x", tmp / "k16.mp4", error=ia.Cobrado)
+    assert str(e) == "cdn.example respondió 404: Not Found", e
     escenario({k3: [tarea], lista: [hecha]})
     video_bajado[0] = b"<html>no es un video</html>"
     falla(kling.animar, info3, foto, "x", tmp / "k17.mp4", error=ia.Cobrado)
@@ -314,6 +323,10 @@ try:
     video_bajado[0] = RuntimeError("no se pudo bajar el archivo")
     falla(seedance.animar, info_pro, foto, "x", tmp / "s15.mp4", error=ia.Cobrado)
     assert red[-1][0] == "DELETE"
+    escenario({CREAR: [creada], ("GET", TAREA): [lista_s], **borrar})
+    video_bajado[0] = error_cdn
+    assert str(falla(seedance.animar, info_pro, foto, "x", tmp / "s15.mp4", error=ia.Cobrado)) == \
+        "cdn.example respondió 404: Not Found"
     escenario({CREAR: [creada], ("GET", TAREA): [(200, {"status": "succeeded", "content": {}})], **borrar})
     assert "ningún video" in str(falla(seedance.animar, info_pro, foto, "x", tmp / "s16.mp4", error=ia.Cobrado))
     plazo, seedance.PLAZO = seedance.PLAZO, 0

@@ -51,7 +51,7 @@ from PySide6.QtWidgets import QGraphicsScene
 from . import diseno, edicion, seguro, video
 from .idioma import porcentaje, t
 
-VERSION = 5  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
+VERSION = 6  # súbela si cambia cómo se hace un tramo o una capa: la caché vieja deja de valer
 _R = 48000  # Hz del audio de trabajo: a 24, 25, 30 y 60 fps cada fotograma son muestras enteras
 _ANIMACION = 0.4
 _ZOOM = 0.15  # acercar/alejar de las fotos: del 100 % al 115 % a lo largo del clip
@@ -90,6 +90,8 @@ CALIDADES = {"720p": (2 / 3, 2), "1080p": (1, 4), "4K": (2, 24)}
 # La música bajo la voz: a -30 dB de voz ya baja; una voz normal (-20 dB) la deja ~9 dB más baja. Entra en 40 ms y,
 # al callarte, vuelve en ~1 s (el detector RMS hace el release el doble de lento): sin bombeo entre palabra y palabra
 _BAJAR = "sidechaincompress=threshold=0.03:ratio=8:attack=40:release=250"
+# Techo de la mezcla (0,89 = -1 dBFS), sin subir el volumen (level=0) ni mover el sonido en el tiempo (latency=1)
+_LIMITE = "alimiter=limit=0.89:level=0:latency=1"
 
 
 # ---------- Utilidades ----------
@@ -551,7 +553,9 @@ def _tramo(c: dict, cache: Path, w: int, h: int, fps: int, ajuste: str, final: b
                  f"{_aspecto(c, w, h, fps, ajuste, 1)},tpad=stop=-1:stop_mode=clone"
     else:
         entradas = ["-framerate", fps, "-i", entrada]
-        imagen = _aspecto(c, w, h, fps, ajuste, n)
+        # Con movimiento, zoompan da uno de más: el filtro fps de después tira su último fotograma (el fin de la
+        # foto es el de su único fotograma) y el tramo salía con uno de menos, así que el corte siguiente saltaba
+        imagen = _aspecto(c, w, h, fps, ajuste, n + 1)
         if c["movimiento"] == "ninguno":  # la foto se filtra una vez y se repite
             imagen += f",loop=loop={n - 1}:size=1,setpts=N/({fps}*TB)"
     grafo = []
@@ -950,10 +954,13 @@ def _render(p: dict, carpeta: Path, destino: Path | None, alto: int, final: bool
         mezcla += ["bajada", "voz_entera"]
     else:
         mezcla += musicas + voces
+    # Al final, un limitador a -1 dBFS: sumados sin bajar el volumen, voz y música llegaban a 0 dBFS (cientos de
+    # muestras al tope, que se oyen rotas); por debajo de ese techo no toca nada
     if len(mezcla) > 1:
-        grafo.append("".join(f"[{m}]" for m in mezcla) + f"amix=inputs={len(mezcla)}:normalize=0:duration=first[afin]")
+        grafo.append("".join(f"[{m}]" for m in mezcla) + f"amix=inputs={len(mezcla)}:normalize=0:duration=first,"
+                     f"{_LIMITE}[afin]")
     else:
-        grafo.append("[pista]anull[afin]")
+        grafo.append(f"[pista]{_LIMITE}[afin]")
 
     args = [x for e in entradas for x in e]
     if destino is None:

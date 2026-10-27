@@ -195,6 +195,26 @@ with tempfile.TemporaryDirectory() as d:
     lados = np.frombuffer(ffmpeg_salida("-i", vista, "-map", "0:a", "-f", "f32le", "-").stdout, np.float32)
     assert np.abs(np.abs(lados.reshape(-1, 2)).max(axis=0) - 0.8).max() < 0.05, np.abs(lados.reshape(-1, 2)).max(0)
 
+    # ---------- Fotos con «acercar» o «alejar»: sus fotogramas exactos (salía uno de menos y el corte saltaba) ----------
+    for fps in (30, 25):
+        for movimiento in ("ninguno", "acercar", "alejar"):
+            c = clips(proyecto(foto, fps=fps), {"hasta": 1.37, "movimiento": movimiento})["clips"][0]
+            tramo = render._tramo(c, carpeta / "cache", 360, 640, fps, "recortar", False, lambda f: None)
+            assert cuadros(tramo) == render._cuadros_tramo(c, fps) == round(1.37 * fps) + 1, (fps, movimiento)
+    p = clips(proyecto(foto, foto, d / "roja.png"), {"hasta": 1.37, "movimiento": "acercar"},
+              {"hasta": 1, "movimiento": "alejar"}, {"hasta": 1})
+    vista = render.vista_previa(p, carpeta)
+    assert cuadros(vista) == round(edicion.duracion_total(p) * 30) == 101, cuadros(vista)
+    assert next(n for n in range(65, 80) if rojo(cuadro(vista, n)).mean() > 0.5) == 71  # el corte, en su fotograma
+
+    # ---------- La mezcla nunca llega a 0 dBFS: el sonido del clip y la música, fuertes y sumados, se limitan ----------
+    fuerte = hacer("fuerte.wav", "-f", "lavfi", "-i", "aevalsrc='0.95*sin(2*PI*220*t)':s=48000:d=2")
+    hablado = hacer("hablado.mp4", "-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=2", "-f", "lavfi", "-i",
+                    "aevalsrc='0.95*sin(2*PI*330*t)':s=48000:d=2", *h264)
+    vista = render.vista_previa(edicion.anadir_medio(proyecto(hablado), str(fuerte), audio=True), carpeta)
+    pico = np.abs(np.frombuffer(ffmpeg_salida("-i", vista, "-map", "0:a", "-f", "f32le", "-").stdout, np.float32)).max()
+    assert 0.5 < pico < 0.95, pico  # sin el limitador, la suma llegaba a 1,9
+
     # ---------- Cálido y Frío se notan ----------
     hacer("gris.png", "-f", "lavfi", "-i", "color=c=0x808080:s=320x320", "-frames:v", "1")
     tinte = {}

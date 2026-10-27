@@ -141,6 +141,20 @@ def hashtag(texto: str) -> str:
     return "#" + "".join(re.findall(r"\w+", str(texto)))
 
 
+# Las marcas de sección ([Chorus]) y las acotaciones para el modelo de música: una línea entera entre paréntesis, o un
+# paréntesis que empieza con una indicación en inglés («(Shout: ¡Wepa!)», «(Fade out with tambora…)»)
+_SECCION = re.compile(r"(?m)^[ \t]*\[[^\]\n]+\][ \t]*$")
+_ACOTACION = re.compile(r"(?im)^[ \t]*\([^()\n]*\)[ \t]*$|[ \t]*\((?:shout|spoken|whisper|fade|repeat|x ?\d|"
+                        r"instrumental|ad[- ]?libs?|echo|sound|music|laugh|yell|scream|backing|harmony|crowd|beat|"
+                        r"break|pause|intro|outro|chorus|verse|bridge|hook)\b[^()\n]*\)")
+
+
+def sin_acotaciones(letra: str) -> str:
+    """La letra como se lee y se publica: sin [Chorus] ni acotaciones como «(Shout: …)» o «(Fade out …)», que son
+    solo para el modelo de música (se publicaban y salían en el karaoke)."""
+    return re.sub(r"\n{3,}", "\n\n", _ACOTACION.sub("", _SECCION.sub("", str(letra or "")))).strip()
+
+
 def _mensaje_de(nodo) -> str | None:
     """El primer texto de una respuesta JSON de error: su «message» (o «detail», «error»…), también dentro de listas."""
     if isinstance(nodo, str):
@@ -460,6 +474,111 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
                          "elige otra IA de texto en «Claves de IA».", proveedor=nombre))
 
 
+# ---------- Ortografía: un repaso antes de quemar un texto en el video o publicarlo ----------
+
+ORTOGRAFIA = (
+    "Eres corrector de ortografía. Recibes textos ya escritos que van a salir dentro de un video o a publicarse. "
+    "Corrige SOLO la ortografía: tildes, eñes, los signos ¿ y ¡, letras cambiadas y palabras mal escritas o de otro "
+    "idioma por error (p. ej. «Fusel este aroma» → «Huele este aroma», «el malecón es nostro» → «el malecón es "
+    "nuestro», «Rafa no doubles» → «Rafa no dobles», «Pesadelos» → «Pesadillas», «Miren que bien» → «Miren qué bien»). "
+    "No cambies nada más: ni el estilo, ni el orden, ni el sentido. Cada texto corregido tiene EXACTAMENTE las mismas "
+    "palabras que el original, una por una. Un hashtag sigue siendo una sola palabra con su #. Las marcas, los nombres "
+    "propios y las palabras en inglés puestas a propósito se quedan como están. Devuelve los mismos textos, en el mismo "
+    "orden y la misma cantidad.")
+_ESQUEMA_ORTOGRAFIA = {"type": "object", "properties": {"textos": {"type": "array", "items": {"type": "string"}}},
+                       "required": ["textos"], "additionalProperties": False}
+# Si ninguna IA responde: palabras que en español casi nunca van sin su tilde o su eñe (la IA de texto las deja así a
+# veces: «sueno», «pequenos», «mas»). Las que cambian de sentido según la frase (si/sí, que/qué, esta/está) no.
+_TILDES = {p.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+           .replace("ñ", "n"): p for p in (
+    "más además jamás atrás detrás quizás también después así aquí allí ahí allá acá según algún ningún común "
+    "fácil difícil rápido rápida rápidos rápidas música músicas número números último última últimos únicos único "
+    "única análisis auténtico auténtica auténticos teléfono página páginas económico económica increíble increíbles "
+    "día días tecnología energía compañía café inglés país países corazón razón jóvenes éxito éxitos cámara útil "
+    "típico típica típicos típicas clásico clásica república había tenía sabía podía vivía sueño sueños pequeño "
+    "pequeña pequeños pequeñas año años mañana mañanas español española españoles España niño niña niños niñas señor "
+    "señora dueño dueña diseño diseños montaña compañero compañera baño cumpleaños otoño").split()}
+_SIN_TILDE = re.compile(r"(?<!\w)[A-Za-z]+(?!\w)")
+
+
+def _tildes(texto: str) -> str:
+    """Las tildes y eñes que faltan en las palabras de _TILDES y en las acabadas en -cion/-sion, con sus mayúsculas."""
+    def poner(m):
+        palabra = m[0]
+        baja = palabra.lower()
+        # -cion/-sion siempre llevan tilde en español («ss» no: eso es inglés, como «passion»)
+        nueva = _TILDES.get(baja) or (baja[:-3] + "ión" if len(baja) > 5 and baja.endswith(("cion", "sion"))
+                                      and "ss" not in baja else None)
+        if not nueva:
+            return palabra
+        if palabra.isupper() and len(palabra) > 1:
+            return nueva.upper()
+        return nueva[0].upper() + nueva[1:] if palabra[0].isupper() else nueva
+    return _SIN_TILDE.sub(poner, texto)
+
+
+def _nucleos(texto: str) -> list[str]:
+    """Las palabras de un texto sin tildes, signos ni mayúsculas, para comparar un texto con su corrección."""
+    import unicodedata
+    planas = (unicodedata.normalize("NFKD", p).encode("ascii", "ignore").decode().lower() for p in texto.split())
+    return [n for n in (re.sub(r"\W", "", p) for p in planas) if n]
+
+
+def _misma_frase(original: str, corregido) -> bool:
+    """Si la corrección solo arregla la ortografía: las mismas palabras (una por una, parecidas) y un hashtag sigue
+    siendo un hashtag. Si la IA reescribe, resume o traduce, no vale (los subtítulos perderían sus tiempos)."""
+    from difflib import SequenceMatcher
+    if not isinstance(corregido, str) or original.lstrip().startswith("#") != corregido.lstrip().startswith("#"):
+        return False
+    a, b = _nucleos(original), _nucleos(corregido)
+    return len(a) == len(b) and all(x == y or SequenceMatcher(None, x, y).ratio() >= 0.5 for x, y in zip(a, b))
+
+
+def ortografia(textos: list[str], idioma: str | None = None) -> list[str]:
+    """Los mismos textos con la ortografía corregida y nada más (ver ORTOGRAFIA). Lo pide a Groq si está conectado
+    (gratis) o a la IA de texto elegida, una sola vez; la corrección de un texto que cambia sus palabras no se usa. Sin
+    IA que responda, en español se ponen las tildes y eñes que faltan en las palabras más comunes (_tildes).
+    idioma: código de idioma.IDIOMAS (por defecto, el de la app)."""
+    from .idioma import IDIOMAS, actual
+    idioma = idioma if idioma in IDIOMAS else actual()
+    corregidos = list(textos)
+    pendientes = [i for i, x in enumerate(textos) if isinstance(x, str) and x.strip()]
+    todas, elegida = claves.cargar(), claves.para("texto")
+    # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos
+    c = todas.get("groq") or elegida
+    if pendientes and c and c.get("clave"):
+        try:
+            pedido = json.dumps({"idioma": IDIOMAS[idioma], "textos": [textos[i] for i in pendientes]},
+                                ensure_ascii=False)
+            nuevos = _texto_con(c, ORTOGRAFIA, pedido, _ESQUEMA_ORTOGRAFIA)["textos"]
+            if len(nuevos) == len(pendientes):
+                for i, nuevo in zip(pendientes, nuevos):
+                    if _misma_frase(textos[i], nuevo):
+                        corregidos[i] = nuevo.strip()
+        except Exception as error:  # noqa: BLE001  sin repaso antes que sin video: el texto sale como vino
+            print(f"[Ráfaga] Sin repaso de ortografía ({claves.nombre(c['proveedor'])}): {error}", flush=True)
+    return [_tildes(x) if idioma == "es" and isinstance(x, str) else x for x in corregidos]
+
+
+def repasar(objetos: list[dict], campos: tuple[str, ...], idioma: str | None = None) -> None:
+    """Repasa la ortografía (ver ortografia) de esos campos de varios diccionarios, en su sitio y en un solo pedido.
+    Un campo puede ser un texto o una lista de textos (los hashtags); los que no están se saltan."""
+    sitios = []
+    for o in objetos:
+        for campo in campos:
+            valor = o.get(campo)
+            if isinstance(valor, str):
+                sitios.append((o, campo, None))
+            elif isinstance(valor, list):
+                sitios += [(o, campo, i) for i, x in enumerate(valor) if isinstance(x, str)]
+    nuevos = ortografia([o[c] if i is None else o[c][i] for o, c, i in sitios], idioma)
+    for (o, c, i), nuevo in zip(sitios, nuevos):
+        if i is None:
+            o[c] = nuevo
+        else:
+            o[c][i] = nuevo
+
+
 def puede_referencia() -> bool:
     """Si la IA de imágenes conectada sabe editar a partir de una imagen de referencia (mantener a alguien igual)."""
     c = claves.para("imagen")
@@ -544,6 +663,11 @@ def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino:
               "label and logo)." + (" Photorealistic." if realista else ""))
     if puede_referencia():
         return _con_referencia(pedido, foto, ancho, alto, destino)
+    return pegar_producto(prompt, foto, ancho, alto, destino)
+
+
+def pegar_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path) -> Path:
+    """La escena sin el producto (con la IA de imágenes de siempre) y la foto real pegada encima, en el centro."""
     # ponytail: sin edición con referencia el producto se pega encima del fondo; queda menos natural.
     from .video import ffmpeg
     # Pedir «the product» y a la vez «no product» se contradecía: el hueco va en la propia escena
@@ -1009,4 +1133,5 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     for s in segmentos:  # se va transcribiendo por trozos: se informa cuánto lleva
         palabras += [{"palabra": w.word.strip(), "inicio": w.start, "fin": w.end} for w in s.words]
         progreso(min(s.end / total, 1))
+    progreso(1)  # el último trozo con voz acaba antes que el audio: el progreso se quedaba en el 56 %
     return palabras

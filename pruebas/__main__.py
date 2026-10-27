@@ -360,7 +360,9 @@ reales = (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.video_desde_image
 ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.investigar_web = pensar, dibujar, con_producto, lambda q: None
 ia.video_desde_imagen = lambda *a, **k: None  # animar sería red
 desde_prompt.narrar = lambda texto, voz, destino: []
-video.duracion, video.unir, video.cierre = lambda p: 1.0, lambda partes, d: d, lambda m, texto, f, d: d
+cierres = []
+video.duracion, video.unir = lambda p: 1.0, lambda partes, d: d
+video.cierre = lambda m, texto, f, d, producto=None: cierres.append(producto) or d
 video.escena_de_imagen = lambda img, audio, formato, palabras, escena, i: escena
 desde_prompt.PROYECTOS = anuncios.PROYECTOS = tmp / "proyectos"
 try:
@@ -398,6 +400,7 @@ try:
                        variantes=1, segundos=15)
     assert len(dibujos) == 2 and "barber cutting" in dibujos[0] and "barbershop street" in dibujos[1]
     assert len(con_foto) == 1 and con_foto[0][0].startswith("The product on")
+    assert cierres[-1].name == "producto.png"  # y la foto real del producto en el cierre, bajo la oferta
     assert any("Sin investigación en vivo" in a for a in r["avisos"])  # sin Claude no se investiga: se dice
     assert "Idioma de la narración: English" in pedidos[-1]
 
@@ -439,12 +442,12 @@ try:
 except httpx.HTTPStatusError as e:
     assert "saldo" in nubes._causa(e, "openai") and "cuota gratis" not in nubes._causa(e, "openai")
 
-# Shorts: fuera los de duración muy distinta a la pedida y los que repiten el mismo momento
+# Shorts: los que repiten el mismo momento, fuera; el corto se alarga hasta el mínimo pedido, y ninguno se pisa
 clips = [{"inicio": 0, "fin": 30, "puntuacion": 90}, {"inicio": 9, "fin": 39, "puntuacion": 80},  # solape del 70 %
          {"inicio": 100, "fin": 105, "puntuacion": 99}, {"inicio": 50, "fin": 75, "puntuacion": 70}]  # 5 s con mín. 20
-assert [c["inicio"] for c in shorts._elegir(clips, 5, 20, 60)] == [0, 50]
-assert [c["inicio"] for c in shorts._elegir(clips, 1, 20, 60)] == [0]
-assert shorts._elegir(clips[2:3], 5, 20, 60) == clips[2:3]  # si ninguno dura lo pedido, mejor eso que nada
+elegidos = shorts._elegir(clips, 5, 20, 60, [], 200)
+assert [(c["inicio"], c["fin"]) for c in elegidos] == [(100, 120), (0, 30), (50, 75)], elegidos
+assert [c["inicio"] for c in shorts._elegir(clips, 1, 20, 60, [], 200)] == [100]
 reales = shorts.descargar, video.duracion, video.ffmpeg, video.recortar, ia.transcribir, ia.texto_json
 pedidos.clear()
 shorts.PROYECTOS = tmp / "proyectos"
@@ -457,9 +460,10 @@ ia.texto_json = lambda instrucciones, pedido, esquema: pedidos.append(pedido) or
 try:
     r = shorts.generar("https://www.youtube.com/watch?v=x", enfoque="los consejos de dinero")
     assert "El usuario busca: los consejos de dinero" in pedidos[0]
-    assert len(r["resultados"]) == 2 and all(c["archivo"] for c in r["resultados"]) and r["avisos"] == []
-    # Si ningún momento dura lo pedido salen igual, pero avisando
-    clips = clips[2:3]
+    assert len(r["resultados"]) == 3 and all(c["archivo"] for c in r["resultados"]) and r["avisos"] == []
+    assert all(20 <= c["fin"] - c["inicio"] <= 60 for c in r["resultados"]), r["resultados"]
+    # Si el video entero dura menos que lo pedido, sale entero, pero avisando
+    video.duracion, clips = lambda p: 12.0, [{"inicio": 2, "fin": 6, "puntuacion": 50}]
     shorts.PROYECTOS = tmp / "proyectos_shorts2"  # otra carpeta: van en el mismo segundo
     r = shorts.generar("https://www.youtube.com/watch?v=x")
     assert len(r["resultados"]) == 1 and len(r["avisos"]) == 1 and "entre 20 y 60 s" in r["avisos"][0], r["avisos"]
@@ -470,7 +474,7 @@ print("Pruebas de guiones fieles pasadas.")
 # El estudio de diseño: cada archivo en su propio proceso (cada uno prepara Qt y sus propias carpetas temporales)
 for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "diseno_pro", "edicion", "render_edicion",
                "edicion_ui", "grabarte", "director", "estudio", "serie", "inicio", "musica", "publicar", "idioma",
-               "textos", "coherencia", "video_pago", "proveedores_video", "guardia"):
+               "textos", "coherencia", "video_pago", "proveedores_video", "guardia", "calidad"):
     subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

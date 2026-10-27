@@ -18,6 +18,11 @@ from .shorts import PROYECTOS
 VOCES = {
     t("Emilio (Rep. Dominicana)"): "es-DO-EmilioNeural",
     t("Ramona (Rep. Dominicana)"): "es-DO-RamonaNeural",
+    # Las del Caribe, justo después: en una serie, cuando se acaban las dominicanas, suenan más cerca que las otras
+    t("Víctor (Puerto Rico)"): "es-PR-VictorNeural",
+    t("Karina (Puerto Rico)"): "es-PR-KarinaNeural",
+    t("Manuel (Cuba)"): "es-CU-ManuelNeural",
+    t("Belkys (Cuba)"): "es-CU-BelkysNeural",
     t("Jorge (México)"): "es-MX-JorgeNeural",
     t("Dalia (México)"): "es-MX-DaliaNeural",
     t("Álvaro (España)"): "es-ES-AlvaroNeural",
@@ -80,6 +85,35 @@ def idioma_de(voz: str) -> str:
     return f"\nIdioma de la narración: {IDIOMAS[codigo]}" if codigo in IDIOMAS else ""
 
 
+def idioma_codigo(voz: str) -> str:
+    """El idioma de lo que dice la voz elegida (el de la app si no se sabe, p. ej. con ElevenLabs)."""
+    codigo = voz.split("-")[0]
+    return codigo if codigo in IDIOMAS else actual()
+
+
+PALABRAS_POR_SEGUNDO = 2.5  # lo que dice la voz gratis, más o menos: el pedido a la IA usa la misma cuenta
+
+
+def al_tiempo(escenas: list[dict], segundos: float) -> bool:
+    """Acorta un guion cuya narración dura más de lo pedido (con un 10 % de margen): primero deja en su primera frase
+    las narraciones de dos frases (las del medio antes que el gancho y el cierre, la más larga primero); luego quita
+    escenas del medio, mientras queden más de 3. Devuelve si cambió algo."""
+    def dura():  # + los 0,25 s de cada escena (escena_de_imagen)
+        return sum(len(e["narracion"].split()) for e in escenas) / PALABRAS_POR_SEGUNDO + 0.25 * len(escenas)
+    cambio = False
+    while dura() > segundos * 1.1:
+        dos = [e for e in escenas if len(re.split(r"(?<=[.!?…])\s+", e["narracion"].strip())) > 1]
+        if dos:
+            e = max(dos, key=lambda e: (e is not escenas[0] and e is not escenas[-1], len(e["narracion"])))
+            e["narracion"] = re.split(r"(?<=[.!?…])\s+", e["narracion"].strip())[0]
+        elif len(escenas) > 3:
+            escenas.pop(len(escenas) // 2)
+        else:
+            break
+        cambio = True
+    return cambio
+
+
 def voces() -> dict[str, str]:
     """Todas las voces disponibles: las gratis de Edge y las de la cuenta de ElevenLabs si está conectada."""
     eleven = (claves.cargar().get("elevenlabs") or {}).get("voces", [])
@@ -94,7 +128,64 @@ def narrar(texto: str, voz: str, destino: Path) -> list[dict]:
     texto = ia.sin_markdown(texto, "voz")
     if voz.startswith("eleven:"):
         return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino)
-    return asyncio.run(_voz(texto, voz, destino))
+    return con_signos(asyncio.run(_voz(texto, voz, destino)), texto)
+
+
+def _nucleo(palabra: str) -> str:
+    return re.sub(r"^\W+|\W+$", "", palabra).lower()
+
+
+def con_signos(palabras: list[dict], texto: str) -> list[dict]:
+    """Edge da cada palabra sin sus signos («Cuál» de «¿Cuál…?»): se le ponen los del texto, para que los subtítulos
+    lleven el «¿» y el «¡» y se corten donde acaba cada frase."""
+    trozos, k, salida = texto.split(), 0, []
+    for p in palabras:
+        for j in range(k, min(k + 3, len(trozos))):  # cerca: una palabra que Edge lee distinto no descoloca las demás
+            if _nucleo(trozos[j]) == _nucleo(p["palabra"]) != "":
+                p, k = {**p, "palabra": trozos[j]}, j + 1
+                break
+        salida.append(p)
+    return salida
+
+
+# Lo que la IA de imágenes no conoce y dibuja mal (pasó: la güira salió como una espátula, la tambora como un djembé,
+# la bandera con un cuartel mal y un billete de dólar en un puesto de yaniqueques): cuando la escena lo nombra, la
+# descripción exacta va con el pedido de la imagen.
+PESOS = "any money shown is Dominican peso banknotes (colorful RD$ bills), never US dollars"
+GLOSARIO = (
+    (r"g[uü]iras?", "the Dominican güira is a hand-held metal scraper: a cylinder of perforated, finely ridged "
+                    "stainless steel with a handle on top, played by scraping it with a wire-bristle fork (not a "
+                    "spatula, not a cheese grater)"),
+    (r"tamboras?", "the Dominican tambora is a small two-headed barrel drum lying horizontally on the player's lap, "
+                   "struck on one side with a wooden stick and on the other with the bare hand (not a djembe, not a "
+                   "conga)"),
+    (r"bandera dominicana|bandera de (la )?rep[uú]blica dominicana|dominican (republic )?flag",
+     "the flag of the Dominican Republic: a centered white cross divides it into four rectangles, ultramarine blue at "
+     "top left and bottom right, vermilion red at top right and bottom left, with the national coat of arms in the "
+     "center of the cross"),
+    (r"pesos? dominicanos?|dominican pesos?|rd\$", PESOS),
+    (r"yaniqueques?|johnny ?cakes?", "yaniqueques are large thin golden crispy fried dough discs, sold by Dominican "
+                                     "beach vendors stacked in a glass box or a basket"),
+    (r"colmados?", "a Dominican colmado is a small corner grocery open to the street, shelves packed with goods, a "
+                   "counter behind a metal grille, beer coolers, plastic chairs and music outside"),
+    (r"motoconchos?|motoconchistas?", "a Dominican motoconcho is a motorcycle taxi: a small 125cc street motorcycle "
+                                      "whose driver carries a passenger on the back seat"),
+    (r"mang[uú]", "Dominican mangú is mashed green plantains topped with pickled red onions, served with fried "
+                  "salami, fried cheese and eggs"),
+    (r"guaguas?", "a Dominican guagua is a crowded, colorful public minibus"),
+)
+
+
+def con_glosario(prompt: str, *textos: str) -> str:
+    """El pedido de la imagen con la descripción exacta de lo dominicano que nombran el pedido o la narración."""
+    leido = " ".join((prompt, *textos)).lower()
+    extras = [d for patron, d in GLOSARIO if re.search(rf"(?<!\w)(?:{patron})(?!\w)", leido)]
+    # El dinero, solo en una escena dominicana: en un video de otro país, sus billetes son los suyos
+    if PESOS not in extras and (extras or re.search(r"dominican|santo domingo", leido)) and \
+            re.search(r"(?<!\w)(?:billetes?|dinero|money|cash|banknotes?|bills?)(?!\w)", leido):
+        extras.append(PESOS)
+    extras = [d for d in extras if d not in prompt]
+    return ". ".join([prompt, *extras]) if extras else prompt
 
 
 async def _voz(texto: str, voz: str, destino: Path) -> list[dict]:
@@ -165,6 +256,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     escenas_aprox = max(1, round(segundos / SEGUNDOS_HABLADO)) if animado else max(3, round(segundos / 6))
     if guion is not None:  # se comprueba antes de crear nada
         guion = ia.de_fuera(guion, ESQUEMA, t("El guion"))
+    de_la_ia = guion is None
     if guion is None:
         aviso(t("La IA está escribiendo el guion…"), 0.03)
         con_foto = ("\nEl usuario dio una imagen de referencia: la primera escena ES esa imagen. En las demás, cuando "
@@ -198,6 +290,12 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     for e in guion["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
         # Solo palabras, una sola vez: guion.json, el clip de pago que habla y la pista de Whisper llevan el mismo texto
         e["narracion"] = ia.recortar(ia.sin_markdown(e["narracion"], "voz"), 400)
+    # La IA escribe más de lo pedido (30 s salían 38,6 s): se acorta antes de narrar. Un guion de fuera, tal cual.
+    if de_la_ia and not animado and al_tiempo(guion["escenas"], segundos):
+        notas.append(t("La narración pasaba de los {segundos} s pedidos: se acortó el guion para que quepa.",
+                       segundos=segundos))
+    # La ortografía, antes de narrar: lo que se dice es lo que sale en los subtítulos y lo que se publica
+    ia.repasar([guion, *guion["escenas"]], ("titulo", "descripcion", "hashtags", "narracion"), idioma_codigo(voz))
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:
@@ -233,8 +331,13 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-animacion")
     carpeta.mkdir(parents=True)
     foto = Path(shutil.copy(imagen, carpeta / f"imagen{Path(imagen).suffix.lower()}"))
+    from . import nubes
     pago, clip = ia.video_de_pago(), None
-    aviso(t("Animando la imagen con {proveedor}…", proveedor=ia.nombre_video(pago)) if pago
+    # Quién lo hace de verdad: con Modal (crédito) elegido decía «gratis primero»; lo gratis va primero solo si es
+    # Hugging Face el primero que se prueba
+    primero = next(iter(nubes.orden("video")), "huggingface")
+    quien = ia.nombre_video(pago) if pago else None if primero == "huggingface" else nubes.NOMBRES.get(primero, primero)
+    aviso(t("Animando la imagen con {proveedor}…", proveedor=quien) if quien
           else t("Animando la imagen con IA de video (gratis primero)…"), 0.1)
     try:
         clip = ia.video_desde_imagen(foto, prompt, formato, segundos, carpeta / "clip_ia.mp4", pago)
@@ -246,12 +349,20 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
     except Exception as error:  # el clip de pago que se cobró (llegara o no) se dice antes de reintentar
         relanzar_con_gasto(error, [ia.nota_pago(pago, 1)] if pago and (clip or isinstance(error, ia.Cobrado))
                            else [], carpeta)
+    titulo = titulo_corto(prompt) or t("Animación")
     proyecto = {"tipo": "animacion", "prompt": prompt, "formato": formato, "carpeta": str(carpeta),
-                "titulo": prompt[:60], "resultados": [{"archivo": str(final), "titulo": prompt[:60],
-                                                         "descripcion": prompt, "hashtags": []}]}
+                "titulo": titulo, "resultados": [{"archivo": str(final), "titulo": titulo, "descripcion": prompt,
+                                                  "hashtags": []}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
     aviso(t("¡Listo!"), 1.0)
     return proyecto
+
+
+def titulo_corto(texto: str, largo: int = 50) -> str:
+    """Un título corto y limpio sacado de un pedido: su primera frase u oración, sin cortar una palabra a medias
+    (con prompt[:60] salía «…bajo el brazo de él con »)."""
+    primera = re.split(r"[.,;:!?\n]", ia.sin_markdown(texto, "linea"), maxsplit=1)[0].strip()
+    return ia.recortar(primera[:1].upper() + primera[1:], largo)
 
 
 def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[str, float], None],
@@ -271,8 +382,8 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
         if (quien == "kling" or (quien == "seedance" and referencia)) and not (referencia and i == 0):
             ref = carpeta / f"video_final_imagen_{i:02d}.png"  # arrancan en la imagen de SU escena
             if not ref.is_file():  # un reintento la reutiliza
-                ref = (crear_imagen or ia.imagen)(f"{e['imagen']}, {guion['estilo_visual']}", *video.FORMATOS[formato],
-                                                  ref)
+                ref = (crear_imagen or ia.imagen)(f"{con_glosario(e['imagen'], e['narracion'])}, "
+                                                  f"{guion['estilo_visual']}", *video.FORMATOS[formato], ref)
         return ia.video_hablado(prompt_hablado(e, guion), formato, carpeta / f"video_final_hablado_{i:02d}.mp4", ref,
                                 quien)
     if len(guion["escenas"]) > n:
@@ -392,8 +503,8 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         # gastar cuota o crédito en lo mismo otra vez.
         nueva = False
         try:
-            img = ultima = crear_imagen(f"{e['imagen']}, {guion['estilo_visual']}", ancho, alto,
-                                        carpeta / f"{nombre}_imagen_{i:02d}.png")
+            img = ultima = crear_imagen(f"{con_glosario(e['imagen'], e['narracion'])}, {guion['estilo_visual']}",
+                                        ancho, alto, carpeta / f"{nombre}_imagen_{i:02d}.png")
             nueva, de_donde = True, t("la imagen anterior")
         except Exception as error:
             if ultima is None:  # ni una imagen todavía: fondo de color para que el video salga igual

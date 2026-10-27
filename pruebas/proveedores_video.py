@@ -364,7 +364,7 @@ try:
             return {"angulo": f"a{k}", "gancho": "g", "titulo": "t", "texto_anuncio": "x", "hashtags": [],
                     "estilo_visual": "ugc", "escenas": [{"narracion": "n", "imagen": f"ad {k} {i}"} for i in range(3)]}
 
-        def cierre(montado, texto, formato, destino):
+        def cierre(montado, texto, formato, destino, producto=None):
             if destino.name == "anuncio_2.mp4":
                 raise RuntimeError("ffmpeg falló al poner el cierre")
             return destino

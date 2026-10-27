@@ -23,7 +23,8 @@ from .idioma import IDIOMAS, actual, t
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
 MAX_PERSONAJES, MAX_PLANOS, MAX_EPISODIOS = 6, 40, 200
 LAMINA = (832, 1248)  # cuerpo entero, de pie
-MUJERES = {"Ramona", "Dalia", "Elvira", "Ava", "Francisca", "Denise"}  # las voces de desde_prompt.VOCES que son de mujer
+# Las voces de desde_prompt.VOCES que son de mujer
+MUJERES = {"Ramona", "Karina", "Belkys", "Dalia", "Elvira", "Ava", "Francisca", "Denise"}
 ESTILOS = {
     t("Anime 90s (estilo samurái)"): "90s anime cel animation style, bold ink lines, dramatic cel shading, cinematic "
                                      "composition, high contrast",
@@ -237,15 +238,23 @@ def listar() -> list[dict]:
 
 # ---------- Crear ----------
 
-def _asignar_voces(personajes: list[dict], generos: list[str]) -> None:
-    """Una voz distinta para cada uno mientras haya, de mujer o de hombre según el personaje y en el idioma de la app."""
+def _asignar_voces(personajes: list[dict], generos: list[str]) -> list[str]:
+    """Una voz distinta para cada uno mientras haya, de mujer o de hombre según el personaje y en el idioma de la app,
+    en el orden de desde_prompt.VOCES: en español, las dominicanas y luego las del Caribe. Devuelve los avisos de a
+    quién le tocó una voz de otro país (pasó: Don Tito, colmadero dominicano, hablaba con la voz de México sin aviso)."""
     propias = [v for v in desde_prompt.VOCES.values() if v.startswith(f"{actual()}-")] or list(desde_prompt.VOCES.values())
-    usadas = {True: 0, False: 0}
+    nombres = {v: k for k, v in desde_prompt.VOCES.items()}
+    usadas, avisos = {True: 0, False: 0}, []
     for p, genero in zip(personajes, generos):
         mujer = genero.strip().lower().startswith(("mujer", "woman", "female", "f"))
         opciones = [v for v in propias if (v.split("-")[2].removesuffix("Neural") in MUJERES) == mujer] or propias
         p["voz"] = opciones[usadas[mujer] % len(opciones)]
         usadas[mujer] += 1
+        if p["voz"].split("-")[1] != opciones[0].split("-")[1]:  # su país no es el de la primera voz
+            pais = re.search(r"\((.+)\)", nombres[opciones[0]])
+            avisos.append(t("No quedan más voces de {pais}: {nombre} habla con la voz {voz}.",
+                            pais=pais[1] if pais else nombres[opciones[0]], nombre=p["nombre"], voz=nombres[p["voz"]]))
+    return avisos
 
 
 def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, formato: str = "16:9",
@@ -276,7 +285,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         raise RuntimeError(t("La IA no inventó ningún personaje. Inténtalo de nuevo."))
     datos = _limpia({"titulo": titulo or biblia["titulo"], "sinopsis": biblia["sinopsis"], "idea": idea,
                      "estilo": estilo, "formato": formato, "personajes": crudos})
-    _asignar_voces(datos["personajes"], [str(p.get("genero", "")) for p in crudos])
+    voces_de_fuera = _asignar_voces(datos["personajes"], [str(p.get("genero", "")) for p in crudos])
     CARPETA.mkdir(parents=True, exist_ok=True)
     base = CARPETA / f"{time.strftime('%Y%m%d-%H%M%S')}-{_slug(datos['titulo'])}"
     carpeta, n = base, 1
@@ -285,7 +294,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         carpeta = base.with_name(f"{base.name}-{n}")
     (carpeta / "personajes").mkdir(parents=True)
     diseno.escribir_json(carpeta / "serie.json", datos)
-    avisos, faltan = [], []
+    avisos, faltan = voces_de_fuera, []
     for i, p in enumerate(datos["personajes"]):
         aviso(t("Dibujando a {nombre}…", nombre=p["nombre"]), 0.2 + 0.75 * i / len(datos["personajes"]))
         try:
@@ -410,6 +419,8 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         guion["planos"] = guion["planos"][:planos]  # nadie decide por su cuenta cuánto se gasta en imágenes y voces
         if not guion["planos"]:
             raise RuntimeError(t("La IA no escribió ningún plano. Inténtalo de nuevo."))
+        # La ortografía de lo que se dice y sale escrito («RAFA NO DOUBLES», «Miren que bien»), antes de narrar
+        ia.repasar([guion, *[p for p in guion["planos"] if isinstance(p, dict)]], ("titulo", "resumen", "texto"))
         ep.mkdir(parents=True, exist_ok=True)
         for vieja in ep.glob("video_final_imagen_*.png"):  # un guion nuevo pide imágenes nuevas (si no, se reusarían)
             vieja.unlink()

@@ -1,12 +1,13 @@
 """Video musical: escenas que van con la canción, ondas que se mueven con el sonido y la letra estilo karaoke."""
 import json
 import math
+import re
 import time
 from pathlib import Path
 from typing import Callable
 
 from . import claves, ia, memoria, seguro, video
-from .desde_prompt import relanzar_con_gasto
+from .desde_prompt import con_glosario, relanzar_con_gasto
 from .idioma import actual, IDIOMAS, porcentaje, t
 from .shorts import PROYECTOS
 
@@ -33,6 +34,67 @@ INSTRUCCIONES = """Eres director de videoclips. Diseña las escenas visuales de 
 - descripcion y hashtags para publicar el video, en este idioma: """ + IDIOMAS[actual()] + "."
 
 
+def _nucleo(palabra: str) -> str:
+    """Una palabra para comparar lo escrito con lo oído: sin tildes, signos ni mayúsculas."""
+    import unicodedata
+    return re.sub(r"\W", "", unicodedata.normalize("NFKD", palabra).encode("ascii", "ignore").decode().lower())
+
+
+def _repartir(escritas: list[str], ini: float, fin: float) -> list[dict]:
+    """Palabras escritas repartidas en un tramo de tiempo, cada una según lo larga que es."""
+    pesos = [max(len(p), 1) for p in escritas]
+    paso, salida, t0 = (fin - ini) / sum(pesos), [], ini
+    for p, peso in zip(escritas, pesos):
+        salida.append({"palabra": p, "inicio": t0, "fin": t0 + paso * peso})
+        t0 += paso * peso
+    return salida
+
+
+def alinear(escritas: list[str], oidas: list[dict]) -> list[dict]:
+    """La letra ESCRITA con los tiempos de lo que oyó Whisper: se alinean las dos listas de palabras (como un diff);
+    lo que coincide toma su tiempo, lo que Whisper oyó mal («SUVIMOS», «VAI LA») se cambia por lo escrito en ese mismo
+    tramo, lo que no oyó se reparte en el hueco entre sus vecinas y lo que oyó sin estar escrito no sale. Un coro que
+    se canta más veces de las que está escrito se vuelve a buscar en la letra."""
+    from difflib import SequenceMatcher
+    if not escritas or not oidas:
+        return []
+    a, b = [_nucleo(p) for p in escritas], [_nucleo(p["palabra"]) for p in oidas]
+    salida = []  # sin tiempo todavía (None): las que no se oyeron
+    for op, i1, i2, j1, j2 in SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op == "equal":
+            salida += [{**oidas[j], "palabra": escritas[i]} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == "replace" and i2 - i1 == j2 - j1:  # una por una
+            salida += [{**oidas[j], "palabra": escritas[i]} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == "replace":
+            salida += _repartir(escritas[i1:i2], oidas[j1]["inicio"], oidas[j2 - 1]["fin"])
+        elif op == "delete":
+            salida += [{"palabra": p, "inicio": None, "fin": None} for p in escritas[i1:i2]]
+        elif j2 - j1 >= 4:  # «insert»: un trozo oído que no está en su sitio de la letra (un coro repetido)
+            trozo = SequenceMatcher(None, a, b[j1:j2], autojunk=False).get_matching_blocks()[:-1]
+            if sum(m.size for m in trozo) >= (j2 - j1) / 2:
+                desde, hasta = trozo[0].a, trozo[-1].a + trozo[-1].size
+                salida += alinear(escritas[desde:hasta], oidas[j1:j2])
+    # Las que no se oyeron, repartidas en el hueco entre la anterior y la siguiente que sí tienen tiempo
+    i = 0
+    while i < len(salida):
+        if salida[i]["inicio"] is not None:
+            i += 1
+            continue
+        k = i
+        while k < len(salida) and salida[k]["inicio"] is None:
+            k += 1
+        n = k - i
+        ini = salida[i - 1]["fin"] if i else None
+        fin = salida[k]["inicio"] if k < len(salida) else None
+        if ini is None and fin is None:  # nada de lo oído encajó en ninguna parte
+            return []
+        ini = ini if ini is not None else max(0.0, fin - 0.4 * n)
+        fin = fin if fin is not None else ini + 0.4 * n
+        salida[i:k] = _repartir([p["palabra"] for p in salida[i:k]], ini, max(fin, ini))
+        i = k
+    return salida
+
+
 def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", formato: str = "9:16",
           idea: str = "", aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
     cancion = str(seguro.archivo_medio(cancion, seguro.AUDIOS, t("canción")))
@@ -45,7 +107,7 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     # En WAV, que admite cualquier audio de entrada (también un WAV llamado .mp3).
     audio = carpeta / "cancion.wav"
     video.ffmpeg("-i", Path(cancion), "-t", 900, audio.name, cwd=carpeta)
-    titulo = titulo or Path(cancion).stem
+    titulo = titulo or video.titulo_cancion(Path(cancion))  # el de verdad, no «cancion» (el nombre del archivo)
     total = video.duracion(audio)
 
     # Se dice dónde se escucha: con Groq/OpenAI conectados, la canción (y la letra) se sube a ese servicio.
@@ -69,6 +131,14 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     n = len(escenas)
     tramo = total / n
     ancho, alto = video.FORMATOS[formato]
+    # Con la letra, el karaoke enseña lo ESCRITO (con su ortografía repasada, línea a línea para no mover palabras)
+    # en los tiempos de lo oído: Whisper oía «SUVIMOS AL MALECÓN» y «VAI LA» y eso salía en pantalla
+    lineas = [x for x in ia.sin_acotaciones(letra).splitlines() if x.strip()]
+    if lineas and _nucleo(lineas[0]) == _nucleo(titulo):  # la letra.txt del estudio empieza por el título
+        lineas = lineas[1:]
+    if lineas:
+        palabras = alinear([p for x in ia.ortografia(lineas) for p in x.split()], palabras)
+    ia.repasar([plan], ("descripcion", "hashtags"))
 
     partes, animar_ia, ultima, notas, de_donde = [], True, None, [], ""
     pagados = 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)
@@ -78,7 +148,7 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
             aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso)
             nueva = False  # solo se anima una imagen recién creada: repetir una sería gastar cuota en lo mismo
             try:
-                img = ultima = ia.imagen(f"{descripcion}, {plan['estilo_visual']}", ancho, alto,
+                img = ultima = ia.imagen(f"{con_glosario(descripcion)}, {plan['estilo_visual']}", ancho, alto,
                                          carpeta / f"imagen_{i:02d}.png")
                 nueva, de_donde = True, t("la imagen anterior")
             except Exception as error:

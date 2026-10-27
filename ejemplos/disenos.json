@@ -1,38 +1,10 @@
 [
   {
-    "id": "presentacion-rafaga",
-    "titulo": "Presentación: Ráfaga Studio",
-    "pedido": "La portada de una presentación de Ráfaga Studio, como en PowerPoint",
-    "tipo": "presentacion",
-    "propuesta": {
-      "titulo": "Ráfaga Studio · portada",
-      "descripcion": "Portada de presentación con la marca de la app.",
-      "fondo_colores": ["#0F0F13", "#2A1E4A"],
-      "fondo_prompt_imagen": "",
-      "capas": [
-        {"tipo": "forma", "forma": "elipse", "x": 58, "y": 12, "ancho": 38, "alto": 67.5, "color": "#7C5CFF"},
-        {"tipo": "forma", "forma": "elipse", "x": 63.5, "y": 21.8, "ancho": 27, "alto": 48, "color": "#FF4D8D"},
-        {"tipo": "icono", "icono": "zap", "x": 70, "y": 33.5, "ancho": 14, "alto": 25, "color": "#FFFFFF"},
-        {"tipo": "forma", "forma": "rectangulo", "x": 7, "y": 67, "ancho": 13, "alto": 8.5, "color": "#20202A", "redondeo": 50},
-        {"tipo": "forma", "forma": "rectangulo", "x": 21.5, "y": 67, "ancho": 13, "alto": 8.5, "color": "#20202A", "redondeo": 50},
-        {"tipo": "forma", "forma": "rectangulo", "x": 36, "y": 67, "ancho": 13, "alto": 8.5, "color": "#20202A", "redondeo": 50},
-        {"tipo": "texto", "texto": "PRESENTAMOS", "x": 7, "y": 17, "ancho": 45, "alto": 6, "tamano": 3.6,
-         "fuente": "Montserrat", "negrita": true, "color": "#B79CFF", "alineacion": "izquierda"},
-        {"tipo": "texto", "texto": "Ráfaga Studio", "x": 7, "y": 24, "ancho": 52, "alto": 19, "tamano": 13,
-         "fuente": "Anton", "negrita": true, "color": "#FFFFFF", "alineacion": "izquierda"},
-        {"tipo": "texto", "texto": "Tu estudio creativo con IA: video, diseño, música y series animadas", "x": 7,
-         "y": 46, "ancho": 47, "alto": 14, "tamano": 4.4, "fuente": "Poppins", "color": "#D9D3F5",
-         "alineacion": "izquierda"},
-        {"tipo": "texto", "texto": "Video", "x": 7, "y": 68.6, "ancho": 13, "alto": 5.6, "tamano": 3.4,
-         "fuente": "Poppins", "negrita": true, "color": "#00E5FF", "alineacion": "centro"},
-        {"tipo": "texto", "texto": "Diseño", "x": 21.5, "y": 68.6, "ancho": 13, "alto": 5.6, "tamano": 3.4,
-         "fuente": "Poppins", "negrita": true, "color": "#FF9F1C", "alineacion": "centro"},
-        {"tipo": "texto", "texto": "Música", "x": 36, "y": 68.6, "ancho": 13, "alto": 5.6, "tamano": 3.4,
-         "fuente": "Poppins", "negrita": true, "color": "#FF4D8D", "alineacion": "centro"},
-        {"tipo": "texto", "texto": "Diseñado por Claude como Director · dibujado por Ráfaga Studio", "x": 7, "y": 88,
-         "ancho": 70, "alto": 5, "tamano": 2.6, "fuente": "Poppins", "color": "#8D8D9A", "alineacion": "izquierda"}
-      ]
-    }
+    "id": "mascota-rafa",
+    "titulo": "Rafa, la mascota de Ráfaga Studio",
+    "pedido": "La mascota de Ráfaga Studio: un robot morado con gorra y cadena de oro, editando un video en su laptop sentado sobre un deportivo, en 4K",
+    "tipo": "ilustracion",
+    "imagen": "assets/mascota.jpg"
   },
   {
     "id": "post-cafe",

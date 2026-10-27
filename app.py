@@ -69,14 +69,16 @@ class Ventana(QMainWindow):
         self.director = PaginaDirector(abrir_diseno=self._abrir_diseno, abrir_serie=self._abrir_serie)
         self.serie = PaginaSerie()
         self.guardia = PaginaGuardia()  # revisa la app en segundo plano al abrirla
-        self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie, self._usar_pedido)
+        self.musica = PaginaMusica()
+        self.inicio = PaginaInicio(self._ir_pagina, self._abrir_edicion, self._abrir_serie, self._usar_pedido,
+                                   self._pedir)
         # Lo más buscado arriba: a 728 px de alto, Diseño y Dibujos animados se ven sin desplazar el menú
         paginas = [(f"🏠  {t('Inicio')}", self.inicio),
                    (f"🤖  {t('Director IA')}", self.director), (f"✨  {t('Crear con IA')}", self.crear),
                    (f"🎨  {t('Diseño')}", self.diseno), (f"🐰  {t('Dibujos animados')}", self.serie),
                    (f"✂️  {t('Editor de video')}", self.edicion),
                    (f"⚡  {t('Shorts mágicos')}", PaginaShorts()), (f"🚀  {t('Anuncios')}", PaginaAnuncios()),
-                   (f"🎵  {t('Música')}", PaginaMusica()),
+                   (f"🎵  {t('Música')}", self.musica),
                    (f"🎙️  {t('Cabina de grabación')}", PaginaCabina()),
                    (f"🔎  {t('Nichos virales')}", PaginaNichos(self._crear_desde_idea)),
                    (f"🎬  {t('Mis proyectos')}", PaginaProyectos()), (f"📅  {t('Publicar')}", PaginaPublicar()),
@@ -243,6 +245,25 @@ class Ventana(QMainWindow):
         """«Usar este pedido» de un ejemplo de Inicio: al Director, escrito y listo para cambiarlo."""
         self.director.usar_pedido(pedido)
         self.ir_a(self.orden.index(self.director))
+
+    def _pedir(self, modo, texto):
+        """La idea escrita arriba en Inicio, en la página que la hace: escrita y sin empezar (empezar puede gastar cuota
+        o dinero, y eso lo decide el usuario allí)."""
+        if modo == "director":
+            return self._usar_pedido(texto)
+        if modo == "video":
+            campo, pagina = self.crear.prompt, self.crear
+            campo.setPlainText(texto)
+        elif modo == "musica":
+            campo, pagina = self.musica.idea, self.musica
+            campo.setPlainText(texto)
+        else:  # «Imagen» o «Diseño»: al pedido de la IA de Diseño; «Imagen», como ilustración
+            campo, pagina = self.diseno.pedido, self.diseno
+            campo.setText(texto)
+            tipos = self.diseno.tipo_ia
+            tipos.setCurrentIndex(max(0, tipos.findData("ilustracion" if modo == "imagen" else "auto")))
+        self.ir_a(self.orden.index(pagina))
+        campo.setFocus()
 
 
 if __name__ == "__main__":

@@ -48,14 +48,14 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 
 ## 🎬 Made with Ráfaga Studio
 
-| Talking character (9:16) | Viral short (9:16) | Product ad (9:16) | Anime trailer (16:9) |
-|---|---|---|---|
-| <img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"> | <img src="ejemplos/lugares-rd.gif" width="170" alt="3 places in the Dominican Republic"> | <img src="ejemplos/anuncio-cafe.gif" width="170" alt="Coffee ad"> | <img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"> |
-| [watch](ejemplos/manzana-habla.mp4) · lip-synced voice | [watch](ejemplos/lugares-rd.mp4) · script, voice, subtitles | [watch](ejemplos/anuncio-cafe.mp4) · script, voice, closing card | [watch](ejemplos/leyenda-rafaga.mp4) · original characters |
+| Talking character (9:16) | Anime trailer (16:9) | Real AI motion (Wan 2.2) |
+|---|---|---|
+| <img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"> | <img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"> | <img src="ejemplos/leyenda-ia.gif" width="300" alt="Anime with AI motion"> |
+| [watch](ejemplos/manzana-habla.mp4) · lip-synced voice | [watch](ejemplos/leyenda-rafaga.mp4) · original characters | [watch](ejemplos/leyenda-ia.mp4) · wind, hair and camera really move |
 
-| Real AI motion (Wan 2.2) | Presentation (16:9) | Brand post (4:5) | YouTube thumbnail |
-|---|---|---|---|
-| <img src="ejemplos/leyenda-ia.gif" width="260" alt="Anime with AI motion"> | <img src="ejemplos/presentacion-rafaga.jpg" width="260" alt="Presentation cover"> | <img src="ejemplos/post-cafe.jpg" width="170" alt="Brand post"> | <img src="ejemplos/miniatura-leyenda.jpg" width="260" alt="YouTube thumbnail"> |
+| Brand post (4:5) | YouTube thumbnail (16:9) |
+|---|---|
+| <img src="ejemplos/post-cafe.jpg" width="170" alt="Brand post"> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="YouTube thumbnail"> |
 
 Every example is reproducible: the requests, scripts and layered designs are in
 [`ejemplos/ejemplos.json`](ejemplos/ejemplos.json) and [`ejemplos/disenos.json`](ejemplos/disenos.json).

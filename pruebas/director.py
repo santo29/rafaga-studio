@@ -352,24 +352,28 @@ pagina.show()
 ejemplos = pagina_director.ejemplos()
 assert all((pagina_director.EJEMPLOS / f"{e['id']}.mp4").is_file() for e in ejemplos)
 disenos_ej = pagina_director.disenos()
-assert all((pagina_director.EJEMPLOS / f"{e['id']}.jpg").is_file() for e in disenos_ej)
+assert all(pagina_director.foto(e).is_file() for e in disenos_ej)
+# Los videos hechos pegando fotos (sin movimiento) y la portada de presentación ya no son ejemplos
+assert not {"lugares-rd", "anuncio-cafe", "presentacion-rafaga"} & {e["id"] for e in ejemplos + disenos_ej}
 if disenos_ej:  # los diseños de ejemplo se abren en grande, sin bloquear la app
     from PySide6.QtWidgets import QLabel  # noqa: E402
 
     from ui.comun import ver_imagen  # noqa: E402
-    visor = ver_imagen(pagina, pagina_director.EJEMPLOS / f"{disenos_ej[0]['id']}.jpg", disenos_ej[0]["titulo"])
+    visor = ver_imagen(pagina, pagina_director.foto(disenos_ej[0]), disenos_ej[0]["titulo"])
     assert visor.isVisible() and not visor.findChild(QLabel).pixmap().isNull()
     visor.close()
 if ejemplos:
     pagina.ver_ejemplo(ejemplos[0])
     assert pagina.reproductor.isVisible() and pagina.reproductor.resultados[0]["archivo"].endswith(".mp4")
     pagina.reproductor.player.stop()
-    # Las tarjetas se mueven con su GIF (si lo tiene y Qt lo lee) y el clic derecho deja su pedido escrito, sin enviar
-    from PySide6.QtWidgets import QMenu, QToolButton  # noqa: E402
-    tarjetas = [b for b in pagina.findChildren(QToolButton) if b.objectName() == "ejemplo"]
-    assert len(tarjetas) == len(ejemplos) + len(disenos_ej)
-    for b, e in zip(tarjetas, ejemplos):
-        assert bool(b.gif) == (pagina_director.EJEMPLOS / f"{e['id']}.gif").is_file(), e["id"]
+    # La galería es la misma de Inicio (una sola pieza para todas): videos y diseños intercalados en una fila del
+    # mismo alto; se mueven con su GIF y el clic derecho deja su pedido escrito, sin enviar
+    from PySide6.QtWidgets import QMenu  # noqa: E402
+    tarjetas = pagina.findChildren(pagina_director.Pieza)
+    assert len(tarjetas) == len(ejemplos) + len(disenos_ej) and len({b.height() for b in tarjetas}) == 1
+    assert [b.e["id"] for b in tarjetas][:2] == [ejemplos[0]["id"], disenos_ej[0]["id"]]
+    for b in tarjetas:
+        assert bool(b.gif) == (pagina_director.EJEMPLOS / f"{b.e['id']}.gif").is_file(), b.e["id"]
     tarjetas[0].findChild(QMenu).actions()[0].trigger()
     assert pagina.pedido.text() == ejemplos[0]["pedido"] and not pagina.ocupado()
     pagina.pedido.clear()

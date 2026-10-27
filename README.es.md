@@ -22,10 +22,9 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 
 ## Hecho con Ráfaga Studio
 
-| Short viral (9:16) | Anuncio (9:16) | Tráiler anime (16:9) |
-|---|---|---|
-| <img src="ejemplos/lugares-rd.gif" width="200" alt="3 lugares de RD que parecen de otro planeta"> | <img src="ejemplos/anuncio-cafe.gif" width="200" alt="Anuncio de Café Brisa Alta"> | <img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> |
-| **3 lugares de RD que parecen de otro planeta** · [ver video](ejemplos/lugares-rd.mp4) | **Café Brisa Alta** · [ver video](ejemplos/anuncio-cafe.mp4) | **La leyenda de Ráfaga** · [ver video](ejemplos/leyenda-rafaga.mp4) |
+**Tráiler anime** (16:9, personajes originales):
+
+<img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> · [ver video](ejemplos/leyenda-rafaga.mp4)
 
 **Video animado con voz** (Gemini Omni: la manzana habla con su propia voz y los labios sincronizados; se pidió en una frase y el estudio hizo el guion, las escenas y los subtítulos):
 
@@ -35,9 +34,9 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 
 <img src="ejemplos/leyenda-ia.gif" width="420" alt="La leyenda de Ráfaga animada con IA de video"> · [ver video](ejemplos/leyenda-ia.mp4)
 
-| Presentación (16:9) | Post de marca (4:5) | Miniatura de YouTube (16:9) |
-|---|---|---|
-| <img src="ejemplos/presentacion-rafaga.jpg" width="320" alt="Portada de presentación de Ráfaga Studio"> | <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
+| Post de marca (4:5) | Miniatura de YouTube (16:9) |
+|---|---|
+| <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
 
 Los guiones y los diseños (en capas editables) los escribió Claude como Director. Las imágenes (FLUX), las voces, los subtítulos, el movimiento y el
 montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` y `python ejemplos/crear_disenos.py` (los pedidos, guiones y diseños están en

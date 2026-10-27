@@ -22,7 +22,7 @@ nubes.ORDEN["imagen"] = [p for p in nubes.ORDEN["imagen"] if p != "gratis_sin_cl
 
 pedidos, pendientes = sys.argv[1:], False
 for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
-    if pedidos and e["id"] not in pedidos:
+    if (pedidos and e["id"] not in pedidos) or "guion" not in e:  # sin guion (anuncio-rafaga): se montó a mano
         continue
     if e.get("animado") and e["id"] not in pedidos:  # de pago: solo si se pide por su nombre
         print(f"{e['id']}: usa Gemini (de pago, ~US$1 por escena). Para rehacerlo: python ejemplos/crear.py {e['id']}")

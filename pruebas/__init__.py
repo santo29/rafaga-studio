@@ -1,4 +1,5 @@
 """Pruebas sin internet ni claves. Todas: python -m pruebas · una sola: python -m pruebas.serie"""
+import ipaddress
 import socket
 import tempfile
 from pathlib import Path
@@ -12,7 +13,12 @@ _resolver = socket.getaddrinfo
 
 def _solo_este_pc(host, *a, **k):
     nombre = host.decode() if isinstance(host, bytes) else str(host or "")
-    if nombre in ("", "localhost", "127.0.0.1", "::1") or nombre.endswith(".localhost"):
+    try:  # una IP escrita no se busca en la red (las pruebas de seguro.py comprueban IP como 198.18.0.5)
+        ipaddress.ip_address(nombre)
+        return _resolver(host, *a, **k)
+    except ValueError:
+        pass
+    if nombre in ("", "localhost") or nombre.endswith(".localhost"):
         return _resolver(host, *a, **k)
     raise socket.gaierror(socket.EAI_NONAME, f"sin internet en las pruebas: {nombre}")
 

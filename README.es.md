@@ -20,12 +20,17 @@ está en inglés (como vienen muchos de fábrica), el de tu país. Se cambia aba
 su diseñador en 4K), capturas reales de la app, la manzana que habla, el anime con movimiento de IA, transiciones, Brillo
 Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. El guion lo escribió Claude como Director.
 
+<a href="ejemplos/anuncio-rafaga.mp4"><img src="ejemplos/anuncio-rafaga.jpg" width="560" alt="Anuncio de Ráfaga Studio: Tu PC. Tu estudio."></a>
+
+[▶ Ver el anuncio «Tu PC. Tu estudio.»](ejemplos/anuncio-rafaga.mp4) ([en inglés](ejemplos/anuncio-rafaga-en.mp4)). También
+lo montó el editor del estudio, en 4K y en horizontal y vertical: las personas y sus voces son ficticias, hechas con IA,
+con la app real en sus pantallas, y la música es una canción hecha con el propio estudio.
+
 ## Hecho con Ráfaga Studio
 
-| Short viral (9:16) | Anuncio (9:16) | Tráiler anime (16:9) |
-|---|---|---|
-| <img src="ejemplos/lugares-rd.gif" width="200" alt="3 lugares de RD que parecen de otro planeta"> | <img src="ejemplos/anuncio-cafe.gif" width="200" alt="Anuncio de Café Brisa Alta"> | <img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> |
-| **3 lugares de RD que parecen de otro planeta** · [ver video](ejemplos/lugares-rd.mp4) | **Café Brisa Alta** · [ver video](ejemplos/anuncio-cafe.mp4) | **La leyenda de Ráfaga** · [ver video](ejemplos/leyenda-rafaga.mp4) |
+**Tráiler anime** (16:9, personajes originales):
+
+<img src="ejemplos/leyenda-rafaga.gif" width="320" alt="Tráiler anime La leyenda de Ráfaga"> · [ver video](ejemplos/leyenda-rafaga.mp4)
 
 **Video animado con voz** (Gemini Omni: la manzana habla con su propia voz y los labios sincronizados; se pidió en una frase y el estudio hizo el guion, las escenas y los subtítulos):
 
@@ -35,9 +40,9 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 
 <img src="ejemplos/leyenda-ia.gif" width="420" alt="La leyenda de Ráfaga animada con IA de video"> · [ver video](ejemplos/leyenda-ia.mp4)
 
-| Presentación (16:9) | Post de marca (4:5) | Miniatura de YouTube (16:9) |
-|---|---|---|
-| <img src="ejemplos/presentacion-rafaga.jpg" width="320" alt="Portada de presentación de Ráfaga Studio"> | <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
+| Mascota en 4K (1:1) | Miniatura de YouTube (16:9) |
+|---|---|
+| <img src="assets/mascota.jpg" width="200" alt="Rafa, la mascota de Ráfaga Studio"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
 
 | Portada de álbum (1:1) | Flyer de evento (A4) | Logo |
 |---|---|---|
@@ -47,7 +52,7 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 | Miniatura de YouTube (16:9) | Estampado para camiseta | Anuncio de marca (4:5) |
 |---|---|---|
 | <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="Miniatura del capítulo 2 de La leyenda de Ráfaga"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Estampado de calavera neón"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Anuncio de Café Brisa Alta"> |
-| «La leyenda de Ráfaga», capítulo 2 · anime con brillo neón | Calavera neón para camiseta negra · neón oscuro | «Café Brisa Alta», con el mismo estilo que su post · render 3D |
+| «La leyenda de Ráfaga», capítulo 2 · anime con brillo neón | Calavera neón para camiseta negra · neón oscuro | «Café Brisa Alta», el producto en primer plano · render 3D |
 
 Estos seis diseños los maquetó Claude como Director en capas editables; el arte lo dibujó Gemini (Nano Banana en 2K,
 unos US$0,05 por imagen) y el estudio encajó los textos y montó cada pieza. Las marcas y las personas son ficticias.

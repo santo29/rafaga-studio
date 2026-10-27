@@ -5,7 +5,8 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QRadialGradient
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter, QPen,
+                           QRadialGradient)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
@@ -352,6 +353,65 @@ def tarjeta():
     return f, lay
 
 
+class Rotulo(QWidget):
+    """El rótulo fino en mayúsculas, con el degradado de la marca (violeta, rosa, cian), que va sobre el título de una
+    sección, como en Pollo AI. QSS no pinta texto en degradado: se dibuja aquí."""
+    def __init__(self, texto: str):
+        super().__init__()
+        self.texto = texto.upper()
+        self.setAccessibleName(texto)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+    def letra(self) -> QFont:
+        # La hoja de estilo de la app pisa setFont: la letra se arma al pintar
+        f = QFont(self.font())
+        f.setPixelSize(15)
+        f.setWeight(QFont.Normal)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, 3.5)
+        return f
+
+    def sizeHint(self):
+        m = QFontMetrics(self.letra())
+        return QSize(m.horizontalAdvance(self.texto) + 4, m.height() + 2)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        p.setFont(self.letra())
+        ancho = p.fontMetrics().horizontalAdvance(self.texto)
+        degradado = QLinearGradient(0, 0, max(ancho, 1), 0)
+        for donde, color in ((0, "#C2AEFF"), (0.55, "#FF6FA3"), (1, "#5CF6FF")):
+            degradado.setColorAt(donde, QColor(color))
+        p.setPen(QPen(QBrush(degradado), 1))
+        p.drawText(self.rect(), Qt.AlignLeft | Qt.AlignVCenter, self.texto)
+
+
+def seccion(rotulo: str, titulo: str, *extras) -> QWidget:
+    """La cabecera de una sección: el rótulo en degradado, debajo su título en negrita (#seccion) y, a la derecha, sus
+    botones o casillas."""
+    caja = QWidget()
+    fila = QHBoxLayout(caja)
+    fila.setContentsMargins(0, 0, 0, 0)
+    fila.setSpacing(12)
+    textos = QVBoxLayout()
+    textos.setSpacing(4)
+    textos.addWidget(Rotulo(rotulo))
+    textos.addWidget(etiqueta(titulo, "seccion"))
+    fila.addLayout(textos, 1)
+    if extras:  # juntos y centrados entre sí (una casilla es más baja que un botón), y el grupo, abajo
+        derecha = QWidget()
+        botones = QHBoxLayout(derecha)
+        botones.setContentsMargins(0, 0, 0, 0)
+        botones.setSpacing(12)
+        for w in extras:
+            botones.addWidget(w, 0, Qt.AlignVCenter)
+        fila.addWidget(derecha, 0, Qt.AlignBottom)
+    return caja
+
+
 class Segmentos(QWidget):
     """Un grupo de opciones como UNA pieza de vidrio: la cápsula (#segmentos) con la elegida en relieve y, debajo de
     ella, la luz de la marca, que se ve a través del vidrio y se derrama bajo la cápsula. Se pinta aquí, en el padre
@@ -660,6 +720,25 @@ def ver_imagen(padre, ruta, titulo: str):
     lay.addWidget(cerrar, 0, Qt.AlignRight)
     ventana.setAttribute(Qt.WA_DeleteOnClose)  # al cerrarla se libera
     ventana.open()  # sin bloquear: la app sigue viva detrás
+    return ventana
+
+
+def ver_video(padre, proyecto: dict):
+    """Un video (un ejemplo de la galería o uno reciente) en su ventana, con el reproductor de la app y sonido: se ve
+    donde se pulsó, sin bajar la página. Al cerrarla, se para y se libera."""
+    from PySide6.QtWidgets import QDialog
+    ventana = QDialog(padre)
+    ventana.setWindowTitle(t(proyecto["resultados"][0]["titulo"]) or "Ráfaga Studio")
+    ventana.setAttribute(Qt.WA_DeleteOnClose)
+    lay = QVBoxLayout(ventana)
+    lay.setContentsMargins(12, 12, 12, 12)
+    ventana.reproductor = Reproductor()
+    ventana.reproductor.lista.setVisible(len(proyecto["resultados"]) > 1)  # con uno solo, la lista sobra
+    lay.addWidget(ventana.reproductor)
+    ventana.reproductor.mostrar(proyecto)
+    ventana.finished.connect(ventana.reproductor.player.stop)
+    ventana.resize(900, 640)  # cabe en 1280×720 con la barra de tareas
+    ventana.open()
     return ventana
 
 

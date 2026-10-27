@@ -15,6 +15,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 
 [**⬇ Download for Windows**](https://github.com/santo29/rafaga-studio/releases/latest) ·
 [**▶ Watch the demo**](ejemplos/presentacion-app.mp4) ·
+[**▶ Watch the ad**](ejemplos/anuncio-rafaga-en.mp4) ·
 [**🇪🇸 Leer en español**](README.es.md)
 
 <a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="640" alt="Ráfaga Studio demo"></a>
@@ -48,14 +49,14 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 
 ## 🎬 Made with Ráfaga Studio
 
-| Talking character (9:16) | Viral short (9:16) | Product ad (9:16) | Anime trailer (16:9) |
-|---|---|---|---|
-| <img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"> | <img src="ejemplos/lugares-rd.gif" width="170" alt="3 places in the Dominican Republic"> | <img src="ejemplos/anuncio-cafe.gif" width="170" alt="Coffee ad"> | <img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"> |
-| [watch](ejemplos/manzana-habla.mp4) · lip-synced voice | [watch](ejemplos/lugares-rd.mp4) · script, voice, subtitles | [watch](ejemplos/anuncio-cafe.mp4) · script, voice, closing card | [watch](ejemplos/leyenda-rafaga.mp4) · original characters |
+| Talking character (9:16) | Anime trailer (16:9) | Real AI motion (Wan 2.2) |
+|---|---|---|
+| <img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"> | <img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"> | <img src="ejemplos/leyenda-ia.gif" width="300" alt="Anime with AI motion"> |
+| [watch](ejemplos/manzana-habla.mp4) · lip-synced voice | [watch](ejemplos/leyenda-rafaga.mp4) · original characters | [watch](ejemplos/leyenda-ia.mp4) · wind, hair and camera really move |
 
-| Real AI motion (Wan 2.2) | Presentation (16:9) | Brand post (4:5) | YouTube thumbnail |
-|---|---|---|---|
-| <img src="ejemplos/leyenda-ia.gif" width="260" alt="Anime with AI motion"> | <img src="ejemplos/presentacion-rafaga.jpg" width="260" alt="Presentation cover"> | <img src="ejemplos/post-cafe.jpg" width="170" alt="Brand post"> | <img src="ejemplos/miniatura-leyenda.jpg" width="260" alt="YouTube thumbnail"> |
+| Mascot in 4K (1:1) | YouTube thumbnail (16:9) |
+|---|---|
+| <img src="assets/mascota.jpg" width="200" alt="Rafa, the Ráfaga Studio mascot"> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="YouTube thumbnail"> |
 
 | Album cover (1:1) | Event flyer (A4) | Logo |
 |---|---|---|
@@ -65,7 +66,7 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 | YouTube thumbnail (16:9) | T-shirt print | Brand ad (4:5) |
 |---|---|---|
 | <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="YouTube thumbnail for chapter 2 of an anime"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Neon skull T-shirt print"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Coffee brand ad"> |
-| “La leyenda de Ráfaga”, chapter 2 · anime with a neon glow | Neon skull for a black tee · neon dark | “Café Brisa Alta”, in the same look as its post · 3D render |
+| “La leyenda de Ráfaga”, chapter 2 · anime with a neon glow | Neon skull for a black tee · neon dark | “Café Brisa Alta”, the product up front · 3D render |
 
 The six designs above were laid out by Claude as Director in editable layers; the art was drawn by Gemini (Nano Banana
 at 2K, about US$0.05 per image) and the studio fitted the text and put each piece together. Brands and people are

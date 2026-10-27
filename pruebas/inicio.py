@@ -1,25 +1,28 @@
 """Pruebas de la página «Inicio» (ui/paginas/inicio.py) sin red ni claves de verdad: python -m pruebas.inicio"""
 import json
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
-from PySide6.QtCore import QEvent, QPoint, QPointF, QPropertyAnimation, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import QColor, QImage, QMovie, QWheelEvent  # noqa: E402
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QLabel, QMenu, QMessageBox, QPushButton,  # noqa: E402
-                               QToolButton, QWidget)
+from PySide6.QtCore import QEvent, QPoint, QPropertyAnimation, QSize, Qt, QThread, QUrl  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QImageReader, QKeyEvent, QPainter  # noqa: E402
+from PySide6.QtMultimedia import QMediaPlayer  # noqa: E402
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog, QLabel, QMenu,  # noqa: E402
+                               QMessageBox, QPushButton, QWidget)
 
 from motor import claves, diseno, edicion, marca, nubes, serie, shorts  # noqa: E402
-from ui.comun import ESTILO  # noqa: E402
+from ui.comun import ESTILO, Rotulo  # noqa: E402
 from ui.paginas import director as pagina_director  # noqa: E402
 from ui.paginas import inicio  # noqa: E402
 
 app = QApplication.instance() or QApplication(["pruebas"])
 app.setStyleSheet(ESTILO)
 QMessageBox.exec = lambda caja: QMessageBox.Ok  # sin ventana no hay quien pulse «Aceptar»
+REALES = pagina_director.EJEMPLOS  # los ejemplos de verdad, antes de cambiarlos por los de la carpeta temporal
 
 
 def esperar(condicion, plazo=10):
@@ -48,25 +51,123 @@ def conectar(pagina):
     return [b for b in pagina.findChildren(QPushButton) if b.text() == "Conectar"]
 
 
+def ventana_de_video(padre):
+    """La ventana con el reproductor que abrió ver_video (la última visible)."""
+    abiertas = [v for v in padre.findChildren(QDialog) if v.isVisible() and hasattr(v, "reproductor")]
+    return abiertas[-1] if abiertas else None
+
+
+def cerrar_videos(padre):
+    for v in padre.findChildren(QDialog):
+        if hasattr(v, "reproductor"):  # soltar el video falso: cargando al salir, Qt podía caerse
+            v.reproductor.player.stop()
+            v.reproductor.player.setSource(QUrl())
+            v.close()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def moviendose(lista):
+    return [b.accessibleName() for b in lista if pagina_director.corriendo(b)]
+
+
+# ---------- Los ejemplos de verdad: sin los videos hechos pegando fotos ni la portada de presentación ----------
+reales = [e["id"] for e in pagina_director.ejemplos()] + [d["id"] for d in pagina_director.disenos()]
+# Fuera también el post del café: era casi igual que su anuncio y salían uno encima del otro
+for quitado in ("lugares-rd", "anuncio-cafe", "presentacion-rafaga", "post-cafe"):
+    assert quitado not in reales and not list(REALES.glob(f"{quitado}.*")), quitado
+assert {"manzana-habla", "leyenda-rafaga", "leyenda-ia", "mascota-rafa"} <= set(reales), reales
+# Nítidas en grande (una tarjeta del carrusel mide 1148 px al 150 %): la foto, a la resolución del video; el GIF, 400 px
+for ident in ("manzana-habla", "leyenda-rafaga", "leyenda-ia"):
+    tam = QImageReader(str(REALES / f"{ident}.jpg")).size()
+    assert max(tam.width(), tam.height()) >= 1280, (ident, tam)
+    assert QImageReader(str(REALES / f"{ident}.gif")).size().width() >= 400, ident
+assert pagina_director.LADO >= 1280
+# Lo hecho con cada herramienta no repite las tres primeras piezas del carrusel (salvo la manzana: el único video
+# hecho con Crear video); y lo nuevo es lo nuevo de verdad (el 4K es del editor)
+primeras = [i for i, *_ in inicio.DESTACADOS if i in reales][:3]
+vistas_reales = {a[2]: next((i for i in a[5] if i in reales or (REALES / f"{i}.jpg").is_file()), None)
+                 for a in inicio.ACCESOS}
+assert [n for n, i in vistas_reales.items() if i in primeras] == ["Crear video"], vistas_reales
+editor = next(a for a in inicio.ACCESOS if a[2] == "Editor de video")
+assert "4K" in editor[3] and "4K" not in next(a[3] for a in inicio.ACCESOS if a[2] == "Diseño")
+# Rafa vive en assets/ (con su marca); una ruta que se sale de la app no vale
+assert pagina_director.foto({"id": "mascota-rafa", "imagen": "assets/mascota.jpg"}).is_file()
+assert pagina_director.foto({"id": "x", "imagen": "../../Windows/win.ini"}) is None
+# El anuncio de la marca está en la lista, pero mientras no estén sus archivos no sale (como cualquier ejemplo)
+assert "anuncio-rafaga" in [e["id"] for e in json.loads((REALES / "ejemplos.json").read_text(encoding="utf-8"))]
+assert ("anuncio-rafaga" in reales) == (REALES / "anuncio-rafaga.mp4").is_file()
+# Cada destacado y cada vista de herramienta nombra un ejemplo de verdad o uno que se espera (el anuncio, los diseños
+# nuevos): sin su archivo, no sale
+assert len({i for i, *_ in inicio.DESTACADOS}) == len(inicio.DESTACADOS)
+
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     d = Path(d)
     shorts.PROYECTOS, edicion.CARPETA, serie.CARPETA = d / "proyectos", d / "ediciones", d / "series"
     claves.ARCHIVO, claves.AJUSTES, nubes.USO = d / "claves.json", d / "ajustes.json", d / "uso.json"
     diseno.CARPETA, marca.ARCHIVO, marca.CARPETA_LOGO = d / "disenos", d / "marca.json", d / "marca"
-    pagina_director.EJEMPLOS = d / "ejemplos"
+    pagina_director.EJEMPLOS = d / "app" / "ejemplos"
 
-    # ---------- Sin nada: se construye, con los 8 accesos, sin recientes y sin ejemplos ----------
-    navegado, editadas, series = [], [], []
-    pagina = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
+    # ---------- Sin nada: se construye con las herramientas, sin recientes y sin ejemplos ----------
+    navegado, editadas, series, pedidas = [], [], [], []
+    pagina = inicio.PaginaInicio(navegado.append, editadas.append, series.append, None,
+                                 lambda modo, texto: pedidas.append((modo, texto)))
     pagina.recargar()
     assert pagina.recientes == [] and not pagina.vacio.isHidden() and pagina.galeria.isHidden()
-    assert pagina.reproductor.isHidden()
-    # Cada acceso lleva a su página del menú
-    for _, _, nombre, _, menu in inicio.ACCESOS:
+    assert pagina.bloque_destacados.isHidden() and pagina.destacados.piezas == []
+    # Cada herramienta lleva a su página del menú; sin ejemplos, su vista es el dibujo de relleno con su icono
+    for _, _, nombre, _, menu, _, _ in inicio.ACCESOS:
         tarjeta(pagina, nombre).click()
     assert navegado == ["Director IA", "Crear con IA", "Diseño", "Dibujos animados", "Editor de video",
                         "Shorts mágicos", "Anuncios", "Música"]  # el orden del menú
     assert "Crea tus personajes y capítulos de caricatura" in [a[3] for a in inicio.ACCESOS]
+    assert len(pagina.vistas) == 8 and all(v.ruta is None and v.fuente() is None for v in pagina.vistas)
+    assert [a[2] for a in inicio.ACCESOS if a[6]] == ["Crear video", "Editor de video"]  # lo nuevo
+    assert [v.insignia for v in pagina.vistas].count("NUEVO") == 2
+    assert tarjeta(pagina, "Editor de video").accessibleDescription().startswith("Nuevo.")
+    # La vista de una herramienta no es un botón dentro de otro (el lector de pantalla anunciaba uno vacío): lleva
+    # el nombre de su herramienta y el clic y el foco son de la tarjeta
+    for v, a in zip(pagina.vistas, inicio.ACCESOS):
+        assert isinstance(v, pagina_director.Vista) and not isinstance(v, QAbstractButton), a[2]
+        assert v.accessibleName() == a[2] and v.testAttribute(Qt.WA_TransparentForMouseEvents)
+    pagina.resize(1100, 2600)
+    assert not pagina.grab().isNull()  # se pinta sin ningún archivo de ejemplo
+    # Las secciones llevan su rótulo fino en degradado (y su nombre para el lector de pantalla)
+    assert [r.accessibleName() for r in pagina.findChildren(Rotulo)] == [
+        "Lo que puedes crear", "Herramientas", "Tu estudio hoy", "Tus proyectos", "Hecho con Ráfaga Studio"]
+    # La novedad de arriba lleva a Ráfaga Guardia
+    navegado.clear()
+    tarjeta(pagina, "Nuevo: Ráfaga Guardia cuida tu estudio mientras creas").click()
+    assert navegado == ["Ráfaga Guardia"]
+
+    # ---------- Arriba: la idea va a la página de la opción elegida, escrita y sin empezar nada ----------
+    assert [b.text() for b in pagina.modos.grupo.buttons()] == ["Video", "Imagen", "Diseño", "Música", "Director"]
+    assert pagina.destino.text() == "Se abre en Crear con IA"
+    pagina.crear.click()  # vacía: no manda nada
+    assert pedidas == []
+    for n, modo in enumerate(("video", "imagen", "diseno", "musica", "director")):
+        pagina.modos.grupo.button(n).click()
+        pagina.idea.setPlainText(f"  idea {modo}  ")
+        pagina.crear.click()
+        assert pedidas[-1] == (modo, f"idea {modo}") and pagina.idea.toPlainText() == ""
+    assert pagina.destino.text() == "Se abre en Director IA"
+    # Intro la manda; Mayúsculas+Intro, otra línea
+    pagina.idea.setPlainText("con intro")
+    app.sendEvent(pagina.idea, QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.NoModifier))
+    assert pedidas[-1] == ("director", "con intro")
+    pagina.idea.setPlainText("una")
+    app.sendEvent(pagina.idea, QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.ShiftModifier, "\r"))
+    assert len(pedidas) == 6 and pagina.idea.toPlainText() != "una"
+    assert pagina.idea.tabChangesFocus()  # el Tab no se queda atrapado en la caja
+    pagina.idea.clear()
+    # Las ideas de ejemplo de la caja: dejan escrita la suya con su opción elegida, sin mandar nada
+    assert [c.text() for c in pagina.ideas.botones] == [i[0] for i in inicio.IDEAS]
+    for chip, (_, modo, idea) in zip(pagina.ideas.botones, inicio.IDEAS):
+        chip.click()
+        assert inicio.MODOS[pagina.modos.grupo.checkedId()][0] == modo and pagina.idea.toPlainText() == idea
+        assert chip.accessibleDescription() == idea
+    assert len(pedidas) == 6 and pagina.destino.text() == "Se abre en Director IA"
+    assert "tú decides cuándo empezar" in pagina.crear.accessibleDescription()
+    pagina.idea.clear()
 
     # ---------- Indicadores sin claves: la IA gratis lenta y «Conectar» donde falta algo útil ----------
     ind = {i["titulo"]: i for i in inicio.indicadores()}
@@ -149,123 +250,219 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert editadas == [str(carpeta_edicion)]
     tarjeta(pagina, "Mi serie").click()
     assert series == ["20261021-090000-mi-serie"]
-    tarjeta(pagina, "Shorts nuevos").click()
-    assert not pagina.reproductor.isHidden() and pagina.reproductor.lista.count() == 2
-    assert pagina.reproductor.formato == "16:9"
+    tarjeta(pagina, "Shorts nuevos").click()  # el video, en su ventana: no hay que bajar la página para verlo
+    visto = ventana_de_video(pagina)
+    assert visto.reproductor.lista.count() == 2 and visto.reproductor.formato == "16:9"
+    cerrar_videos(pagina)
 
-    # ---------- Ejemplos: si los hay, salen y se ven en el reproductor de Inicio ----------
-    pagina_director.EJEMPLOS.mkdir()
-    (pagina_director.EJEMPLOS / "ejemplos.json").write_text(json.dumps([
-        {"id": "demo", "titulo": "Demo", "formato": "9:16", "guion": {"descripcion": "Desc", "hashtags": ["#x"]}},
-        {"id": "sin-video", "titulo": "Sin video"}]), encoding="utf-8")
-    (pagina_director.EJEMPLOS / "demo.mp4").write_bytes(b"\0" * 64)
+    # ---------- Con ejemplos: el carrusel solo con los destacados, el mosaico con todos ----------
+    ej = pagina_director.EJEMPLOS
+    ej.mkdir(parents=True)
+    (d / "app" / "assets").mkdir()
     foto = QImage(90, 160, QImage.Format_RGB32)
     foto.fill(QColor("#7C5CFF"))
-    for nombre in ("demo", "sin-video"):
-        assert foto.save(str(pagina_director.EJEMPLOS / f"{nombre}.jpg"))
-    con_ejemplos = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
-    assert not con_ejemplos.galeria.isHidden()
-    ejemplos = con_ejemplos.galeria.findChildren(QToolButton)
-    assert [b.text() for b in ejemplos] == ["Demo"]
-    ejemplos[0].click()
-    assert not con_ejemplos.reproductor.isHidden() and con_ejemplos.reproductor.lista.item(0).text() == "1. Demo"
-    assert "#x" in con_ejemplos.reproductor.info.toPlainText()
-    # El video de presentación de la app, arriba del todo: sale solo si existe y se ve en el reproductor de Inicio
-    presentacion = "Conoce Ráfaga Studio en 30 segundos"
-    assert not any(b.accessibleName() == presentacion for b in con_ejemplos.findChildren(QPushButton))
-    (pagina_director.EJEMPLOS / "presentacion-app.mp4").write_bytes(b"\0" * 64)
-    assert foto.save(str(pagina_director.EJEMPLOS / "presentacion-app.jpg"))
-    con_video = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
-    tarjeta(con_video, presentacion).click()
-    assert con_video.reproductor.resultados[0]["archivo"].endswith("presentacion-app.mp4")
-    for pagina_video in (con_ejemplos, con_video):  # soltar los videos falsos: cargando al salir, Qt podía caerse
-        pagina_video.reproductor.player.stop()
-        pagina_video.reproductor.player.setSource(QUrl())
-    del con_video, pagina_video
-    # Con muchos ejemplos de título largo, cada fila se desplaza de lado: ni Inicio ni el Director se salen por la
-    # derecha a 1366 px (el visor de la página mide 1106)
-    muchos = [{"id": f"largo-{n}", "titulo": f"Ejemplo {n} con un título bastante largo para la tarjeta"}
-              for n in range(8)]
-    (pagina_director.EJEMPLOS / "ejemplos.json").write_text(json.dumps(muchos), encoding="utf-8")
-    (pagina_director.EJEMPLOS / "disenos.json").write_text(json.dumps(muchos), encoding="utf-8")
-    for e in muchos:
-        (pagina_director.EJEMPLOS / f"{e['id']}.mp4").write_bytes(b"\0" * 64)
-        assert foto.save(str(pagina_director.EJEMPLOS / f"{e['id']}.jpg"))
-    ancha = inicio.PaginaInicio(navegado.append, editadas.append, series.append)
-    assert len(ancha.galeria.findChildren(QToolButton)) == 16
-    assert ancha.minimumSizeHint().width() <= 1106, ancha.minimumSizeHint()
-    director_ancho = pagina_director.PaginaDirector()
-    assert director_ancho.minimumSizeHint().width() <= 1106, director_ancho.minimumSizeHint()
-    del ancha, director_ancho
-
-    # ---------- Inicio vivo: los ejemplos con GIF se mueven solos (MAX_VIVAS a la vista y el del ratón) ----------
-    # Un GIF de 1x1 en bucle hecho a mano (no hay Pillow); uno roto se queda con su miniatura fija
+    ancha = QImage(160, 90, QImage.Format_RGB32)
+    ancha.fill(QColor("#FF4D8D"))
+    # Un GIF de 1x1 en bucle hecho a mano (no hay Pillow)
     gif = bytes.fromhex("47494638396101000100800000000000ffffff21ff0b4e45545343415045322e30030100000021f904000a00"
                         "00002c00000000010001000002024401003b")
-    vivos = [{"id": f"vivo-{n}", "titulo": f"V{n}", "pedido": f"Pedido {n}"} for n in range(12)] + [
-        {"id": "roto", "titulo": "Roto"}]  # 13 no caben a lo ancho: la fila se desplaza
-    (pagina_director.EJEMPLOS / "ejemplos.json").write_text(json.dumps(vivos), encoding="utf-8")
-    (pagina_director.EJEMPLOS / "disenos.json").write_text(json.dumps([{"id": "cartel", "titulo": "Cartel",
-                                                                         "pedido": "Un cartel"}]), encoding="utf-8")
-    for e in vivos + [{"id": "cartel"}]:
-        (pagina_director.EJEMPLOS / f"{e['id']}.mp4").write_bytes(b"\0" * 64)
-        assert foto.save(str(pagina_director.EJEMPLOS / f"{e['id']}.jpg"))
-        (pagina_director.EJEMPLOS / f"{e['id']}.gif").write_bytes(b"GIF89a roto" if e["id"] == "roto" else gif)
-    (pagina_director.EJEMPLOS / "cartel.gif").unlink()
+    videos = [{"id": "manzana-habla", "titulo": "Manzana", "pedido": "Una manzana que habla", "formato": "9:16",
+               "guion": {"descripcion": "Desc", "hashtags": ["#x"]}},
+              {"id": "leyenda-ia", "titulo": "Anime IA", "pedido": "Dos escenas del anime", "formato": "16:9"},
+              {"id": "leyenda-rafaga", "titulo": "Tráiler"},  # sin pedido: no ofrece «Usar este pedido»
+              {"id": "otro-video", "titulo": "Otro"},  # no es destacado: solo en el mosaico
+              {"id": "anuncio-rafaga", "titulo": "Sin archivos"}]  # sin MP4 ni JPG: no sale en ningún sitio
+    disenos = [{"id": "mascota-rafa", "titulo": "Rafa", "pedido": "La mascota", "imagen": "assets/mascota.jpg"},
+               {"id": "portada-alto-voltaje", "titulo": "Portada"},
+               {"id": "roto", "titulo": "Roto"},  # su JPG no es una imagen: sale el dibujo de relleno
+               {"id": "sin-foto", "titulo": "Sin foto"}]
+    (ej / "ejemplos.json").write_text(json.dumps(videos), encoding="utf-8")
+    (ej / "disenos.json").write_text(json.dumps(disenos), encoding="utf-8")
+    for e in videos[:4]:
+        (ej / f"{e['id']}.mp4").write_bytes(b"\0" * 64)
+        assert (foto if e["id"] == "manzana-habla" else ancha).save(str(ej / f"{e['id']}.jpg"))
+        (ej / f"{e['id']}.gif").write_bytes(gif)
+    shutil.copy(REALES / "leyenda-ia.mp4", ej / "leyenda-ia.mp4")  # uno de verdad: el carrusel lo reproduce nítido
+    assert foto.save(str(d / "app" / "assets" / "mascota.jpg")) and ancha.save(str(ej / "portada-alto-voltaje.jpg"))
+    (ej / "roto.jpg").write_bytes(b"no es una imagen")
+    (ej / "presentacion-app.jpg").write_bytes(b"")  # la vista del editor: una foto suelta, aunque esté vacía
+    (ej / "presentacion-app.gif").write_bytes(gif)  # su GIF (el montaje de fotos con la galería vieja) no se usa
+    assert [e["id"] for e in pagina_director.ejemplos()] == ["manzana-habla", "leyenda-ia", "leyenda-rafaga",
+                                                              "otro-video"]
+    assert [e["id"] for e in pagina_director.disenos()] == ["mascota-rafa", "portada-alto-voltaje", "roto"]
     pedidos = []
     viva = inicio.PaginaInicio(navegado.append, editadas.append, series.append, pedidos.append)
-    viva.resize(1106, 1700)
+    car = viva.destacados
+    assert not viva.bloque_destacados.isHidden()
+    assert [b.e["id"] for b in car.piezas] == ["manzana-habla", "leyenda-ia", "leyenda-rafaga", "mascota-rafa",
+                                               "portada-alto-voltaje"]  # en el orden de DESTACADOS
+    assert [b.accessibleName() for b in car.piezas][:2] == ["La manzana que habla", "La leyenda de Ráfaga"]
+    assert all(isinstance(b, pagina_director.Pieza) and b.contener for b in car.piezas)
+    # Las herramientas muestran algo hecho con ellas (el primero que exista); sin nada, su dibujo
+    vistas = {a[2]: v for a, v in zip(inicio.ACCESOS, viva.vistas)}
+    assert vistas["Crear video"].e["id"] == "manzana-habla" and vistas["Música"].e["id"] == "portada-alto-voltaje"
+    assert vistas["Director IA"].e["id"] == "mascota-rafa" and vistas["Shorts mágicos"].e == {}
+    assert vistas["Editor de video"].e == {"id": "presentacion-app"} and vistas["Anuncios"].e == {}
+    assert vistas["Editor de video"].fuente() is None and vistas["Editor de video"].alto_util == 1  # quieta, entera
+    # De los videos se ve solo lo de arriba (sus subtítulos quemados quedaban bajo el título de la tarjeta)
+    assert vistas["Crear video"].alto_util == car.piezas[0].alto_util == pagina_director.RECORTE_SUBTITULOS
+    assert car.piezas[3].alto_util == 1 and car.piezas[0].foco == 0.4
+    # El mosaico: videos y diseños intercalados, con su título solo al pasar el ratón (o con el foco)
+    mosaico = viva.galeria.tarjetas
+    assert [b.e["id"] for b in mosaico] == ["manzana-habla", "mascota-rafa", "leyenda-ia", "portada-alto-voltaje",
+                                            "leyenda-rafaga", "roto", "otro-video"]
+    assert all(b.leyenda == "encima" for b in mosaico)
+    assert [b.gif is not None for b in mosaico] == [True, False, True, False, True, False, True]
+    viva.resize(1106, 3600)
     viva.show()
     viva.activateWindow()
     esperar(viva.isActiveWindow)
-    tarjetas = viva.galeria.tarjetas
-    assert [b.text() for b in tarjetas] == [f"V{n}" for n in range(12)] + ["Roto", "Cartel"]
-    roto, cartel = tarjetas[12:]
-    assert all(b.gif for b in tarjetas[:13]) and cartel.gif is None  # el diseño no tiene GIF
+    app.processEvents()
+    # Columnas del mismo ancho y huecos finos; cada pieza, a su proporción (lo vertical, como mucho 3:4). Con 7
+    # piezas, 3 columnas (una por cada 3 piezas como mucho) que acaban casi a la vez
+    columnas = {b.x() for b in mosaico}
+    assert len({b.width() for b in mosaico}) <= 2 and len(columnas) == 3, columnas  # ±1 px de redondeo
+    manzana = mosaico[0]
+    assert abs(manzana.height() - manzana.width() / 0.75) < 3
+    m = manzana.parentWidget()
+    assert m.height() == m.heightForWidth(m.width()), (m.height(), m.heightForWidth(m.width()), m.width())
+    fondos = [max(b.geometry().bottom() for b in mosaico if b.x() == x) for x in columnas]
+    assert max(fondos) - min(fondos) < max(b.height() for b in mosaico), fondos
+    # Las ideas de la caja que no caben se esconden (la caja no puede crecer más que la página), por orden
+    ideas = viva.ideas
+    ideas.resize(ideas.sizeHint().width() - 20, ideas.height())
+    assert [b.isHidden() for b in ideas.botones] == [False] * (len(ideas.botones) - 1) + [True]
+    assert ideas.minimumSizeHint().width() == 0
+    # El carrusel: lo vertical y los diseños, enteros a la derecha; el video ancho, a sangre
+    assert [b.caja() is not None for b in car.piezas] == [True, False, False, True, True]
+    # Las fotos se preparan en otro hilo, a su tamaño: al pintar solo se copian. Sin foto que leer, el relleno
+    roto = mosaico[5]
+    esperar(lambda: all(b._capas is not None for b in car.piezas + mosaico))
+    elegida = car.piezas[1]
+    assert elegida._capas[2].size() == QSize(elegida.width(), elegida.height()) and not elegida._capas[2].isNull()
+    assert roto._capas[2].isNull()
+    assert roto.ruta.name == "roto.jpg" and pagina_director._imagen(roto.ruta).isNull()
+    assert not roto.grab().isNull()  # se pinta con su dibujo de relleno
+    # Recortar de un video la franja de sus subtítulos: con RECORTE_SUBTITULOS no queda nada de ella, y las esquinas
+    # salen redondas (transparentes)
+    fuente = QImage(160, 90, QImage.Format_RGB32)
+    fuente.fill(QColor("#3050FF"))
+    pintor = QPainter(fuente)
+    pintor.fillRect(0, 64, 160, 26, QColor("#FF0000"))  # la franja de los subtítulos, del 71 % para abajo
+    pintor.end()
+    lista = pagina_director._preparar(fuente, 320, 160, pagina_director.RECORTE_SUBTITULOS, 12)
+    assert lista.size() == QSize(320, 160) and lista.pixelColor(0, 0).alpha() == 0
+    assert all(lista.pixelColor(x, y).red() < 80 for x in (40, 160, 280) for y in (10, 80, 150))
+    assert pagina_director._preparar(QImage(), 10, 10).isNull()
+    # Ni Inicio ni el Director se salen por la derecha a 1366 px (el visor de la página mide 1106)
+    assert viva.minimumSizeHint().width() <= 1106, viva.minimumSizeHint()
+    director_ancho = pagina_director.PaginaDirector()
+    assert director_ancho.minimumSizeHint().width() <= 1106, director_ancho.minimumSizeHint()
+    # El Director usa las mismas piezas, en una fila del mismo alto que se desplaza
+    del_director = director_ancho.findChildren(pagina_director.Pieza)
+    assert len(del_director) == 7 and len({b.height() for b in del_director}) == 1
+    del director_ancho
 
-    def moviendose(lista):
-        return [b.text() for b in lista if b.peli and b.peli.state() != QMovie.NotRunning]
+    # ---------- El carrusel pasa solo, se para con el ratón, oculto o con menos movimiento ----------
+    viva.activateWindow()  # crear otra página le quitó el foco a la ventana
+    esperar(viva.isActiveWindow)
+    assert car.ancho == round(car.width() * 0.8)  # la siguiente asoma por la derecha
+    assert car.piezas[0].vivo == "video" and all(b.vivo is None and b.apagada for b in car.piezas[1:])
+    car.reloj.timeout.emit()  # el reloj de verdad tarda 6 s: se adelanta a mano
+    # Mientras se desliza, ninguna puede abrir su video (abrirlo traba el hilo de la ventana): al terminar, la nueva
+    assert car.actual == 1 and car.deslizando() and car.piezas[1].vivo is None and car.piezas[0].vivo is None
+    esperar(lambda: not car.deslizando())
+    assert car.piezas[1].vivo == "video"
+    assert [p.isChecked() for p in car.puntos] == [False, True, False, False, False]
+    assert car.puntos[1].width() > car.puntos[0].width()
+    esperar(lambda: car.pista.animacion.state() == QPropertyAnimation.Stopped)
+    barra = car.pista.horizontalScrollBar()
+    assert barra.value() == car.ancho + car.HUECO == car.piezas[1].x(), (  # deslizado hasta la segunda
+        barra.value(), barra.maximum(), car.ancho, car.piezas[1].x(), car.width())
+    car.setAttribute(Qt.WA_UnderMouse, True)  # el ratón encima: se queda
+    car.reloj.timeout.emit()
+    assert car.actual == 1
+    car.setAttribute(Qt.WA_UnderMouse, False)
+    car.piezas[1].setFocus()  # el foco del teclado dentro: también se queda
+    car.reloj.timeout.emit()
+    assert car.actual == 1
+    # Con las flechas del teclado se pasa de una a otra (y el carrusel la sigue)
+    app.sendEvent(car.piezas[1], QKeyEvent(QEvent.KeyPress, Qt.Key_Right, Qt.NoModifier))
+    assert car.actual == 2 and car.piezas[2].hasFocus()
+    car.piezas[2].clearFocus()
+    car.flechas[0].click()
+    assert car.actual == 1
+    car.puntos[4].click()
+    assert car.actual == 4
+    car.reloj.timeout.emit()  # al final da la vuelta
+    assert car.actual == 0
+    pagina_director.accion_animar().setChecked(False)  # menos movimiento: no pasa solo y salta sin deslizarse
+    car.reloj.timeout.emit()
+    assert car.actual == 0
+    car.flechas[1].click()
+    assert car.actual == 1 and car.pista.animacion.state() == QPropertyAnimation.Stopped
+    assert car.pista.horizontalScrollBar().value() == car.ancho + car.HUECO
+    pagina_director.accion_animar().setChecked(True)
+    car.ir(0, False)
+    # Abrir una pieza: el video en su ventana; un diseño, en grande; «Usar este pedido», al Director
+    car.piezas[0].click()
+    visto = ventana_de_video(viva)
+    assert visto.reproductor.resultados[0]["archivo"].endswith("manzana-habla.mp4")
+    assert "#x" in visto.reproductor.info.toPlainText() and visto.reproductor.lista.isHidden()
+    cerrar_videos(viva)
+    botones = [b.text() for b in car.piezas[3].findChildren(QPushButton)]
+    assert botones == ["Ver en grande", "Usar este pedido"], botones
+    car.piezas[3].findChildren(QPushButton)[1].click()
+    assert pedidos == ["La mascota"]
+    assert [b.text() for b in car.piezas[2].findChildren(QPushButton)] == ["Ver video"]  # sin pedido
+    car.piezas[4].click()
+    imagen = [v for v in viva.findChildren(QDialog) if v.isVisible()][-1]
+    assert imagen.windowTitle() == "Portada" and not imagen.findChild(QLabel).pixmap().isNull()
+    imagen.close()
+    viva.activateWindow()  # cerrar la ventana de la imagen no siempre le devuelve el foco (sin pantalla)
+    esperar(viva.isActiveWindow)
 
-    def suelto(id_):  # un GIF abierto no se deja reemplazar en Windows (ejemplos/crear.py los vuelve a hacer)
-        ruta = pagina_director.EJEMPLOS / f"{id_}.gif"
-        os.replace(ruta, ruta.with_suffix(".tmp"))
-        os.replace(ruta.with_suffix(".tmp"), ruta)
-        return True
-
-    vistas = [b.text() for b in tarjetas if not b.visibleRegion().isEmpty()]
-    assert len(vistas) > 4 and "V11" not in vistas, vistas  # unas se ven y otras quedan fuera, a la derecha
-    pagina_director.animar(tarjetas)
-    assert moviendose(tarjetas) == ["V0", "V1", "V2"]  # se ven más, pero como mucho MAX_VIVAS
-    assert suelto("vivo-5") and suelto("vivo-11")  # las quietas no tienen su GIF abierto
-    tarjetas[4].setAttribute(Qt.WA_UnderMouse, True)  # el ratón encima: esa también
-    tarjetas[11].setAttribute(Qt.WA_UnderMouse, True)  # fuera de la vista no cuenta
-    pagina_director.animar(tarjetas)
-    assert moviendose(tarjetas) == ["V0", "V1", "V2", "V4"]
-    tarjetas[4].setAttribute(Qt.WA_UnderMouse, False)
-    tarjetas[11].setAttribute(Qt.WA_UnderMouse, False)
-    pagina_director.animar(tarjetas)
-    assert moviendose(tarjetas) == ["V0", "V1", "V2"] and tarjetas[4].icon().cacheKey() == tarjetas[4].foto.cacheKey()
-    tarjetas[3].setAttribute(Qt.WA_UnderMouse, True)  # el reloj de la galería lo nota solo
-    esperar(lambda: "V3" in moviendose(tarjetas))
-    tarjetas[3].setAttribute(Qt.WA_UnderMouse, False)
-    fila = tarjetas[0].parentWidget().parentWidget().parentWidget().parentWidget()  # contenido>visor>carrusel>fila
-    carrusel, barra = fila.carrusel, fila.carrusel.horizontalScrollBar()
-    carrusel.ensureWidgetVisible(roto)
-    roto.setAttribute(Qt.WA_UnderMouse, True)  # el GIF roto falla al empezar: miniatura fija y no se reintenta
-    pagina_director.animar(tarjetas)
-    assert roto.peli is None and roto.gif is None and roto.icon().cacheKey() == roto.foto.cacheKey()
-    roto.setAttribute(Qt.WA_UnderMouse, False)
-    assert "V0" not in moviendose(tarjetas)  # la fila se desplazó: la que salió de la vista, quieta
-    barra.setValue(0)
-    # Otra ventana delante: todo quieto (y vuelve al volver)
+    # ---------- Lo que se mueve: como mucho MAX_VIVAS en toda la página, y nada si no se ve ----------
+    piezas = car.piezas + viva.vistas + mosaico
+    pagina_director.animar(piezas)
+    assert len(moviendose(piezas)) <= pagina_director.MAX_VIVAS
+    car.ir(1, False)  # la elegida reproduce su MP4 (uno de verdad): sus cuadros llegan desde otro hilo
+    pagina_director.animar(piezas)
+    assert elegida.jugador is not None and moviendose(piezas)[0] == "La leyenda de Ráfaga"
+    assert len(moviendose(piezas)) == pagina_director.MAX_VIVAS
+    esperar(lambda: elegida.cuadro is not None and elegida.cuadro.width() > 0)
+    assert elegida.cuadro.width() <= max(1, round(elegida.width() * elegida.devicePixelRatioF()))
+    # Al deslizarse a otra, la de antes se pausa enseguida y su reproductor no se cierra hasta que termina (la
+    # vigilancia espera): cerrarlo o abrir otro a mitad daba tirones
+    car.ir(2)
+    assert elegida.jugador.playbackState() != QMediaPlayer.PlayingState
+    viva.vigia.timeout.emit()
+    assert elegida.jugador is not None
+    esperar(lambda: not car.deslizando())
+    viva.vigia.timeout.emit()
+    assert elegida.jugador is None and elegida.cuadro is None
+    # Un MP4 roto: se queda con su GIF, sin reintentar el video
+    falsa = car.piezas[2]
+    esperar(lambda: falsa.video is None)  # su MP4 de 64 bytes vacíos no se puede leer: lo deja
+    pagina_director.animar(piezas)
+    assert falsa.peli is not None and falsa.jugador is None
+    # El ratón sobre una herramienta mueve su vista (aunque ya hubiera MAX_VIVAS)
+    boton_crear = tarjeta(viva, "Crear video")
+    boton_crear.setAttribute(Qt.WA_UnderMouse, True)
+    pagina_director.animar(piezas)
+    assert "manzana-habla" in [b.e.get("id") for b in piezas if pagina_director.corriendo(b) and b in viva.vistas]
+    boton_crear.setAttribute(Qt.WA_UnderMouse, False)
+    # Otra ventana delante: todo quieto, y el carrusel no pasa
     delante = QWidget()
     delante.show()
     delante.activateWindow()
     esperar(lambda: not viva.isActiveWindow())
-    pagina_director.animar(tarjetas)
-    assert moviendose(tarjetas) == [] and all(b.icon().cacheKey() == b.foto.cacheKey() for b in tarjetas)
-    app.sendPostedEvents(None, QEvent.DeferredDelete)  # en la app lo hace su bucle de eventos
-    assert suelto("vivo-0")  # al pararse, la tarjeta suelta su GIF
+    pagina_director.animar(piezas)
+    assert moviendose(piezas) == []
+    antes = car.actual
+    car.reloj.timeout.emit()
+    assert car.actual == antes
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
     delante.close()
     viva.activateWindow()
     esperar(viva.isActiveWindow)
@@ -276,72 +473,57 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert casilla.isChecked() and casilla_director.isChecked()
     casilla.setChecked(False)
     assert not casilla_director.isChecked() and claves.ajustes()["animar_vistas"] == "no"
-    pagina_director.animar(tarjetas)
-    assert moviendose(tarjetas) == []
+    pagina_director.animar(piezas)
+    assert moviendose(piezas) == []
     pagina_director._animar = None  # como al abrir la app otra vez: se lee de ajustes.json
     assert not pagina_director.accion_animar().isChecked()
     del otro_director
     pagina_director.accion_animar().setChecked(True)
     assert claves.ajustes()["animar_vistas"] == "si"
-    # Las flechas solo salen en la fila que no cabe, y la desplazan una pantalla con animación
-    def flechas(de):
-        return [b for b in de.findChildren(QPushButton) if b.accessibleName() in ("Ver anteriores", "Ver siguientes")]
-    fila_disenos = cartel.parentWidget().parentWidget().parentWidget().parentWidget()
-    assert len(flechas(fila)) == 2 and all(not f.isHidden() for f in flechas(fila)) and barra.maximum() > 0
-    assert len(flechas(fila_disenos)) == 2 and all(f.isHidden() for f in flechas(fila_disenos))
-    flechas(fila)[1].click()
-    esperar(lambda: carrusel.animacion.state() == QPropertyAnimation.Stopped)
-    assert barra.value() == min(barra.maximum(), barra.pageStep()) > 0
-    flechas(fila)[0].click()
-    esperar(lambda: carrusel.animacion.state() == QPropertyAnimation.Stopped and barra.value() == 0)
-    # La rueda mueve la fila de lado; en el borde, la deja pasar (la página sigue bajando)
-    def rueda(dy):
-        evento = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, dy), Qt.NoButton, Qt.NoModifier,
-                             Qt.NoScrollPhase, False)
-        carrusel.wheelEvent(evento)
-        return evento.isAccepted()
-    assert rueda(-120) and barra.value() == min(120, barra.maximum())
-    barra.setValue(barra.maximum())
-    assert not rueda(-120) and barra.value() == barra.maximum()
-    assert rueda(120) and barra.value() == barra.maximum() - 120
-    barra.setValue(0)
-    # «Usar este pedido» (clic derecho): lleva su pedido; sin pedido no se ofrece
-    assert [a.text() for a in tarjetas[0].findChild(QMenu).actions()] == ["Usar este pedido"]
-    assert "Clic derecho" in tarjetas[0].toolTip()
-    assert roto.findChild(QMenu) is None and "Clic derecho" not in roto.toolTip()
-    tarjetas[0].findChild(QMenu).actions()[0].trigger()
-    cartel.findChild(QMenu).actions()[0].trigger()
-    assert pedidos == ["Pedido 0", "Un cartel"]
-    # «Ver todo»: la rejilla con todos, con filtros; solo se mueve el del ratón y elegir uno cierra la ventana
+    # «Usar este pedido» (clic derecho) en el mosaico: lleva su pedido; sin pedido no se ofrece
+    assert [a.text() for a in mosaico[0].findChild(QMenu).actions()] == ["Usar este pedido"]
+    assert "Clic derecho" in mosaico[0].toolTip()
+    assert mosaico[4].findChild(QMenu) is None and "Clic derecho" not in mosaico[4].toolTip()
+    mosaico[0].findChild(QMenu).actions()[0].trigger()
+    assert pedidos[-1] == "Una manzana que habla"
+
+    # ---------- «Ver todo»: el mosaico con filtros; solo se mueve el del ratón y elegir uno cierra la ventana ----------
     def abrir_todo():
         next(b for b in viva.galeria.findChildren(QPushButton) if b.text() == "Ver todo").click()
         ventana_todo = [v for v in viva.findChildren(QDialog) if v.isVisible()][-1]
         ventana_todo.activateWindow()
         esperar(ventana_todo.isActiveWindow)
-        return ventana_todo, [b for b in ventana_todo.findChildren(QToolButton) if b.objectName() == "ejemplo"]
+        return ventana_todo, ventana_todo.findChildren(pagina_director.Pieza)
     todo, rejilla = abrir_todo()
-    assert todo.windowTitle() == "Hecho con Ráfaga Studio" and len(rejilla) == 14
+    assert todo.windowTitle() == "Hecho con Ráfaga Studio" and len(rejilla) == 7
+    assert [b.e["id"] for b in rejilla] == [b.e["id"] for b in mosaico]  # un solo mosaico, intercalado
     chips = [b for b in todo.findChildren(QPushButton) if b.objectName() == "formato"]
     assert [c.text() for c in chips] == ["Todo", "Videos", "Diseños"]
+    junto = rejilla[0].parentWidget()
+    alto_todo = junto.height()
     chips[2].click()
-    assert [b.text() for b in rejilla if b.isVisibleTo(todo)] == ["Cartel"]
+    assert [b.accessibleName() for b in rejilla if b.isVisibleTo(todo)] == ["Rafa", "Portada", "Roto"]
+    # Los filtros esconden piezas sin dejar huecos: las que quedan se recolocan, en 2 columnas como mucho para 3
+    app.processEvents()
+    assert len({b.x() for b in rejilla if b.isVisibleTo(todo)}) == 2 and junto.height() != alto_todo
+    assert junto.height() == junto.heightForWidth(junto.width())
+    assert min(b.y() for b in rejilla if b.isVisibleTo(todo)) == 0
     chips[0].click()
-    assert len([b for b in rejilla if b.isVisibleTo(todo)]) == 14
-    pagina_director.animar(tarjetas)
+    assert len([b for b in rejilla if b.isVisibleTo(todo)]) == 7
+    pagina_director.animar(piezas)
     pagina_director.animar(rejilla, 0)
-    assert moviendose(tarjetas) == [] and moviendose(rejilla) == []  # Inicio, detrás: quieto
-    rejilla[3].setAttribute(Qt.WA_UnderMouse, True)
+    assert moviendose(piezas) == [] and moviendose(rejilla) == []  # Inicio, detrás: quieto
+    rejilla[4].setAttribute(Qt.WA_UnderMouse, True)
     pagina_director.animar(rejilla, 0)
-    assert moviendose(rejilla) == ["V3"]
-    rejilla[1].click()
+    assert moviendose(rejilla) == ["Tráiler"]
+    rejilla[2].click()
     esperar(lambda: not todo.isVisible())
-    assert not viva.reproductor.isHidden() and viva.reproductor.lista.item(0).text() == "1. V1"
-    viva.reproductor.player.stop()
-    viva.reproductor.player.setSource(QUrl())
+    assert ventana_de_video(viva).reproductor.lista.item(0).text() == "1. Anime IA"
+    cerrar_videos(viva)
     todo, rejilla = abrir_todo()
-    rejilla[2].findChild(QMenu).actions()[0].trigger()
+    rejilla[0].findChild(QMenu).actions()[0].trigger()
     esperar(lambda: not todo.isVisible())
-    assert pedidos[-1] == "Pedido 2"
+    assert pedidos[-1] == "Una manzana que habla"
     viva.close()
     # De qué serie habla lo que hizo el Director: la creada, o la del capítulo (series/<serie>/episodios/NN)
     serie_de = pagina_director.serie_de_pasos
@@ -351,6 +533,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert serie_de([{"herramienta": "crear_serie", "resultado": json.dumps({"carpeta": str(d / "otra")})}]) == "otra"
     assert serie_de([{"herramienta": "crear_serie", "resultado": "ERROR: cuota"},
                      {"herramienta": "crear_episodio", "resultado": "[1]"}]) == "" and serie_de([]) == ""
+
 
     # ---------- Lo legal: el aviso al primer uso (y si cambia), los documentos y la marca ----------
     from PySide6.QtWidgets import QTextBrowser  # noqa: E402
@@ -408,29 +591,70 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert [b.text() for b in ventana.grupo.buttons() if b.graphicsEffect()] == ["Dibujos animados"]
     ventana._iluminar(None)
     ventana.inicio.recargar()
-    for _, _, nombre, _, menu in inicio.ACCESOS:
+    for _, _, nombre, _, menu, _, _ in inicio.ACCESOS:
         tarjeta(ventana.inicio, nombre).click()
         i = ventana.paginas.currentIndex()
         assert ventana.grupo.buttons()[i].text() == menu and ventana.grupo.buttons()[i].isChecked(), menu
     conectar(ventana.inicio)[0].click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
-    # «Usar este pedido» desde Inicio: al Director, escrito y sin enviar (gastar lo decide el usuario); e Inicio, ya
-    # oculto, se queda quieto
+    tarjeta(ventana.inicio, "Nuevo: Ráfaga Guardia cuida tu estudio mientras creas").click()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.guardia)
+    # La idea de arriba, en la página de cada opción: escrita, con el foco y sin empezar nada (gastar lo decide el
+    # usuario allí)
     ventana.resize(1366, 728)
     ventana.show()
     ventana.activateWindow()
     esperar(ventana.isActiveWindow)
+    portada = ventana.inicio
+    hilos = len(app.findChildren(QThread))
+    # Con dos líneas: los campos de una línea (Diseño y Director) la reciben en una, con espacios
+    for n, (pagina_de, campo, tipo, una_linea) in enumerate([
+            (ventana.crear, lambda: ventana.crear.prompt.toPlainText(), None, False),
+            (ventana.diseno, lambda: ventana.diseno.pedido.text(), "ilustracion", True),
+            (ventana.diseno, lambda: ventana.diseno.pedido.text(), "auto", True),
+            (ventana.musica, lambda: ventana.musica.idea.toPlainText(), None, False),
+            (ventana.director, lambda: ventana.director.pedido.text(), None, True)]):
+        ventana.ir_a(0)
+        portada.modos.grupo.button(n).click()
+        portada.idea.setPlainText(f"Mi idea {n}\n  segunda línea")
+        portada.crear.click()
+        assert ventana.paginas.currentIndex() == ventana.orden.index(pagina_de), n
+        esperado = f"Mi idea {n} segunda línea" if una_linea else f"Mi idea {n}\n  segunda línea"
+        assert campo() == esperado and portada.idea.toPlainText() == "", (n, campo())
+        if tipo:
+            assert ventana.diseno.tipo_ia.currentData() == tipo
+    esperar(lambda: ventana.director.pedido.hasFocus())
+    assert not (ventana.crear.tarea or ventana.musica.tarea or ventana.diseno.tarea or ventana.director.ocupado())
+    assert len(app.findChildren(QThread)) == hilos  # nada empezó a trabajar
+    # Una idea larguísima llega a Diseño hasta lo que admite su campo (2000 letras)
     ventana.ir_a(0)
-    de_inicio = ventana.inicio.galeria.tarjetas
-    ventana.paginas.currentWidget().ensureWidgetVisible(de_inicio[0])
+    portada.modos.grupo.button(2).click()
+    portada.idea.setPlainText("palabra " * 400)
+    portada.crear.click()
+    assert len(ventana.diseno.pedido.text()) == 2000 and ventana.diseno.pedido.text().startswith("palabra palabra")
+    ventana.diseno.pedido.clear()
+    ventana.director.pedido.clear()
+    # «Usar este pedido» desde Inicio: al Director, escrito y sin enviar (gastar lo decide el usuario); e Inicio, ya
+    # oculto, se queda quieto y su carrusel no pasa
+    ventana.ir_a(0)
+    de_inicio = portada.destacados.piezas + portada.vistas + portada.galeria.tarjetas
+    mosaico_ventana = portada.galeria.tarjetas
+    ventana.paginas.currentWidget().ensureWidgetVisible(mosaico_ventana[0])
     app.processEvents()
     pagina_director.animar(de_inicio)
-    assert moviendose(de_inicio) == ["V0", "V1", "V2"]
-    de_inicio[1].findChild(QMenu).actions()[0].trigger()
+    assert 0 < len(moviendose(de_inicio)) <= pagina_director.MAX_VIVAS
+    assert portada.vigia.isActive() and portada.destacados.reloj.isActive() and not ventana.director.vigia.isActive()
+    mosaico_ventana[1].findChild(QMenu).actions()[0].trigger()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.director)
-    assert ventana.director.pedido.text() == "Pedido 1" and not ventana.director.ocupado()
+    assert ventana.director.pedido.text() == "La mascota" and not ventana.director.ocupado()
+    # Inicio, oculto en otra página del menú: nada abierto, sus relojes parados y su carrusel no pasa
+    assert moviendose(de_inicio) == [] and not portada.vigia.isActive() and not portada.destacados.reloj.isActive()
+    assert ventana.director.vigia.isActive()
     pagina_director.animar(de_inicio)
     assert moviendose(de_inicio) == []
+    antes = portada.destacados.actual
+    portada.destacados.reloj.timeout.emit()
+    assert portada.destacados.actual == antes
     # Y la página baja hasta el campo: setFocus no la desplaza, y la galería lo dejaba debajo, fuera de la pantalla.
     # Igual desde la galería del propio Director
     area = ventana.paginas.currentWidget()
@@ -442,10 +666,14 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: se_ve(ventana.director.pedido))
     area.verticalScrollBar().setValue(0)
     assert not se_ve(ventana.director.pedido)
-    del_director = [b for b in ventana.director.findChildren(QToolButton) if b.objectName() == "ejemplo"]
+    del_director = ventana.director.findChildren(pagina_director.Pieza)
     del_director[2].findChild(QMenu).actions()[0].trigger()
     esperar(lambda: se_ve(ventana.director.pedido))
-    assert ventana.director.pedido.text() == "Pedido 2"
+    assert ventana.director.pedido.text() == "Dos escenas del anime"
+    # De vuelta a Inicio, su vigilancia y su carrusel siguen; la del Director, oculto, se para
+    ventana.ir_a(0)
+    assert portada.vigia.isActive() and portada.destacados.reloj.isActive() and not ventana.director.vigia.isActive()
+    ventana.ir_a(ventana.orden.index(ventana.director))
 
     # ---------- Lo que entrega el Director, en su página: un diseño no va al reproductor de video ----------
     carpeta_diseno = diseno.CARPETA / "20261024-120000-cartel"

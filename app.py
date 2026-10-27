@@ -1,6 +1,7 @@
 """Ráfaga Studio: app de escritorio. Crea videos con IA y saca shorts de videos largos."""
 import math
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +40,18 @@ from ui.paginas.shorts import PaginaShorts
 # trabajo, y un «deno.cmd» en otra carpeta (p. ej. Descargas) se ejecutaría.
 os.chdir(Path(__file__).resolve().parent)
 ICONO = Path(__file__).resolve().parent / "assets" / "icono.ico"
+
+
+def _sin_ventana(popen=subprocess.Popen.__init__):
+    """La app corre con pythonw, sin consola: cada programa de consola que lanzaba (ffmpeg, yt-dlp, demucs…) abría una
+    ventana negra encima del estudio. Así va para todos a la vez, también los que lanzan las librerías."""
+    def __init__(self, *args, creationflags=0, **kwargs):
+        popen(self, *args, creationflags=creationflags | subprocess.CREATE_NO_WINDOW, **kwargs)
+    return __init__
+
+
+if sys.platform == "win32":
+    subprocess.Popen.__init__ = _sin_ventana()
 
 
 class Ventana(QMainWindow):

@@ -112,6 +112,15 @@ visor.close()
 # ---------- En la app: editar en Diseño y animar llevan a su página sin empezar nada ----------
 import app as aplicacion  # noqa: E402
 
+# Sin consola (pythonw), cada ffmpeg o yt-dlp abría una ventana negra encima del estudio: la app se la quita a todos
+if os.name == "nt":
+    import subprocess  # noqa: E402
+    vistos = []
+    aplicacion._sin_ventana(lambda yo, *a, **k: vistos.append(k["creationflags"]))(
+        None, ["x"], creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+    assert vistos == [subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW], vistos
+    assert subprocess.Popen.__init__.__qualname__.startswith("_sin_ventana"), subprocess.Popen.__init__
+
 ventana = aplicacion.Ventana()
 ventana.resize(1280, 720)
 ventana.show()

@@ -1,8 +1,23 @@
 """Pruebas sin internet ni claves. Todas: python -m pruebas · una sola: python -m pruebas.serie"""
+import socket
 import tempfile
 from pathlib import Path
 
 from motor import actividad, claves, guardia
+
+# Sin internet de verdad, también para los SDK (openai, anthropic) que no pasan por los httpx falsos de cada prueba:
+# una prueba que olvidaba una IA falsa mandaba sus textos y su clave de prueba a gen.pollinations.ai. Solo este PC
+_resolver = socket.getaddrinfo
+
+
+def _solo_este_pc(host, *a, **k):
+    nombre = host.decode() if isinstance(host, bytes) else str(host or "")
+    if nombre in ("", "localhost", "127.0.0.1", "::1") or nombre.endswith(".localhost"):
+        return _resolver(host, *a, **k)
+    raise socket.gaierror(socket.EAI_NONAME, f"sin internet en las pruebas: {nombre}")
+
+
+socket.getaddrinfo = _solo_este_pc
 
 # Cada proceso de pruebas con su propio historial de Ráfaga Guardia: las pruebas rechazan rutas de red y dicen «No» al
 # MCP a propósito, y eso no puede llenar (ni bloquear) el datos/guardia.json de verdad ni el de otra prueba

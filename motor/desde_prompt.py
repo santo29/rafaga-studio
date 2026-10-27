@@ -297,9 +297,11 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     if de_la_ia and not animado and al_tiempo(guion["escenas"], segundos):
         notas.append(t("La narración pasaba de los {segundos} s pedidos: se acortó el guion para que quepa.",
                        segundos=segundos))
-    # La ortografía, antes de narrar: lo que se dice es lo que sale en los subtítulos y lo que se publica
-    ia.repasar([guion, *guion["escenas"]], ("titulo", "descripcion", "hashtags", "narracion"), idioma_codigo(voz),
-               notas)
+    # La ortografía, antes de narrar: lo que se dice es lo que sale en los subtítulos y lo que se publica. Un guion
+    # de fuera, tal cual: al agente se le prometió que con su guion no se usa la IA de texto de la app
+    if de_la_ia:
+        ia.repasar([guion, *guion["escenas"]], ("titulo", "descripcion", "hashtags", "narracion"),
+                   idioma_codigo(voz), notas)
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:

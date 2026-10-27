@@ -610,8 +610,10 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
     corregidos, por_ia = list(textos), set()
     pendientes = [i for i, x in enumerate(textos) if isinstance(x, str) and x.strip()]
     todas, elegida = claves.cargar(), claves.para("texto")
-    # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos
-    c = todas.get("groq") or elegida
+    # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos.
+    # Se salta la que ya se sabe que no atiende (sin saldo, sin cuota, clave caducada) si la otra puede
+    candidatas = [x for x in (todas.get("groq"), elegida) if x and x.get("clave")]
+    c = next((x for x in candidatas if not claves._vigente(x["proveedor"])), candidatas[0] if candidatas else None)
     if pendientes and c and c.get("clave"):
         try:
             pedido = json.dumps({"idioma": IDIOMAS[idioma], "textos": [textos[i] for i in pendientes]},
@@ -623,6 +625,8 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
                         corregidos[i] = nuevo.strip()
                         por_ia.add(i)
         except Exception as error:  # noqa: BLE001  sin repaso antes que sin video: el texto sale como vino
+            if isinstance(error, SinServicio):  # _texto_con deja apuntar el «no atendió» a quien llama
+                _no_atendio(c, error, "")
             from . import nubes
             causa = f"{claves.nombre(c['proveedor'])}: {nubes._causa(error, c['proveedor'])}"
             print(f"[Ráfaga] Sin repaso de ortografía ({causa})", flush=True)
@@ -774,10 +778,12 @@ def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino:
         except Exception as error:
             if not respaldo:
                 raise
+            hecha = pegar_producto(prompt, foto, ancho, alto, destino)  # la nota, solo si el respaldo salió
             nota = t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto encima de "
                      "un fondo nuevo.", causa=texto_de_error(error))
             if avisos is not None and nota not in avisos:  # con 5 escenas que fallan igual, una sola nota
                 avisos.append(nota)
+            return hecha
     return pegar_producto(prompt, foto, ancho, alto, destino)
 
 

@@ -5,8 +5,6 @@ import time
 from pathlib import Path
 from typing import Callable
 
-import httpx
-
 from . import ia, memoria, nubes, seguro, video
 from .desde_prompt import FALTAS, PALABRAS_POR_SEGUNDO, idioma_codigo, idioma_de, montar, relanzar_con_gasto
 from .idioma import t
@@ -102,16 +100,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         imagen_con_producto ya pega la foto y lo dice una vez en notas_k."""
         try:
             return ia.imagen_con_producto(p, foto_local, w, h, d, avisos=notas_k)
-        except (httpx.HTTPStatusError, ia.SinServicio) as error:  # la edición con referencia no atendió (sin saldo,
-            edicion = error  # sin cuota): no se cobró, y la foto se pega sobre una escena, con su aviso
         except Exception as error:  # noqa: BLE001  sin IA de imágenes que responda, o una edición que pudo cobrarse
             return foto_sola(error, d)  # sin llegar (no se paga otra imagen): la foto sola
-        try:
-            hecha = ia.pegar_producto(p, foto_local, w, h, d)
-        except Exception as error:  # noqa: BLE001
-            return foto_sola(error, d)
-        nota(edicion, d, t("la foto del producto pegada en la escena"))
-        return hecha
 
     def nota(error, d, origen):
         causa = nubes._causa(error, "").replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")

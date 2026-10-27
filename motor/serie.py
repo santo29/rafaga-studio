@@ -435,9 +435,11 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
         guion["planos"] = guion["planos"][:planos]  # nadie decide por su cuenta cuánto se gasta en imágenes y voces
         if not guion["planos"]:
             raise RuntimeError(t("La IA no escribió ningún plano. Inténtalo de nuevo."))
-        # La ortografía de lo que se dice y sale escrito («RAFA NO DOUBLES», «Miren que bien»), antes de narrar
-        ia.repasar([guion, *[p for p in guion["planos"] if isinstance(p, dict)]], ("titulo", "resumen", "texto"),
-                   notas=notas)
+        # La ortografía de lo que se dice y sale escrito («RAFA NO DOUBLES», «Miren que bien»), antes de narrar. El
+        # guion de un agente no: se le prometió que con su guion no se usa la IA de texto de la app
+        if escrito is None:
+            ia.repasar([guion, *[p for p in guion["planos"] if isinstance(p, dict)]], ("titulo", "resumen", "texto"),
+                       notas=notas)
         ep.mkdir(parents=True, exist_ok=True)
         for vieja in ep.glob("video_final_imagen_*.png"):  # un guion nuevo pide imágenes nuevas (si no, se reusarían)
             vieja.unlink()

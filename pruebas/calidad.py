@@ -16,7 +16,7 @@ os.environ.setdefault("RAFAGA_IDIOMA", "es")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from motor import anuncios, cabina, claves, desde_prompt, herramientas, ia, musica, serie, shorts, video  # noqa: E402
-from motor import video_musical  # noqa: E402
+from motor import actividad, video_musical  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-calidad-"))
 claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # nunca las claves del usuario
@@ -105,6 +105,9 @@ try:
     v = {"angulo": "mas"}
     ia.repasar([v], ("angulo",), "es", avisos)  # el aviso, una vez por trabajo
     assert v == {"angulo": "más"} and avisos == ["No se pudo repasar la ortografía (Groq: 402 sin saldo)."], avisos
+    # y el «no atendió» queda en la actividad de la IA (_texto_con lo deja a quien llama)
+    apunte = actividad.ultimas(1)[0]
+    assert (apunte["proveedor"], apunte["que"], apunte["resultado"]) == ("groq", "texto", "fallo"), apunte
     ia._texto_con = corrector
     usadas.clear()
 
@@ -251,23 +254,26 @@ try:
         assert len(dibujos) == 2 and cierres[-1][0] == "PÍDELO HOY" and cierres[-1][1].name == "producto.png"
         assert narradas[0] == "HUELE ESTE AROMA" and r["resultados"][0]["titulo"].startswith("1. Deseo — ")  # (3)
         assert usadas == ["groq"]
-        # Si la edición con referencia no atiende (402, no cobró; con Gemini llega como RuntimeError), la foto se pega
-        # sobre una escena, y se dice por qué; si no sale ninguna imagen, la foto sola (antes se repetía la escena
-        # anterior, sin el producto)
+        # Si la edición con referencia no atiende (402, no cobró; con Gemini llega como SinServicio), la foto se pega
+        # sobre una escena nueva y se dice una vez por qué (ia.imagen_con_producto, la de verdad); si no sale ninguna
+        # imagen, la foto sola (antes se repetía la escena anterior, sin el producto)
         def sin_saldo(*a, **k):
             httpx.Response(402, request=httpx.Request("POST", "https://x.example/v1/images/edits")).raise_for_status()
 
         def gemini_sin_saldo(*a, **k):  # lo que hace _imagen_gemini con un 402 (abajo, con su httpx falso)
             raise ia.SinServicio("Gemini respondió 402: sin saldo")
+        referencia_real, puede_real = ia._con_referencia, ia.puede_referencia
+        ia.imagen_con_producto, ia.puede_referencia = reales[2], lambda: True
         for falla in (sin_saldo, gemini_sin_saldo):
-            ia.imagen_con_producto, n = falla, len(pegadas)
+            ia._con_referencia, n = falla, len(pegadas)
             carpeta_nueva()
             r = anuncios.crear(str(foto), "Café Brisa Alta", "", "", "", "Demostración del producto", variantes=1,
                                segundos=15)
             assert len(pegadas) == n + 1 and len(r["avisos"]) == 2, r["avisos"]
-            assert "escena 2 no salió (" in r["avisos"][1] and "402" in r["avisos"][1] and \
-                "Se usó la foto del producto pegada en la escena." in r["avisos"][1], r["avisos"]
-            assert "x.example" not in r["avisos"][1]  # sin direcciones (nubes._causa)
+            assert "La edición con la imagen de referencia falló (" in r["avisos"][1] and "402" in r["avisos"][1] \
+                and "foto encima de un fondo nuevo" in r["avisos"][1], r["avisos"]
+            assert "https://" not in r["avisos"][1] and "mozilla" not in r["avisos"][1]  # solo el servicio, sin enlaces
+        ia._con_referencia, ia.puede_referencia = referencia_real, puede_real
         ia.imagen_con_producto = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Ninguna IA de imágenes"))
         escenas_de.clear()
         carpeta_nueva()

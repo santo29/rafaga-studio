@@ -15,7 +15,8 @@ from motor import claves, diseno_ia, guardia, idioma
 from motor.idioma import t
 from ui import iconos, legal
 from ui.brillo import Brillo
-from ui.comun import AvisosLegibles, boton, ESTILO, EstiloApp, etiqueta, NOMBRES_FORMATO, Reproductor, VisorImagen
+from ui.comun import (AvisosLegibles, boton, ESTILO, EstiloApp, etiqueta, NOMBRES_FORMATO, Reproductor,
+                      SelectorModelo, VisorImagen)
 from ui.linea_tiempo import render
 from ui.paginas.anuncios import PaginaAnuncios
 from ui.paginas.cabina import PaginaCabina
@@ -87,6 +88,8 @@ class Ventana(QMainWindow):
                    (f"🔑  {t('Claves de IA')}", self.claves),
                    (f"🔌  {t('Conexión MCP')}", PaginaMCP()), (f"🛡️  {t('Ráfaga Guardia')}", self.guardia)]
         self.orden = [p for _, p in paginas]  # para ir a una página sin contar posiciones
+        # «Conectar más modelos…» del selector «Modelo de video» (Director y Crear) lleva a «Claves de IA»
+        SelectorModelo.ir_a_claves = lambda: self.ir_a(self.orden.index(self.claves))
         # El menú se desplaza solo si no cabe: así la ventana entra en pantallas de portátil (768 px de alto)
         menu = QWidget()
         botones = QVBoxLayout(menu)

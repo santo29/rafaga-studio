@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog
 
 from motor import claves, director, ia, idioma, memoria, roles, voz
 from motor.idioma import t
-from ui.comun import (boton, etiqueta, mensaje, mensaje_error, Reproductor, seccion, Segmentos, Tarea, tarjeta,
-                      ver_imagen)
+from ui.comun import (boton, etiqueta, mensaje, mensaje_error, Reproductor, seccion, Segmentos, SelectorModelo, Tarea,
+                      tarjeta, ver_imagen)
 from ui.iconos import icono, poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
@@ -1019,12 +1019,14 @@ class PaginaDirector(QWidget):
         self.pedido = QLineEdit()
         self.pedido.setPlaceholderText(t("Ej.: Hazme un anuncio de 20 segundos para mi barbería y un post para Instagram"))
         self.pedido.returnPressed.connect(self.enviar)
+        # Con qué modelo se hace el video de este pedido (como en CapCut); Automático: lo de «Claves de IA»
+        self.modelo = SelectorModelo("director")
         self.micro = boton(f"🎙️  {t('Hablar')}")
         self.micro.setToolTip(t("Pulsa y habla: te escucha hasta que terminas (Ctrl+Espacio)"))
         self.micro.clicked.connect(self.alternar_voz)
         self.enviar_btn = boton(f"✨  {t('Hacer')}", "principal")
         self.enviar_btn.clicked.connect(self.enviar)
-        for w, estira in ((adjuntar, 0), (self.pedido, 1), (self.micro, 0), (self.enviar_btn, 0)):
+        for w, estira in ((adjuntar, 0), (self.pedido, 1), (self.modelo, 0), (self.micro, 0), (self.enviar_btn, 0)):
             fila.addWidget(w, estira)
         caja_lay.addLayout(fila)
         self.en_voz = QCheckBox(t("Responder en voz alta"))
@@ -1156,7 +1158,7 @@ class PaginaDirector(QWidget):
         if self.brillo and por_voz:
             self.brillo.poner("pensando")
         self.tarea = Tarea(director.dirigir, pedido=pedido, historial=list(self.historial), al_usar=self.usando.emit,
-                           confirmar=self._confirmar, al_decir=self.plan.emit)
+                           confirmar=self._confirmar, al_decir=self.plan.emit, modelo_video=self.modelo.valor())
         self.historial.append({"rol": "usuario", "texto": pedido})
         self.tarea.progreso.connect(lambda txt, f: (self.estado.setText(txt), self.progreso.setValue(int(f * 100))))
         self.tarea.listo.connect(self._listo)

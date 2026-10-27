@@ -143,7 +143,7 @@ TIPOS = {"shorts": ("zap", "Shorts"), "anuncio": ("megaphone", t("Anuncios")), "
          "edicion": ("scissors", t("Editor de video")), "serie": ("rabbit", t("Dibujos animados"))}
 # Qué conviene conectar para cada uso: mientras no haya ninguna de estas claves, su indicador ofrece «Conectar»
 CONVIENE = {"texto": ("anthropic", "gemini", "groq", "openai"), "imagen": ("cloudflare",),
-            "video": ("huggingface", "modal")}
+            "video": ("modal",)}  # Hugging Face no: su token no da más cuota de animar (nubes.llamar_space)
 ANCHO_MAX = 1440  # en pantallas anchas el contenido no se estira más: se centra
 
 
@@ -235,7 +235,7 @@ def indicadores() -> list[dict]:
         {"icono": "clapperboard", "titulo": t("Video con IA"), "conectar": falta["video"] and video not in de_pago,
          "valor": NOMBRES_PROVEEDOR["ninguno"] if video == "ninguno" else nubes.NOMBRES.get(video, video),
          "detalle": t("Cada escena animada se paga: la app te dice el costo antes de cada trabajo") if video in de_pago
-         else t("Conecta Hugging Face o Modal para animar más escenas cada día") if falta["video"] else ""},
+         else t("Conecta Modal para seguir animando cuando se acabe la cuota gratis del día") if falta["video"] else ""},
         {"icono": "gauge", "titulo": t("Uso gratis de hoy"), "conectar": False,
          "valor": t("{n} creaciones", n=sum(hoy.values())) if hoy else t("Aún nada hoy"),
          "detalle": "  ·  ".join(f"{nubes.NOMBRES.get(k, k)}: {v}" for k, v in hoy.items())[:200]},

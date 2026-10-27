@@ -130,9 +130,9 @@ for ajena in SECRETOS:
 assert not kling.llamadas and len(seedance.llamadas) == 1  # solo la validación de ARK de arriba
 falla(claves.detectar, KLING, "gemini")  # por aquí solo van Kling y Seedance
 kling.valida = no_autorizada("https://api-singapore.klingai.com/tasks?task_ids=0")
-assert "no funcionó" in falla(claves.detectar, KLING, "kling")
+assert falla(claves.detectar, KLING, "kling").startswith("Kling no acepta esta clave (401)")
 kling.valida = httpx.ConnectError("sin red")
-assert "No hay conexión" in falla(claves.detectar, KLING, "kling")
+assert falla(claves.detectar, KLING, "kling").startswith("Sin conexión con Kling.")
 peticion = httpx.Request("GET", "https://api-singapore.klingai.com/tasks")
 kling.valida = httpx.HTTPStatusError("503", request=peticion, response=httpx.Response(503, request=peticion))
 assert "503" in falla(claves.detectar, KLING, "kling")

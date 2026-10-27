@@ -24,6 +24,10 @@ ESTADOS = {"ok": (t("Funciona"), "#3DDC97"), "clave_ok": (t("La clave vale"), "#
            "sin_cuota": (t("Sin cuota ahora"), "#FFB454"),
            "sin_conexion": (t("Sin conexión"), "#FFB454"), "error": (t("Falló al comprobar"), "#FFB454"),
            "comprobando": (t("Comprobando…"), "#A9A9B6"), "conectada": (t("Conectada"), "#A9A9B6")}
+# El título de la ventana cuando una clave no se conecta, según el motivo (claves.NoConecta): antes era «Clave no
+# válida» para todo, también sin internet o con una clave buena a la que le faltaba un permiso
+TITULO_FALLO = {"formato": t("Formato no reconocido"),
+                **{e: ESTADOS[e][0] for e in ("clave", "permiso", "sin_saldo", "sin_cuota", "sin_conexion")}}
 MAX_ACTIVIDAD = 50  # las últimas llamadas a la IA que se ven (actividad.json guarda más)
 # La tabla de la actividad, como las listas de la app: fondo oscuro, sin rejilla y la cabecera discreta
 ESTILO_TABLA = """
@@ -60,7 +64,9 @@ SERVICIOS = [
      t("Gratis"), "https://dash.cloudflare.com/profile/api-tokens"),
     ("pollinations", "Pollinations", t("Imágenes y guiones sin marca de agua"), t("Gratis"),
      "https://enter.pollinations.ai"),
-    ("huggingface", "Hugging Face", t("Más cuota para animar fotos e imágenes"), t("Gratis"),
+    # El token solo sirve para las imágenes: a los Spaces de animar nunca se manda (nubes.llamar_space, token=False)
+    ("huggingface", "Hugging Face", t("Imágenes con tu cuenta gratis de Hugging Face (no da más cuota para animar)"),
+     t("Gratis"),
      "https://huggingface.co/settings/tokens"),
     ("modal", "Modal", t("Tu nube de video con IA. Pega las dos partes del token (ak-… as-…)"),
      t("Gratis: US$1 al mes; US$30 con tarjeta"), "https://modal.com/settings/tokens"),
@@ -374,8 +380,8 @@ class PaginaClaves(QWidget):
             self.lista.addItem(t("Sin claves todavía: casi todo funciona en modo gratis sin clave, pero más lento y "
                                  "simple (guiones con IA básica, una imagen por hora y unos minutos de animación al día). La música "
                                  "con IA sí necesita clave (ElevenLabs o Gemini).\n"
-                                 "Para más calidad y velocidad, conecta claves gratis: Groq (console.groq.com), "
-                                 "Cloudflare (imágenes) y Hugging Face (animar fotos)."))
+                                 "Para más calidad y velocidad, conecta claves gratis: Groq (console.groq.com) y "
+                                 "Cloudflare (imágenes)."))
         conectadas = claves.cargar()
         self._pintar_estados()
         self._pintar_actividad()
@@ -394,6 +400,8 @@ class PaginaClaves(QWidget):
                     nombre = t("La misma que escribe los guiones")
                 elif uso == "video_voz" and p == "auto":  # Kling y Seedance cobran: solo eligiéndolos
                     nombre = t("Automático (Gemini, si está conectada)")
+                elif uso == "imagen" and p == "huggingface":  # con el token van por su cuenta, no por un Space público
+                    nombre = t("Hugging Face (gratis, con tu cuenta)")
                 combo.addItem(nombre, p)
             combo.setCurrentIndex(max(combo.findData(actual.get(uso, "auto")), 0))
             combo.blockSignals(False)
@@ -426,17 +434,21 @@ class PaginaClaves(QWidget):
         for b in botones:
             b.setEnabled(False)
             b.setText(t("Comprobando…"))
-        self.tarea = Tarea(lambda clave, aviso: claves.detectar(clave, proveedor or None), clave=clave)
-        self.tarea.listo.connect(lambda info: self._conectada(info, limpiar=not proveedor))
-        self.tarea.fallo.connect(lambda e: mensaje_error(self, t("Clave no válida"), e))
-        self.tarea.finished.connect(lambda: [(b.setEnabled(True), b.setText(t("Conectar"))) for b in botones])
-        self.tarea.start()
+        tarea = self.tarea = Tarea(lambda clave, aviso: claves.detectar(clave, proveedor or None), clave=clave)
+        tarea.listo.connect(lambda info: self._conectada(info, limpiar=not proveedor))
+        tarea.fallo.connect(lambda e: mensaje_error(
+            self, TITULO_FALLO.get(getattr(tarea.error, "estado", ""), t("No se pudo conectar")), e))
+        tarea.finished.connect(lambda: [(b.setEnabled(True), b.setText(t("Conectar"))) for b in botones])
+        tarea.start()
 
     def _conectada(self, info, limpiar=True):
+        aviso = info.pop("aviso", "")  # p. ej. conectada sin poder ver sus voces: se dice, no se guarda
         claves.guardar(info)
         if limpiar:  # la de Kling o Seedance se pegó en su ventana: lo que haya en el cuadro de arriba se queda
             self.entrada.clear()
         self._refrescar()
+        if aviso:
+            mensaje(self, ESTADOS["permiso"][0], aviso)
 
     def _quitar(self):
         item = self.lista.currentItem()

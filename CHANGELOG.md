@@ -1,8 +1,33 @@
 # Changelog · Historial de versiones
 
-## 1.0.0 · 2026-10-25
+## 1.0.0 · 2026-10-27
 
 First public version · Primera versión.
+
+- **A new home screen:** describe your idea in one box and choose Video, Image, Design, Music or Director; a carousel of
+  real motion made with the studio (the talking apple, the anime, an AI merengue, the brand ad) that moves by itself;
+  tools with live previews; and a masonry of examples. Slideshow-made examples are gone.
+- **Una pantalla de inicio nueva:** escribes tu idea en una sola caja y eliges Video, Imagen, Diseño, Música o
+  Director; un carrusel que pasa solo con movimiento de verdad hecho con el estudio (la manzana que habla, el anime, un
+  merengue animado con IA, el anuncio de la marca); herramientas con vista previa y un mosaico de ejemplos. Los ejemplos
+  hechos pegando fotos ya no están.
+- **See where your money goes:** «AI activity» in «AI keys» lists every AI call with its estimated cost, today's and
+  this month's spend per service; «Check connections» tells each service's real state (working, out of balance, out of
+  quota, invalid key, a missing permission) with the next step, and jobs warn before starting. When the chosen text AI
+  doesn't answer (no balance, no quota), the next connected one is used; nothing is paid twice.
+- **Mira a dónde va tu dinero:** «Actividad de la IA», en «Claves de IA», enseña cada llamada a una IA con su costo
+  estimado y lo gastado hoy y en el mes por servicio; «Comprobar conexiones» dice el estado real de cada servicio
+  (funciona, sin saldo, sin cuota, clave no válida o le falta un permiso) con el siguiente paso, y los trabajos avisan
+  antes de empezar. Si la IA de texto elegida no atiende (sin saldo, sin cuota), se usa la siguiente conectada; nada se
+  paga dos veces.
+- **Better results from a real test of every tool:** ads always show your product photo; music-video karaoke shows
+  your written lyrics; spelling and accents are checked before text is burned into a video; shorts respect the length
+  and never overlap; videos respect the requested length; the mix never clips and the music ducks without pumping;
+  Dominican items are drawn right; export in 4K from the video editor.
+- **Mejores resultados tras una prueba real de cada herramienta:** los anuncios siempre enseñan la foto de tu
+  producto; el karaoke del video musical usa tu letra escrita; la ortografía y las tildes se repasan antes de quemar el
+  texto en un video; los shorts respetan la duración y no se pisan; los videos duran lo que pides; la mezcla ya no
+  satura y la música baja bajo la voz sin bombear; las cosas dominicanas se dibujan bien; el editor exporta en 4K.
 
 - **The Director's voice assistant now answers:** it hears quiet laptop microphones and a short «yes» (before, the
   volume threshold was too high: it listened 8 s, heard nothing and said so in a line below the screen). Pressing

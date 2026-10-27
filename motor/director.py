@@ -32,6 +32,9 @@ FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.
 # Los textos largos los escribe el especialista de cada herramienta, con sus reglas: el Director no los ve ni los
 # manda (un agente de fuera, por el MCP, sí puede pasarlos)
 OCULTOS = {"guion", "biblia", "propuesta"}
+# Lo elige el usuario en el selector «Modelo de video» de su chat, nunca la IA: el código lo pone en cada herramienta
+# que anima (un agente MCP sí lo pasa, y paga solo con el sí de la ventana)
+DEL_USUARIO = {"modelo_video"}
 
 INSTRUCCIONES = """Eres el Director de Ráfaga Studio, un estudio creativo con IA. Trabajas para el usuario (dueño de una
 marca o creador de contenido): te pide un trabajo y tú lo haces con las herramientas del estudio, una en cada paso.
@@ -95,14 +98,14 @@ Reglas:
 
 def _firma(f) -> inspect.Signature:
     firma = inspect.signature(f)
-    return firma.replace(parameters=[p for p in firma.parameters.values() if p.name not in OCULTOS],
+    return firma.replace(parameters=[p for p in firma.parameters.values() if p.name not in OCULTOS | DEL_USUARIO],
                          return_annotation=inspect.Signature.empty)
 
 
 def _doc(f) -> str:
     """La explicación en una línea, sin los párrafos de los argumentos ocultos (cada uno empieza por su nombre)."""
     return " ".join(" ".join(p.split()) for p in (inspect.getdoc(f) or "").split("\n\n")
-                    if p.split(" ", 1)[0] not in OCULTOS)
+                    if p.split(" ", 1)[0] not in OCULTOS | DEL_USUARIO)
 
 
 def catalogo() -> str:
@@ -226,14 +229,20 @@ def usos(nombre: str, args: dict) -> list[str]:
 def impide(nombre: str, args: dict) -> str | None:
     """Por qué esta herramienta no puede hacer su parte de pago ahora (el servicio no tiene saldo o su clave no vale,
     según la última comprobación): se dice antes de preguntar el costo y de esperar minutos a un fallo seguro."""
-    return claves.impide(usos(nombre, args))
+    with claves.por_trabajo(args.get("modelo_video")):  # el modelo de video elegido para este trabajo
+        return claves.impide(usos(nombre, args))
 
 
 def costo(nombre: str, args: dict) -> str | None:
     """La pregunta para el usuario si esta llamada gasta dinero (con su costo aproximado, por lo alto) o publica en su
     canal o queda guardado en la memoria del estudio; None si es gratis y se hace directo. Lo decide el código, nunca
-    la IA. Las imágenes y los videos de pago solo se usan si el usuario los eligió (claves.SOLO_ELIGIENDO), así que en
-    Automático no hay gasto escondido. ponytail: las voces de ElevenLabs no se preguntan."""
+    la IA. Las imágenes y los videos de pago solo se usan si el usuario los eligió (claves.SOLO_ELIGIENDO, o su
+    modelo_video), así que en Automático no hay gasto escondido. ponytail: las voces de ElevenLabs no se preguntan."""
+    with claves.por_trabajo(args.get("modelo_video")):  # con Kling elegido para este trabajo, su costo
+        return _costo(nombre, args)
+
+
+def _costo(nombre: str, args: dict) -> str | None:
     if nombre == "recordar_preferencia":  # un texto de terceros no puede dejar órdenes guardadas sin el sí del usuario
         # Juntada como la guarda memoria.recordar: ni espacios ni saltos de línea esconden un trozo de lo que se guarda
         # (lo que pase de MAX_LARGO, recordar lo rechaza)
@@ -284,11 +293,11 @@ def costo(nombre: str, args: dict) -> str | None:
 
 
 def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: str,
-          confirmar=lambda pregunta: False, avisar=lambda avisos: None) -> tuple[dict, str]:
+          confirmar=lambda pregunta: False, avisar=lambda avisos: None, modelo_video: str = "auto") -> tuple[dict, str]:
     """(argumentos leídos, respuesta de la herramienta). Un error vuelve como texto «ERROR: …» para que la IA lo lea
     y decida: corregir, probar otra cosa o explicárselo al usuario. Lo que cuesta dinero o publica, solo con el sí de
     confirmar(pregunta). avisar(avisos): lo que el usuario debe saber antes de que empiece («Gemini no tiene saldo:
-    usaré Groq para el texto», ver claves.antes_de)."""
+    usaré Groq para el texto», ver claves.antes_de). modelo_video: el que eligió el usuario en su chat."""
     funcion = herramientas.TODAS.get(nombre)
     if funcion is None:
         guardia.registrar("herramienta", "baja", t("El Director pidió una herramienta que no existe: {herramienta}",
@@ -298,10 +307,21 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         args = json.loads(argumentos or "{}") if isinstance(argumentos, str) else argumentos
         if not isinstance(args, dict):
             raise ValueError(t("deben ser un objeto JSON"))
-        args = {k: v for k, v in args.items() if k not in OCULTOS}
+        args = {k: v for k, v in args.items() if k not in OCULTOS | DEL_USUARIO}
         inspect.signature(funcion).bind(**args)  # argumentos que no tiene o que faltan: error claro antes de empezar
     except (ValueError, TypeError) as e:
         return {}, f"ERROR: {t('argumentos no válidos')} ({e})"
+    if "modelo_video" in inspect.signature(funcion).parameters:  # la herramienta anima: con el modelo del usuario
+        # Gemini Omni solo hace escenas que hablan: elegido, crear_video las hace (pregunta antes el costo); para lo
+        # demás, Automático. Uno que ya no está conectado, también Automático (como su selector al abrirlo)
+        lista = {m["id"]: m["nombre"] for m in claves.modelos_video()}
+        habla = nombre == "crear_video" and not _solo_anima(args)
+        args["modelo_video"] = modelo_video if modelo_video in lista and (modelo_video != "gemini" or habla) else "auto"
+        if args["modelo_video"] == "gemini":
+            args["animado"] = True
+        elif nombre == "crear_video" and args["modelo_video"] in claves.VIDEO_GRATIS:
+            args["animado"] = False  # eligió gratis: nada que hable con una IA de pago (como Crear al elegirlo)
+        avisar([t("Para el video usaré: {modelo}.", modelo=lista[args["modelo_video"]])])
     problema = _sin_permiso(nombre, args, del_usuario, de_todos)
     if problema:
         guardia.registrar("director", "media", t("El Director no pudo {herramienta}: {motivo}",
@@ -316,7 +336,8 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         return args, f"ERROR: {guardia.mensaje_bloqueo()}"
     if pregunta and not confirmar(pregunta):
         return args, f"ERROR: {t('el usuario no lo aceptó: no se hizo ni se gastó nada')}"
-    avisar(claves.antes_de(usos(nombre, args)))
+    with claves.por_trabajo(args.get("modelo_video")):
+        avisar(claves.antes_de(usos(nombre, args)))
     al_usar(nombre)
     herramientas._hilo.aviso = aviso
     try:
@@ -330,11 +351,12 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
 
 
 def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lambda nombre: None,
-            confirmar=lambda pregunta: False, al_decir=lambda texto: None) -> dict:
+            confirmar=lambda pregunta: False, al_decir=lambda texto: None, modelo_video: str = "auto") -> dict:
     """Hace el trabajo pedido usando las herramientas que hagan falta. historial: [{"rol": "usuario"|"director",
     "texto", "hecho" (opcional: el resumen de esa respuesta)}] de la conversación. al_usar(nombre) avisa de cada herramienta que empieza (la app ilumina su página).
     confirmar(pregunta) -> bool: la app pregunta al usuario antes de un paso que cuesta dinero o publica; sin su sí no
     se hace. al_decir(texto): lo que va a hacer (el plan), dicho en la conversación antes del primer paso.
+    modelo_video: el que eligió el usuario en el selector «Modelo de video» del chat (solo para este pedido).
     Devuelve {"mensaje", "pasos", "resultados", "formato", "resumen"}: resultados son los videos y audios listos para
     ver; resumen, lo hecho y sus archivos (para recordarlo en la conversación: «sigue», «cámbiale la música»…)."""
     pedido = str(pedido or "").strip()[:4000]
@@ -393,7 +415,7 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         de_todos = del_usuario + de_antes + _norma("\n".join(a for p in pasos for a in _archivos(p["resultado"])))
         trabajo = (nombre, str(r["argumentos"]))
         args, respuesta = _usar(nombre, r["argumentos"], aviso, al_usar, del_usuario, de_todos,
-                                lambda pregunta: permiso(pregunta, trabajo), avisar)
+                                lambda pregunta: permiso(pregunta, trabajo), avisar, modelo_video)
         pasos.append({"herramienta": nombre, "argumentos": args, "resultado": respuesta, "mensaje": mensaje})
         resultados += herramientas.resultados(respuesta)
         formato = (args.get("formato") if isinstance(args.get("formato"), str) else None) or formato

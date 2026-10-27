@@ -94,6 +94,12 @@ def herramienta(funcion):
         except TypeError:  # argumentos que no tiene: que falle la herramienta con su propio error
             datos = None
         if datos is not None:
+            if "modelo_video" in datos:  # uno que no vale se rechaza antes de la ventana: su sí no se perdería
+                try:
+                    herramientas.validar_modelo(datos["modelo_video"],
+                                                habla="video_voz" in director.usos(funcion.__name__, datos))
+                except ValueError as e:
+                    raise ToolError(str(e)) from None
             # El servicio de pago que haría falta no tiene saldo (última comprobación): ni se pregunta el costo
             if no_se_puede := director.impide(funcion.__name__, datos):
                 raise ToolError(no_se_puede)

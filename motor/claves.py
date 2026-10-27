@@ -1,10 +1,12 @@
 """Claves BYOK: el usuario pega una clave y aquí se detecta el proveedor y el mejor modelo."""
 import json
+import math
 import os
 import re
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -645,13 +647,20 @@ def borrar(proveedor: str) -> None:
     todas.pop(proveedor, None)
     _escribir(todas)
     # Las elecciones «por defecto» que apuntaban a esa clave vuelven a Automático (salvo su opción gratis sin clave).
-    a = ajustes()
+    # También el modelo de video recordado en el Director y en Crear (modelo_video_…)
+    a = _guardados()
     limpias = {uso: p for uso, p in a.items() if p != proveedor or p == GRATIS.get(uso)}
     if limpias != a:
         _reemplazar(AJUSTES, json.dumps(limpias, indent=2))
 
 
 def ajustes() -> dict:
+    """Los ajustes guardados y, encima, el modelo de video elegido para el trabajo de este hilo (por_trabajo)."""
+    return {**_guardados(), **getattr(_trabajo, "ajustes", {})}
+
+
+def _guardados() -> dict:
+    """Solo lo guardado en ajustes.json: lo que se lee para volver a escribirlo (nunca el modelo de un trabajo)."""
     for _ in range(20):
         try:
             return json.loads(AJUSTES.read_text(encoding="utf-8"))
@@ -664,7 +673,7 @@ def ajustes() -> dict:
 
 def elegir_por_defecto(uso: str, proveedor: str) -> None:
     """Fija qué proveedor usa el software para un uso. 'auto' vuelve a la elección automática."""
-    a = ajustes()
+    a = _guardados()
     a[uso] = proveedor
     _reemplazar(AJUSTES, json.dumps(a, indent=2))
 
@@ -688,6 +697,93 @@ def para(uso: str) -> dict | None:
         return para("texto")
     # "auto", o el proveedor elegido ya no tiene clave: elección automática (nunca uno de pago que hay que elegir)
     return next((todas[p] for p in PREFERENCIA[uso] if p in todas and p not in SOLO_ELIGIENDO.get(uso, [])), None)
+
+
+# ---------- El modelo de video de UN trabajo: el selector «Modelo de video» (Director, Crear) y el MCP ----------
+# Además de «auto» (lo de «Claves de IA»). «ninguno» = sin animar; Gemini es Omni, solo para escenas que hablan
+VIDEO_GRATIS = ("ninguno", "huggingface", "modal", "pollinations")  # los que no cobran: nada que hable con una de pago
+MODELOS_VIDEO = (*VIDEO_GRATIS, *VIDEO_DE_PAGO, "gemini")
+_trabajo = threading.local()  # lo elegido para el trabajo que corre en cada hilo (ver por_trabajo)
+
+
+@contextmanager
+def por_trabajo(modelo):
+    """Mientras dura, este hilo anima con `modelo` (ajustes() lo ve encima de lo guardado): vale para ese trabajo y
+    nunca cambia ni guarda la elección de «Claves de IA». Kling y Seedance hacen también sus escenas que hablan.
+    «auto», None o uno que no existe: lo de «Claves de IA» (quien lo recibe de fuera lo comprueba con
+    validar_modelo_video, antes de gastar)."""
+    antes = getattr(_trabajo, "ajustes", {})
+    m = modelo if isinstance(modelo, str) and modelo in MODELOS_VIDEO else None
+    _trabajo.ajustes = {} if not m else {"video_voz": m} if m == "gemini" else \
+        {"video": m, **({"video_voz": m} if m in VIDEO_DE_PAGO else {})}
+    try:
+        yield
+    finally:
+        _trabajo.ajustes = antes
+
+
+def validar_modelo_video(modelo) -> str:
+    """El modelo de video que llega de un agente (MCP) o del Director, si vale: uno de la lista y conectado (sin
+    animar y Hugging Face van sin clave). None (un null del agente) es Automático, como en por_trabajo."""
+    if modelo in (None, "auto", "ninguno", "huggingface"):
+        return modelo or "auto"
+    if not isinstance(modelo, str) or modelo not in MODELOS_VIDEO:
+        raise ValueError(t("Modelo de video desconocido ({modelo!r:.30}); valen {modelos}.", modelo=modelo,
+                           modelos=", ".join(("auto", *MODELOS_VIDEO))))
+    if modelo not in cargar():
+        raise ValueError(t("{servicio} no está conectado: conéctalo en «Claves de IA» o usa «auto».",
+                           servicio=nombre(modelo)))
+    return modelo
+
+
+def nombre_modelo(id_: str) -> str:
+    """«kling-3.0-turbo» → «Kling 3.0 Turbo»; «seedance-1-0-pro-fast-251015» → «Seedance 1.0 Pro Fast»."""
+    limpio = re.sub(r"(\d)-(\d)", r"\1.\2", re.sub(r"^dreamina-|-\d{6}$", "", id_))
+    return " ".join(p.capitalize() for p in limpio.split("-"))
+
+
+def modelos_video() -> list[dict]:
+    """Lo que ofrece el selector «Modelo de video»: Automático, Sin animar y solo lo que funciona ya (Hugging Face va
+    sin clave), con lo que cuesta dicho corto. [{"id", "nombre", "estado"}]; estado: el último comprobado de su
+    servicio si no es bueno («sin_saldo», «permiso»…), o ""."""
+    from . import ia, nube  # aquí: los dos importan este módulo
+    from .idioma import dinero
+    todas, recordados = cargar(), estados()
+    # Automático es lo de «Claves de IA»: si allí se eligió Kling o Seedance, se dice (cobra, con su pregunta). Se
+    # llama fuera de un trabajo (selector, Director, MCP): la capa de por_trabajo está vacía y esto es lo guardado
+    pago = ia.video_de_pago()
+    lista = [("auto", t("Automático (lo de «Claves de IA»: {servicio}, de pago)", servicio=ia.nombre_video(pago))
+              if pago else t("Automático (el estudio elige: gratis primero)")),
+             ("ninguno", t("Sin animar (fotos con movimiento, gratis)")),
+             ("huggingface", t("Hugging Face · gratis, cupo diario"))]
+    if "modal" in todas:
+        lista.append(("modal", t("Mi nube Modal · gratis, quedan {n} de {m} hoy",
+                                 n=max(nube.limite() - nube.usados_hoy(), 0), m=nube.limite())))
+    if "pollinations" in todas:
+        lista.append(("pollinations", t("Pollinations · gratis, con el saldo de tu cuenta")))
+    # Lo más que cuesta un clip (ia.precio_video, como la pregunta de costo), al centavo de arriba: 0,115 dice 0,12.
+    # Elegidos, hacen también las escenas que hablan (por_trabajo), que cuestan más: se dicen los dos
+    def arriba(precio: float) -> str:
+        return dinero(math.ceil(round(precio * 100, 6)) / 100)
+    for p in VIDEO_DE_PAGO:
+        if p in todas:
+            id_ = todas[p].get("modelo_video") or modulo_video(p).MODELOS[0]["id"]
+            lista.append((p, t("{modelo} · hasta {costo} por clip, {voz} si habla", modelo=nombre_modelo(id_),
+                               costo=arriba(ia.precio_video(p)), voz=arriba(ia.precio_video(p, voz=True)))))
+    if "gemini" in todas:
+        lista.append(("gemini", t("Gemini Omni · {costo} por segundo, habla", costo=dinero(ia.PRECIO_OMNI))))
+    # Sin clave no hay estado que mirar; Hugging Face anima con la cuota anónima, sin su token (impide tampoco lo mira)
+    return [{"id": i, "nombre": n,
+             "estado": "" if i in ("auto", "ninguno", "huggingface") or
+             (e := (recordados.get(i) or {}).get("estado", "ok")) in ("ok", "clave_ok") else e}
+            for i, n in lista]
+
+
+def nombre_modelo_video(modelo: str) -> str:
+    """Cómo lo dice el selector («Kling 3.0 · hasta US$0.56 por clip, US$1.01 si habla»); uno que ya no está, como
+    Automático."""
+    lista = modelos_video()
+    return next((m["nombre"] for m in lista if m["id"] == modelo), lista[0]["nombre"])
 
 
 def publico() -> list[dict]:
@@ -994,6 +1090,13 @@ def impide(usos) -> str | None:
             return t("No se puede hacer el video que habla: {problema} ({cuando}). {paso} O desmarca «Video animado "
                      "con IA». No se cobró nada.", problema=frase(quien, malo["estado"]), cuando=_cuando(malo),
                      paso=que_hacer(quien, malo["estado"]))
+    # El modelo elegido para este trabajo en «Modelo de video» (con el de «Claves de IA», las escenas van con zoom
+    # suave: antes_de). Hugging Face no: para video va sin su token, que es lo que se comprueba
+    quien = getattr(_trabajo, "ajustes", {}).get("video")
+    if "video" in usos and quien != "huggingface" and quien in cargar() and (malo := _vigente(quien, BLOQUEA)):
+        return t("No se puede animar con {servicio}, el modelo de video elegido: {problema} ({cuando}). {paso} O "
+                 "elige otro modelo de video. No se cobró nada.", servicio=nombre(quien),
+                 problema=frase(quien, malo["estado"]), cuando=_cuando(malo), paso=que_hacer(quien, malo["estado"]))
     if "musica" in usos:
         c = para("musica") or {}
         respaldo = "elevenlabs" in cargar() and ajustes().get("musica", "auto") == "auto" and \

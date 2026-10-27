@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import desde_prompt, diseno, edicion, ia, memoria, seguro, video
-from .idioma import IDIOMAS, actual, t
+from .idioma import IDIOMAS, actual, t, texto_de_error
 
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
 MAX_PERSONAJES, MAX_PLANOS, MAX_EPISODIOS = 6, 40, 200
@@ -293,7 +293,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         except Exception as e:  # sin cuota hoy: la serie queda creada y la lámina se dibuja o se elige después
             faltan.append(p["nombre"])
             avisos.append(t("No salió la lámina de {nombre} ({causa}).", nombre=p["nombre"],
-                            causa=str(e).replace("\n", " · ")[:300]))
+                            causa=texto_de_error(e).replace("\n", " · ")[:300]))
     aviso(t("¡Listo!"), 1.0)
     return {**resumen(carpeta, datos), "avisos": avisos, "faltan_laminas": faltan, "resultados": []}
 
@@ -350,11 +350,26 @@ def _escenas(datos: dict, guion: dict) -> list[dict]:
     return escenas
 
 
-def _dibujar(carpeta: Path, escena: dict, prompt: str, ancho: int, alto: int, destino: Path) -> Path:
+def _dibujar(carpeta: Path, escena: dict, prompt: str, ancho: int, alto: int, destino: Path,
+             sin_lamina: dict | None = None, plano: int = 0) -> Path:
+    """El dibujo de un plano, con la lámina de quien sale como referencia si la IA de imágenes sabe editar.
+    sin_lamina: si se pasa y la edición con lámina falla, el plano se dibuja igual sin ella con la IA de imágenes normal
+    (gratis primero) y se apunta ahí el motivo y el plano; los planos siguientes ya no la intentan. Pasó: Pollinations
+    Kontext sin saldo (402) en el plano 6 dejaba ese plano con el dibujo del 5, sin el personaje que habla."""
     ref = escena["ref"]
-    if ref and lamina(carpeta, ref).is_file() and ia.puede_referencia():
-        return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False)
-    return ia.imagen(prompt, ancho, alto, destino)
+    con_lamina = bool(ref and lamina(carpeta, ref).is_file() and ia.puede_referencia())
+    if con_lamina and not (sin_lamina or {}).get("motivo"):
+        try:
+            return ia.imagen_con_producto(prompt, lamina(carpeta, ref), ancho, alto, destino, realista=False,
+                                          respaldo=False)
+        except Exception as error:
+            if sin_lamina is None:
+                raise
+            sin_lamina["motivo"] = texto_de_error(error)
+    hecho = ia.imagen(prompt, ancho, alto, destino)
+    if con_lamina and sin_lamina is not None:
+        sin_lamina.setdefault("planos", []).append(plano)
+    return hecho
 
 
 def _edicion(ep: Path, nombre: str) -> Path:
@@ -423,12 +438,15 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
               if rehacer and (_imagen(ep, i).is_file() or not dibujar)
               and (ep / f"video_final_escena_{i:02d}.mp4").is_file()}
 
+    sin_lamina = {}  # si la edición con lámina deja de funcionar a mitad: el motivo y los planos dibujados sin ella
+
     def crear_imagen(prompt, ancho, alto, destino):
         if destino.is_file():  # al rehacer el capítulo, lo que ya salió no se vuelve a pedir
             return destino
         if not dibujar:
             raise RuntimeError(t("se dibuja con «Dibujar lo que falta»"))
-        return _dibujar(carpeta, escenas[int(destino.stem.rsplit("_", 1)[1])], prompt, ancho, alto, destino)
+        i = int(destino.stem.rsplit("_", 1)[1])
+        return _dibujar(carpeta, escenas[i], prompt, ancho, alto, destino, sin_lamina, i + 1)
     notas = []
     try:
         final = desde_prompt.montar({"escenas": escenas, "estilo_visual": datos["estilo"]}, ep, datos["formato"],
@@ -436,6 +454,10 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
                                     pago=pago)
     except Exception as error:  # lo ya pagado no se pierde de vista (al rehacer, lo ya animado no se paga otra vez)
         desde_prompt.relanzar_con_gasto(error, notas, ep)
+    if sin_lamina.get("planos"):  # una sola nota, en claro: el motivo es el mismo para todos
+        notas.append(t("Planos dibujados sin la lámina de referencia porque la edición falló ({causa}): {lista}. Los "
+                       "personajes pueden verse algo distintos; rehazlos cuando vuelva a funcionar.",
+                       causa=sin_lamina["motivo"], lista=", ".join(map(str, sin_lamina["planos"]))))
     dibujos = sum(_imagen(ep, i).is_file() for i in range(len(escenas)))
     estado = _estado(ep, len(escenas))
     capitulo = {"numero": numero, "titulo": _texto(guion.get("titulo"), 120),
@@ -486,7 +508,7 @@ def rehacer_plano(episodio: str, i: int, descripcion: str | None = None, texto: 
     except Exception as e:
         nuevo.unlink(missing_ok=True)
         raise RuntimeError(t("El plano {n} no se pudo dibujar ({causa}). Se quedó como estaba.", n=i + 1,
-                             causa=str(e).replace("\n", " · ")[:300])) from None
+                             causa=texto_de_error(e).replace("\n", " · ")[:300])) from None
     diseno.escribir_json(ep / "guion.json", guion)
     os.replace(nuevo, _imagen(ep, i))
     (ep / f"video_final_escena_{i:02d}.mp4").unlink(missing_ok=True)

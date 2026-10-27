@@ -143,8 +143,9 @@ def _generar(info: dict, imagen: Path | None, prompt: str, destino: Path, segund
         codigo = _codigo(r)
         if codigo in _SIN_MODELO or codigo.startswith("InvalidEndpointOrModel.") or (not voz and codigo == _CARA_REAL):
             continue
-        if r.is_error:
-            raise RuntimeError(_motivo(r, codigo, info["clave"]))
+        if r.is_error:  # sin saldo: SinSaldo, así el trabajo no pide los demás clips (fallarían igual)
+            raise (ia.SinSaldo if codigo in ("AccountOverdueError", "OperationDenied.ServiceOverdue")
+                   else RuntimeError)(_motivo(r, codigo, info["clave"]))
         try:
             tarea = r.json()["id"]
         except (ValueError, LookupError, TypeError):

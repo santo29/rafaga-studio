@@ -552,6 +552,12 @@ class PaginaTrabajo(QWidget):
         self.lay.addWidget(etiqueta(subtitulo, "sub"))
         self.form, self.form_lay = tarjeta()
         self.lay.addWidget(self.form)
+        # Lo que hay que saber antes de que empiece (un servicio sin saldo y cuál lo hace en su lugar): se queda a la
+        # vista mientras trabaja, no se lo lleva el siguiente aviso de progreso
+        self.antes = etiqueta("")
+        self.antes.setStyleSheet("color: #FFB454;")
+        self.antes.hide()
+        self.lay.addWidget(self.antes)
         self.estado = etiqueta("", "sub")
         self.progreso = QProgressBar()
         self.progreso.setRange(0, 100)
@@ -584,14 +590,21 @@ class PaginaTrabajo(QWidget):
         if area:
             area.ensureWidgetVisible(self.estado)
 
+    @staticmethod
+    def _herramienta(funcion) -> str | None:
+        """La herramienta del Director que hace lo mismo que `funcion`: de ella se sabe qué IA usa (director.usos)."""
+        from motor import anuncios, musica, serie, shorts, video_musical
+        return {desde_prompt.generar: "crear_video", anuncios.crear: "crear_anuncios", musica.crear: "crear_cancion",
+                serie.crear_serie: "crear_serie", serie.crear_episodio: "crear_episodio", shorts.generar: "sacar_shorts",
+                video_musical.crear: "crear_video_musical"}.get(funcion)
+
     def _pagar_video(self, funcion, datos) -> bool:
         """Si el trabajo usa video de pago (escenas que hablan, o Kling o Seedance para animar, elegidos en Claves de
         IA), lo pregunta antes con lo más que puede costar, todo en una sola pregunta. True si se puede seguir."""
-        from motor import anuncios, director, ia, serie, video_musical
+        from motor import director, ia, serie
         pago = ia.video_de_pago()
         unico = funcion in (desde_prompt.animar_imagen, serie.rehacer_plano)  # un solo clip
-        nombre = {desde_prompt.generar: "crear_video", anuncios.crear: "crear_anuncios",
-                  serie.crear_episodio: "crear_episodio", video_musical.crear: "crear_video_musical"}.get(funcion)
+        nombre = self._herramienta(funcion)  # las que no animan escenas (canción, shorts…) cuentan 0 clips
         clips = (1 if unico else director.clips(nombre, datos)) if pago and (unico or nombre) else 0
         mudos = clips * ia.precio_video(pago) if clips else 0.0
         if funcion is desde_prompt.generar and datos.get("animado") is True:  # escenas que hablan (de pago)
@@ -622,8 +635,18 @@ class PaginaTrabajo(QWidget):
         if self.tarea and self.tarea.isRunning():
             mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
             return False
+        # Con lo último comprobado de cada servicio (Claves de IA): lo de pago que no puede salir ni empieza (ni se
+        # pregunta su costo) y lo que pasará a otro servicio se dice antes
+        from motor import claves, director
+        usos = director.usos(nombre, datos) if (nombre := self._herramienta(funcion)) else []
+        if no_se_puede := claves.impide(usos):
+            mensaje_error(self, t("No se puede empezar"), no_se_puede)
+            return False
         if not self._pagar_video(funcion, datos):
             return False
+        avisos = claves.antes_de(usos)
+        self.antes.setText("\n".join(f"⚠️ {a}" for a in avisos))
+        self.antes.setVisible(bool(avisos))
         boton_iniciar.setEnabled(False)
         self.progreso.show()
         self.progreso.setValue(0)

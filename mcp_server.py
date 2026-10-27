@@ -25,10 +25,13 @@ def _ruta(ruta: str) -> str:
     quedan igual (el motor rechaza las de red)."""
     return os.path.join(ORIGEN, ruta) if ruta else ruta
 
-from motor import director, diseno, guardia, herramientas
-from motor.idioma import t
+import httpx  # noqa: E402
+
+from motor import actividad, director, diseno, guardia, herramientas
+from motor.idioma import t, texto_de_error
 
 guardia.ORIGEN = "mcp"  # lo que apunte Ráfaga Guardia desde este proceso viene de un agente
+actividad.ORIGEN = "mcp"  # y las llamadas a la IA que haga, en «Claves de IA», con su origen
 
 # Las herramientas corren en otros hilos: la QApplication sin ventana que dibuja los diseños nace aquí, en el hilo
 # principal, como pide Qt
@@ -91,6 +94,9 @@ def herramienta(funcion):
         except TypeError:  # argumentos que no tiene: que falle la herramienta con su propio error
             datos = None
         if datos is not None:
+            # El servicio de pago que haría falta no tiene saldo (última comprobación): ni se pregunta el costo
+            if no_se_puede := director.impide(funcion.__name__, datos):
+                raise ToolError(no_se_puede)
             partes = [director.costo(funcion.__name__, datos)]
             if fuera := _de_fuera(funcion.__name__, datos):
                 guardia.registrar("mcp_fuera", "baja", t("Un agente MCP quiso usar archivos de fuera de su carpeta "
@@ -109,8 +115,8 @@ def herramienta(funcion):
                 raise ToolError(t("el usuario no lo aceptó: no se hizo ni se gastó nada"))
         try:
             return funcion(*args, **kwargs)
-        except (ValueError, RuntimeError) as e:
-            raise ToolError(str(e)) from None
+        except (ValueError, RuntimeError, httpx.HTTPError) as e:  # el de httpx, en claro (venía en inglés con un enlace)
+            raise ToolError(texto_de_error(e)) from None
     return mcp.tool()(envoltura)
 
 

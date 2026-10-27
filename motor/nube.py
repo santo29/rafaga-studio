@@ -13,6 +13,7 @@ from .idioma import t
 RAIZ = Path(__file__).resolve().parent.parent
 USO = RAIZ / "datos" / "uso_nube.json"
 LIMITE_DIARIO = 3  # ~3 clips/día × 30 días × ~$0.30 ≈ los $30 gratis del plan Starter
+PRECIO_CLIP = 0.35  # US$ por clip de 5 s del crédito de Modal, por lo alto (lo que dice «Claves de IA»: 0,20 a 0,35)
 
 
 def limite() -> int:

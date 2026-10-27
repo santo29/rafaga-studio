@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from . import claves, guardia, seguro
+from . import actividad, claves, guardia, seguro
 from .idioma import dinero, t
 
 VIDEO_MAXIMO = 300 * 1024 ** 2  # un clip de IA de 5 s pesa unos pocos MB
@@ -365,6 +365,7 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
             datos = _json_de(contenido, esquema)
             valido = _validar(datos, esquema)  # se queda con los elementos completos, si queda alguno
             if valido is not None and not _sin_rellenar(valido):
+                actividad.anotar("texto", "gratis_sin_clave", "openai")
                 return valido
             faltan = ", ".join(_faltan(_normalizar(datos, esquema), esquema)[:5])
             problema = (t("devolvió el ejemplo sin rellenar") if valido is not None
@@ -372,6 +373,7 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
         except (ValueError, KeyError, IndexError, TypeError):  # el detalle (en inglés, de Python) va a la consola
             traceback.print_exc()
             problema = t("respuesta no válida")
+    actividad.anotar("texto", "gratis_sin_clave", "openai", error=problema)
     raise RuntimeError(t("La IA gratis sin clave no dio una respuesta válida ({problema}). Conecta Groq o Gemini "
                          "(gratis) en «Claves de IA» para más calidad.", problema=problema))
 
@@ -387,23 +389,28 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
     try:
         return _texto_con(c, instrucciones, pedido, esquema)
     except SinServicio as fallo:
-        # Sin saldo, sin cuota, clave caducada o el servicio caído (pasó: Gemini sin saldo prepago dejaba todo el estudio
-        # sin IA de texto aunque Groq, gratis, estaba conectado): se prueban las demás IA de texto conectadas y, al
-        # final, la gratis sin clave. Ese pedido no se cobró, así que no se paga dos veces.
-        todas = claves.cargar()
-        for otro in claves.PREFERENCIA[uso]:
-            if otro == c["proveedor"] or otro not in todas or "texto" not in claves.USOS.get(otro, []):
-                continue
-            try:
-                resultado = _texto_con(todas[otro], instrucciones, pedido, esquema)
-            except SinServicio:
-                continue
-            print(f"[Ráfaga] {fallo} Se usó {claves.nombre(otro)}.", flush=True)
-            return resultado
+        primero = fallo
+    # Sin saldo, sin cuota, clave caducada o el servicio caído (pasó: Gemini sin saldo prepago dejaba todo el estudio
+    # sin IA de texto aunque Groq, gratis, estaba conectado): se prueban las demás IA de texto conectadas y, al final,
+    # la gratis sin clave. Ese pedido no se cobró, así que no se paga dos veces. Cada una que no atiende queda en la
+    # actividad de la IA con la que se probó después («pasó a Groq»).
+    todas = claves.cargar()
+    resto = [p for p in claves.PREFERENCIA[uso]
+             if p != c["proveedor"] and p in todas and "texto" in claves.USOS.get(p, [])]
+    cola = [c["proveedor"], *resto, "gratis_sin_clave"]
+    _no_atendio(c, primero, cola[1])
+    for i, otro in enumerate(resto, 1):
         try:
-            return _limpio(_texto_gratis(instrucciones, pedido, esquema))
-        except Exception:  # noqa: BLE001  ni la gratis: el motivo que se enseña es el de la IA elegida
-            raise fallo from None
+            resultado = _texto_con(todas[otro], instrucciones, pedido, esquema)
+        except SinServicio as fallo:
+            _no_atendio(todas[otro], fallo, cola[i + 1])
+            continue
+        print(f"[Ráfaga] {primero} Se usó {claves.nombre(otro)}.", flush=True)
+        return resultado
+    try:
+        return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+    except Exception:  # noqa: BLE001  ni la gratis: el motivo que se enseña es el de la IA elegida
+        raise primero from None
 
 
 class SinServicio(RuntimeError):
@@ -411,11 +418,48 @@ class SinServicio(RuntimeError):
 
 
 _SIN_SERVICIO = {401, 402, 403, 429}
+# US$ por millón de tokens (entrada, salida) de la IA de texto, por lo alto, para el gasto estimado de «Actividad de la
+# IA» (un guion cuesta céntimos: no se pregunta). Groq y Pollinations van con su plan gratis. Gemini, lo que cobra con
+# la facturación activada (con su cuota gratis no cuesta nada, pero no se puede saber cuál usa la clave).
+PRECIO_TEXTO = {"anthropic": (5.0, 25.0), "openai": (2.5, 15.0), "gemini": (0.5, 3.0), "openrouter": (3.0, 15.0),
+                "xai": (3.0, 15.0), "deepseek": (0.6, 2.5)}
+
+
+def costo_texto(proveedor: str, entrada, salida) -> float:
+    """Lo que cuesta como mucho un pedido de texto con esos tokens (0 si es gratis)."""
+    precio_entrada, precio_salida = PRECIO_TEXTO.get(proveedor, (0.0, 0.0))
+    try:
+        return (float(entrada or 0) * precio_entrada + float(salida or 0) * precio_salida) / 1_000_000
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _no_atendio(c: dict, fallo: "SinServicio", siguiente: str) -> None:
+    actividad.anotar("texto", c["proveedor"], c.get("modelo_texto") or "", error=getattr(fallo, "corto", fallo),
+                     paso_a=siguiente)
+
+
+def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
+    """El error de un servicio de texto que respondió `codigo`, en claro. SinServicio si no atendió (se prueba otra IA
+    y lo apunta texto_json, que sabe cuál); si no, queda apuntado aquí. El estado del servicio se pone al día."""
+    claves.recordar(c["proveedor"], codigo, detalle)
+    # Claude sin saldo y Gemini con la clave mal responden 400 («credit balance is too low», «API key not valid»): no
+    # cobran y otra IA sí puede; un 400 de verdad (el pedido está mal) no se repite con otra
+    no_atiende = codigo in _SIN_SERVICIO or codigo >= 500 or claves.clasificar(codigo, detalle) in claves.BLOQUEA
+    clase = SinServicio if no_atiende else RuntimeError
+    error = clase(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=claves.nombre(c["proveedor"]),
+                    codigo=codigo, detalle=detalle))
+    error.corto = f"{codigo}: {detalle}"
+    if clase is RuntimeError:
+        actividad.anotar("texto", c["proveedor"], c.get("modelo_texto") or "", error=error.corto)
+    return error
 
 
 def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
-    """Un pedido JSON a la IA de texto `c` (Claude, o cualquiera compatible con OpenAI)."""
-    nombre = claves.nombre(c["proveedor"])
+    """Un pedido JSON a la IA de texto `c` (Claude, o cualquiera compatible con OpenAI). Cada respuesta queda en la
+    actividad de la IA con lo que costó (sus tokens)."""
+    nombre, modelo = claves.nombre(c["proveedor"]), c.get("modelo_texto") or ""
+    largo = (len(instrucciones) + len(pedido) + len(json.dumps(esquema))) / 3  # tokens, si el servicio no los dice
     if c["proveedor"] == "anthropic":
         import anthropic
         cliente = anthropic.Anthropic(api_key=c["clave"])
@@ -427,11 +471,17 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
             ) as s:
                 r = s.get_final_message()
         except anthropic.APIStatusError as e:  # sin esto se veía «Error code: 401 - {'error': {…}, 'request_id': …}»
-            raise (SinServicio if e.status_code in _SIN_SERVICIO or e.status_code >= 500 else RuntimeError)(
-                t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre, codigo=e.status_code,
-                  detalle=motivo(e.response))) from None
+            raise _error_texto(c, e.status_code, motivo(e.response)) from None
+        except Exception as e:  # sin conexión, cortado…: también se apunta
+            actividad.anotar("texto", c["proveedor"], modelo, error=e)
+            raise
+        uso = getattr(r, "usage", None)
+        actividad.anotar("texto", c["proveedor"], modelo,
+                         costo_texto("anthropic", getattr(uso, "input_tokens", largo), getattr(uso, "output_tokens", 0)),
+                         t("Claude rechazó el pedido.") if r.stop_reason == "refusal" else None)
         if r.stop_reason == "refusal":
             raise RuntimeError(t("Claude rechazó el pedido."))
+        claves.recordar(c["proveedor"], 200)
         return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
 
     from openai import APIStatusError, OpenAI
@@ -447,14 +497,22 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
                                                 # Pollinations: que no salga en su feed público
                                                 extra_body={"private": True} if c["proveedor"] == "pollinations" else None)
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
-            raise (SinServicio if e.status_code in _SIN_SERVICIO or e.status_code >= 500 else RuntimeError)(
-                t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre, codigo=e.status_code,
-                  detalle=motivo(e.response))) from None
+            raise _error_texto(c, e.status_code, motivo(e.response)) from None
+        except Exception as e:  # sin conexión, cortado…: también se apunta
+            actividad.anotar("texto", c["proveedor"], modelo, error=e)
+            raise
+        contenido = r.choices[0].message.content or ""
         try:
-            valido = _validar(_json_de(r.choices[0].message.content or "", esquema), esquema)
+            valido = _validar(_json_de(contenido, esquema), esquema)
         except ValueError:
             valido = None
+        uso = getattr(r, "usage", None)  # una respuesta incompleta también se cobra
+        actividad.anotar("texto", c["proveedor"], modelo,
+                         costo_texto(c["proveedor"], getattr(uso, "prompt_tokens", largo),
+                                     getattr(uso, "completion_tokens", len(contenido) / 3)),
+                         None if valido is not None else t("respondió incompleto"))
         if valido is not None:
+            claves.recordar(c["proveedor"], 200)
             return _limpio(valido)
     raise RuntimeError(t("La IA de texto ({proveedor}) respondió incompleto dos veces. Inténtalo de nuevo o "
                          "elige otra IA de texto en «Claves de IA».", proveedor=nombre))
@@ -474,26 +532,38 @@ PRECIO_EDITAR_OPENAI = 0.08
 
 
 def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
-    """La IA de imágenes conectada (con referencia: ver puede_referencia) hace `pedido` a partir de la foto."""
+    """La IA de imágenes conectada (con referencia: ver puede_referencia) hace `pedido` a partir de la foto. Queda en la
+    actividad de la IA, y un error del servicio se cuenta en claro (su código y su «message»): salía el texto de httpx
+    en inglés con un enlace a mozilla.org (pasó con Pollinations sin saldo, 402)."""
     c = claves.para("imagen")
-    if c["proveedor"] == "gemini":
-        destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad))
-        return destino
-    if c["proveedor"] == "openai":
-        guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
-    size = "1024x1536" if alto > ancho else "1536x1024" if ancho > alto else "1024x1024"
-    base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
-    modelo = c["modelo_imagen"] if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
-    # OpenAI, en calidad fija: con «auto» podía salir en alta, sin precio conocido (ver PRECIO_EDITAR_OPENAI)
-    extra = {"quality": "medium"} if c["proveedor"] == "openai" else {"private": "true"}
-    with open(foto, "rb") as f:
-        r = httpx.post(f"{base}/images/edits", timeout=300, headers={"Authorization": f"Bearer {c['clave']}"},
-                       files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
-                       data={"model": modelo, "prompt": pedido, "size": size, "n": "1", **extra})
-    r.raise_for_status()
-    d = r.json()["data"][0]
-    destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
-                                     else seguro.descargar(d["url"])))
+    modelo = c.get("modelo_imagen") if c["proveedor"] == "openai" else "black-forest-labs/flux.1-kontext-pro"
+    try:
+        if c["proveedor"] == "gemini":
+            destino.write_bytes(_imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad))
+            actividad.anotar("imagen", "gemini", _modelo_gemini_usado(c["clave"]),
+                             precio_imagen_gemini(c["clave"], calidad))
+            return destino
+        if c["proveedor"] == "openai":
+            guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
+        size = "1024x1536" if alto > ancho else "1536x1024" if ancho > alto else "1024x1024"
+        base = "https://api.openai.com/v1" if c["proveedor"] == "openai" else "https://gen.pollinations.ai/v1"
+        # OpenAI, en calidad fija: con «auto» podía salir en alta, sin precio conocido (ver PRECIO_EDITAR_OPENAI)
+        extra = {"quality": "medium"} if c["proveedor"] == "openai" else {"private": "true"}
+        with open(foto, "rb") as f:
+            r = httpx.post(f"{base}/images/edits", timeout=300, headers={"Authorization": f"Bearer {c['clave']}"},
+                           files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
+                           data={"model": modelo, "prompt": pedido, "size": size, "n": "1", **extra})
+        if r.is_error:
+            raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio=claves.nombre(c["proveedor"]),
+                                 codigo=r.status_code, detalle=motivo(r)))
+        d = r.json()["data"][0]
+        destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
+                                         else seguro.descargar(d["url"])))
+    except Exception as e:
+        actividad.anotar("imagen", c["proveedor"], modelo if c["proveedor"] != "gemini" else
+                         _modelo_gemini_usado(c["clave"]), error=e)
+        raise
+    actividad.anotar("imagen", c["proveedor"], modelo, PRECIO_EDITAR_OPENAI if c["proveedor"] == "openai" else 0.0)
     return destino
 
 
@@ -536,14 +606,26 @@ def editar_imagen(foto: Path, instruccion: str, destino: Path, calidad: str = "1
     return destino
 
 
-def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True) -> Path:
+def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True,
+                        avisos: list | None = None, respaldo: bool = True) -> Path:
     """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
-    si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto)."""
+    si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto).
+    Si la edición con referencia falla (sin saldo, servicio caído), la escena se hace igual como sin ella (fondo y foto
+    encima) en vez de quedarse sin imagen y repetir la anterior; se dice en `avisos`. respaldo=False: el error sube
+    (los dibujos animados se dibujan entonces sin su lámina: ver serie._dibujar)."""
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
               "label and logo)." + (" Photorealistic." if realista else ""))
     if puede_referencia():
-        return _con_referencia(pedido, foto, ancho, alto, destino)
+        try:
+            return _con_referencia(pedido, foto, ancho, alto, destino)
+        except Exception as error:
+            if not respaldo:
+                raise
+            from .idioma import texto_de_error
+            if avisos is not None:
+                avisos.append(t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto "
+                                "encima de un fondo nuevo.", causa=texto_de_error(error)))
     # ponytail: sin edición con referencia el producto se pega encima del fondo; queda menos natural.
     from .video import ffmpeg
     # Pedir «the product» y a la vez «no product» se contradecía: el hueco va en la propia escena
@@ -564,9 +646,18 @@ def investigar_web(pregunta: str) -> str | None:
     cliente = anthropic.Anthropic(api_key=c["clave"])
     mensajes = [{"role": "user", "content": pregunta}]
     for _ in range(6):  # la búsqueda puede pausar el turno; se retoma hasta 5 veces
-        r = cliente.messages.create(
-            model=c["modelo_texto"], max_tokens=16000, output_config={"effort": "medium"},
-            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 10}], messages=mensajes)
+        try:
+            r = cliente.messages.create(
+                model=c["modelo_texto"], max_tokens=16000, output_config={"effort": "medium"},
+                tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 10}], messages=mensajes)
+        except Exception as e:
+            actividad.anotar("texto", "anthropic", c.get("modelo_texto") or "", error=e)
+            raise
+        uso = getattr(r, "usage", None)  # cada búsqueda web cuesta aparte (US$0,01): va en la misma línea
+        busquedas = getattr(getattr(uso, "server_tool_use", None), "web_search_requests", 0) or 0
+        actividad.anotar("texto", "anthropic", c.get("modelo_texto") or "",
+                         costo_texto("anthropic", getattr(uso, "input_tokens", 0), getattr(uso, "output_tokens", 0))
+                         + busquedas * 0.01)
         if r.stop_reason != "pause_turn":
             break
         mensajes = [*mensajes, {"role": "assistant", "content": r.content}]
@@ -653,7 +744,14 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
                                                                   calidad=calidad),
               "gratis_sin_clave": lambda: pollinations(con_clave=False)}
     tareas ={p: (lambda f=f: _imagen_real(f())) for p, f in tareas.items()}
-    datos, _ = nubes.rotar("imagen", tareas)
+
+    def que_fue(p):  # el modelo y lo que cuesta, para la actividad de la IA
+        if p == "gemini":
+            return _modelo_gemini_usado(todas["gemini"]["clave"]), precio_imagen_gemini(todas["gemini"]["clave"], calidad)
+        modelo = {"cloudflare": "flux-1-schnell", "gratis_sin_clave": "flux"}.get(p) or \
+            (todas.get(p) or {}).get("modelo_imagen") or (ESPACIO_IMAGEN if p == "huggingface" else "")
+        return modelo, PRECIO_IMAGEN.get(p, 0.0)
+    datos, _ = nubes.rotar("imagen", tareas, que_fue=que_fue)
     destino.write_bytes(datos)
     return destino
 
@@ -696,16 +794,26 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 
     def de_pago(proveedor):  # Kling o Seedance (solo si el usuario lo eligió): clip mudo que el montaje repite
         modulo = claves.modulo_video(proveedor)
-        _recordar_modelo(proveedor, "modelo_video",
-                         modulo.animar(todas[proveedor], imagen_png, movimiento, destino, modulo.SEGUNDOS_CLIP))
+        try:
+            _recordar_modelo(proveedor, "modelo_video",
+                             modulo.animar(todas[proveedor], imagen_png, movimiento, destino, modulo.SEGUNDOS_CLIP))
+        except SinSaldo as e:  # el trabajo siguiente ya avisa antes de empezar (claves.impide)
+            claves.recordar(proveedor, 402, str(e))
+            raise
         return destino
+
+    def que_fue(p):  # el modelo y lo que cuesta como mucho, para la actividad de la IA
+        if p in claves.VIDEO_DE_PAGO:
+            return (claves.cargar().get(p) or {}).get("modelo_video") or "", precio_video(p)
+        return (todas.get(p) or {}).get("modelo_video") or claves.MODELO_VIDEO.get(p, ""), \
+            nube.PRECIO_CLIP if p == "modal" else 0.0
 
     resultado, _ = nubes.rotar("video", {
         "huggingface": huggingface,
         "modal": lambda: nube.animar(imagen_png, movimiento, formato, segundos, destino),
         "pollinations": pollinations,
         **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO if p == pago},  # solo el que se preguntó
-    })
+    }, que_fue=que_fue)
     return resultado
 
 
@@ -714,6 +822,9 @@ OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, 
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)
 PRECIO_IMAGEN = {"openai": 0.25, "replicate": 0.01}  # US$ por imagen, por lo alto (gpt-image en alta; FLUX schnell)
 PRECIO_TRANSCRIPCION = 0.006  # US$ por minuto con la Whisper API de OpenAI (Groq y el PC: gratis)
+# US$ por cada 1000 letras narradas con ElevenLabs, por lo alto (lo que cuestan las letras de más de su plan Creator):
+# solo para el gasto estimado de «Actividad de la IA»
+PRECIO_VOZ_ELEVENLABS = 0.30
 MINUTOS_NUBE = 105  # lo más largo que transcribir() sube a la nube (25 MB a 32 kbps); lo que pasa, en el PC
 IMAGEN_GEMINI = "gemini-nano-banana-2.1"  # Nano Banana 2.1, si la API no dice cuál hay
 # US$ por imagen según el modelo y su calidad (imageSize), según Google el 22-10-2026 (sin cuota gratis): el Flash
@@ -787,6 +898,11 @@ def modelo_imagen_gemini(clave: str) -> str:
     return _modelo_de_la_clave(clave, claves.elegir_modelo_imagen_gemini, IMAGEN_GEMINI)
 
 
+def _modelo_gemini_usado(clave: str) -> str:
+    """El modelo de imágenes de Gemini ya elegido para esa clave (para la actividad), sin preguntar a la red."""
+    return _elegidos.get((clave, claves.elegir_modelo_imagen_gemini), IMAGEN_GEMINI)
+
+
 def precio_imagen_gemini(clave: str, calidad: str) -> float:
     """US$ por imagen con el modelo ya elegido para esa clave; si aún no se sabe (o no se conoce su precio), el más
     caro de los conocidos: el aviso de costo nunca se queda corto. No pregunta a la red."""
@@ -811,6 +927,8 @@ def _imagen_gemini(c: dict, prompt: str, ancho: int, alto: int, referencia: Path
                        "generationConfig": {"responseModalities": ["IMAGE"],
                                             "imageConfig": {"aspectRatio": relacion, "imageSize": calidad}}})
     if r.is_error:  # el motivo exacto (filtro, sin facturación, clave): el cuerpo no trae la clave
+        if r.status_code == 402:  # sin saldo prepago: vale para todo Gemini, también su texto
+            claves.recordar("gemini", 402, motivo(r))
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
                              detalle=motivo(r)))
     for parte in ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts", []):
@@ -849,9 +967,38 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
     IA elegida en «Escenas que hablan»: Gemini Omni (en Automático), Kling o Seedance.
     referencia: imagen del sujeto (tu foto o producto) que el video debe mantener; con Kling y Seedance, su primer
     fotograma. quien: el que se fijó (y se preguntó) al empezar el trabajo; sin él, el elegido ahora. Así, cambiar
-    «Escenas que hablan» a mitad de un trabajo nunca paga con otro servicio."""
+    «Escenas que hablan» a mitad de un trabajo nunca paga con otro servicio.
+    Cada clip queda en la actividad de la IA con lo más que cuesta (también el que se cobró y no llegó). Sin saldo,
+    SinSaldo: no se cobró nada y los demás clips del trabajo ni se piden (clips_hablados)."""
     guardia.sin_bloqueo()  # de pago: con el estudio bloqueado no empieza
     quien = quien or (claves.para("video_voz") or {}).get("proveedor")
+
+    def modelo():
+        if quien in claves.VIDEO_DE_PAGO:
+            return (claves.cargar().get(quien) or {}).get("modelo_voz") or ""
+        return _elegidos.get(((claves.cargar().get("gemini") or {}).get("clave"), claves.elegir_modelo_video_voz), OMNI)
+    try:
+        hecho = _video_hablado(prompt, formato, destino, referencia, quien)
+    except SinClave:  # no llegó a pedir nada
+        raise
+    except SinSaldo as e:
+        claves.recordar(quien or "gemini", 402, str(e))
+        actividad.anotar("video", quien or "gemini", modelo(), error=e)
+        raise
+    except Exception as e:  # el que se cobró sin llegar (Cobrado) cuenta en el gasto
+        actividad.anotar("video", quien or "gemini", modelo(), precio_video(quien or "gemini", voz=True)
+                         if isinstance(e, Cobrado) else 0.0, error=e)
+        raise
+    actividad.anotar("video", quien or "gemini", modelo(), precio_video(quien or "gemini", voz=True))
+    return hecho
+
+
+class SinSaldo(RuntimeError):
+    """El servicio de pago no tiene saldo: no hizo nada ni cobró. Los demás pedidos del mismo trabajo fallarían igual:
+    no se piden."""
+
+
+def _video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | None, quien: str | None) -> Path:
     if quien in claves.VIDEO_DE_PAGO:
         elegido = claves.cargar().get(quien)
         if not elegido:  # quitó la clave a mitad del trabajo
@@ -874,6 +1021,11 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
         "store": True,  # sin esto Omni responde 400 («store=true is required»): lo guardado se borra en el finally
         "response_format": {"type": "video", "aspect_ratio": "16:9" if formato in ("16:9", "1:1") else "9:16",
                             "resolution": "720p", "delivery": "uri"}})
+    if r.status_code == 402:  # sin saldo prepago (pasó): dicho claro, con lo que cuesta, y sin cobrar nada
+        raise SinSaldo(t("Gemini no tiene saldo: no hizo el video que habla y no se cobró nada. Cada escena que habla "
+                         "cuesta hasta unos {costo}. Recarga en AI Studio: aistudio.google.com → tu proyecto → Billing, "
+                         "o desmarca «Video animado con IA». ({detalle})", costo=dinero(precio_video("gemini", voz=True)),
+                         detalle=motivo(r)))
     if r.is_error:  # el motivo exacto (filtro de seguridad, sin facturación, clave): el cuerpo no trae la clave
         raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code,
                              detalle=motivo(r)))
@@ -920,12 +1072,20 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     if not c:
         raise SinClave(t("Conecta tu clave de ElevenLabs para usar sus voces."))
     guardia.sin_bloqueo()  # de pago (ElevenLabs cobra por letra): con el estudio bloqueado no empieza
-    r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
-                   params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": c["clave"]}, timeout=300,
-                   json={"text": texto, "model_id": c.get("modelo_voz", "eleven_multilingual_v2")})
-    r.raise_for_status()
-    d = r.json()
-    destino.write_bytes(base64.b64decode(d["audio_base64"]))
+    modelo = c.get("modelo_voz", "eleven_multilingual_v2")
+    try:
+        r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
+                       params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": c["clave"]}, timeout=300,
+                       json={"text": texto, "model_id": modelo})
+        if r.is_error:  # su motivo en claro (p. ej. «quota_exceeded»), no el texto de httpx en inglés
+            raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio="ElevenLabs",
+                                 codigo=r.status_code, detalle=motivo(r)))
+        d = r.json()
+        destino.write_bytes(base64.b64decode(d["audio_base64"]))
+    except Exception as e:
+        actividad.anotar("voz", "elevenlabs", modelo, error=e)
+        raise
+    actividad.anotar("voz", "elevenlabs", modelo, len(texto) / 1000 * PRECIO_VOZ_ELEVENLABS)
     a = d.get("alignment") or {}
     palabras, actual = [], None
     for letra, ini, fin in zip(a.get("characters", []), a.get("character_start_times_seconds", []),
@@ -982,15 +1142,25 @@ def transcribir(audio: Path, idioma: str | None = None, pista: str | None = None
     # ponytail: audios de más de ~1 h 45 min no caben ni comprimidos: se transcriben en el PC (lento). Trocear si hace falta.
     if c and c.get("clave") and audio.stat().st_size <= limite_api:
         base = claves.OPENAI_COMPAT[c["proveedor"]]
-        with open(audio, "rb") as f:
-            r = httpx.post(f"{base}/audio/transcriptions", timeout=900,
-                           headers={"Authorization": f"Bearer {c['clave']}"},
-                           files={"file": (audio.name, f)},
-                           data={"model": c["modelo_transcripcion"], "response_format": "verbose_json",
-                                 "timestamp_granularities[]": "word", **({"language": idioma} if idioma else {}),
-                                 **({"prompt": pista[:800]} if pista else {})})
-        r.raise_for_status()
-        return [{"palabra": w["word"].strip(), "inicio": w["start"], "fin": w["end"]} for w in r.json()["words"]]
+        try:
+            with open(audio, "rb") as f:
+                r = httpx.post(f"{base}/audio/transcriptions", timeout=900,
+                               headers={"Authorization": f"Bearer {c['clave']}"},
+                               files={"file": (audio.name, f)},
+                               data={"model": c["modelo_transcripcion"], "response_format": "verbose_json",
+                                     "timestamp_granularities[]": "word", **({"language": idioma} if idioma else {}),
+                                     **({"prompt": pista[:800]} if pista else {})})
+            r.raise_for_status()
+            datos = r.json()
+            palabras = [{"palabra": w["word"].strip(), "inicio": w["start"], "fin": w["end"]} for w in datos["words"]]
+        except Exception as e:
+            actividad.anotar("transcripcion", c["proveedor"], c.get("modelo_transcripcion") or "", error=e)
+            raise
+        # OpenAI cobra por minuto (Groq, gratis): con la duración que dice la respuesta, o lo más que se sube
+        minutos = datos.get("duration") / 60 if isinstance(datos.get("duration"), (int, float)) else MINUTOS_NUBE
+        actividad.anotar("transcripcion", c["proveedor"], c.get("modelo_transcripcion") or "",
+                         minutos * PRECIO_TRANSCRIPCION if c["proveedor"] == "openai" else 0.0)
+        return palabras
 
     import subprocess
 

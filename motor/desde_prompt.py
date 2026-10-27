@@ -10,7 +10,7 @@ from typing import Callable
 import edge_tts
 
 from . import claves, ia, memoria, seguro, video
-from .idioma import actual, dinero, IDIOMAS, t
+from .idioma import actual, dinero, IDIOMAS, t, texto_de_error
 from .shorts import PROYECTOS
 
 # Voces gratuitas de Microsoft Edge. ponytail: no es un modelo abierto; cambiar por Kokoro/Piper si se quiere 100% local.
@@ -206,7 +206,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         def crear_imagen(p, w, h, destino):  # 1ª escena: la foto tal cual; las demás, con el mismo sujeto
             if destino.name == "video_final_imagen_00.png":  # por su número (con animado, la 1ª puede no pasar aquí)
                 return Path(shutil.copy(foto, destino))
-            return ia.imagen_con_producto(p, foto, w, h, destino, realista=False)  # el estilo ya va dentro de p
+            # el estilo ya va dentro de p; si la edición con la foto falla, la escena sale igual y se dice
+            return ia.imagen_con_producto(p, foto, w, h, destino, realista=False, avisos=notas)
     cobrados = set()  # escenas que hablan cobradas sin llegar: montar no las paga otra vez con un clip mudo
     hablados = clips_hablados(guion, carpeta, formato, aviso, foto, notas, crear_imagen, quien, cobrados) \
         if animado else {}
@@ -265,16 +266,23 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     from concurrent.futures import ThreadPoolExecutor, as_completed
     n, fallos, pagados, segundos = min(len(guion["escenas"]), MAX_HABLADAS), {}, 0, 0.0
     quien = quien or proveedor_voz() or "gemini"
+    sin_saldo = []  # el servicio dijo que no tiene saldo: las escenas que faltan ni se piden (fallarían igual)
 
     def uno(i: int, e: dict) -> Path:
+        if sin_saldo:
+            raise sin_saldo[0]
         ref = referencia  # Gemini: la foto es solo el sujeto que debe mantener; Kling y Seedance: la 1ª escena
         if (quien == "kling" or (quien == "seedance" and referencia)) and not (referencia and i == 0):
             ref = carpeta / f"video_final_imagen_{i:02d}.png"  # arrancan en la imagen de SU escena
             if not ref.is_file():  # un reintento la reutiliza
                 ref = (crear_imagen or ia.imagen)(f"{e['imagen']}, {guion['estilo_visual']}", *video.FORMATOS[formato],
                                                   ref)
-        return ia.video_hablado(prompt_hablado(e, guion), formato, carpeta / f"video_final_hablado_{i:02d}.mp4", ref,
-                                quien)
+        try:
+            return ia.video_hablado(prompt_hablado(e, guion), formato, carpeta / f"video_final_hablado_{i:02d}.mp4",
+                                    ref, quien)
+        except ia.SinSaldo as error:  # aquí, en el hilo: la escena que va detrás en este hilo ya no lo pide
+            sin_saldo.append(error)
+            raise
     if len(guion["escenas"]) > n:
         notas.append(t("Solo las primeras {n} escenas van animadas con voz (tope de gasto por video); las demás van "
                        "con imagen y narración.", n=n))
@@ -298,7 +306,7 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
                     pagados, segundos = pagados + 1, segundos + SEGUNDOS_HABLADO
                     if cobrados is not None:
                         cobrados.add(i)
-                fallos[i] = str(error).strip() or type(error).__name__
+                fallos[i] = texto_de_error(error)  # el de httpx, en claro (venía en inglés con un enlace)
             aviso(t("Escenas animadas con voz: {hechas} de {total}", hechas=len(hechos) + len(fallos), total=n),
                   0.08 + 0.6 * (len(hechos) + len(fallos)) / n)
     if fallos:  # una sola nota: si falla la clave, fallan todas por lo mismo
@@ -398,7 +406,7 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         except Exception as error:
             if ultima is None:  # ni una imagen todavía: fondo de color para que el video salga igual
                 ultima, de_donde = video.fondo(formato, carpeta / f"{nombre}_fondo.png", i), t("un fondo de color")
-            causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+            causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
             nota = t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1, causa=causa,
                      origen=de_donde)
             aviso(nota, paso_imagen)
@@ -422,7 +430,7 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
                 clip = ia.video_desde_imagen(img, e["imagen"], formato, video.duracion(audio), clip_ia, pago)
             except Exception as error:  # cuota gratis agotada o servicio caído: se sigue con zoom suave
                 cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
-                causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
                 nota = t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom suave.",
                          n=i + 1, causa=causa)
                 aviso(nota, paso + 0.6 * (hasta - desde) / n)

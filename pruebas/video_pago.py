@@ -155,7 +155,7 @@ try:
     escenario({("POST", f"{SG}/image-to-video/{m}"): [(429, {"code": 1102, "message": f"pack used up {CLAVE}"})]
                for m in ("kling-3.0", "kling-3.0-turbo", "kling-2.6", "kling-2.5-turbo")})
     e = falla(kling.animar, info3, foto, "x", tmp / "k9.mp4")
-    assert type(e) is RuntimeError and "saldo" in str(e) and kling.CONSOLA in str(e) and CLAVE not in str(e)
+    assert type(e) is ia.SinSaldo and "saldo" in str(e) and kling.CONSOLA in str(e) and CLAVE not in str(e)
     assert len(red) == 4 and not bajadas  # todos probados, ninguno creó tarea
     escenario({k3: [(403, {"code": 1103})], k3t: [(429, {"code": 1102})]})
     assert "saldo" in str(falla(kling.hablar, info, foto, "x", tmp / "k9b.mp4")) and len(red) == 2
@@ -163,7 +163,7 @@ try:
     # Errores con causa clara, sin pagar ni probar otro modelo
     escenario({k3: [(429, {"code": 1101, "message": "account in arrears"})]})  # la cuenta entera debe: se para aquí
     e = falla(kling.animar, info3, foto, "x", tmp / "k9c.mp4")
-    assert type(e) is RuntimeError and "saldo" in str(e) and len(red) == 1
+    assert type(e) is ia.SinSaldo and "saldo" in str(e) and len(red) == 1
     escenario({k3: [(400, {"code": 1301, "message": f"risk control {CLAVE}"})]})
     e = falla(kling.animar, info3, foto, "x", tmp / "k9.mp4")
     assert "normas de contenido" in str(e) and "no se cobró" in str(e) and CLAVE not in str(e) and len(red) == 1
@@ -279,7 +279,7 @@ try:
     info_pro = {**info, "modelo_video": PRO}
     escenario({CREAR: [(403, {"error": {"code": "AccountOverdueError", "message": "overdue"}})]})
     e = falla(seedance.animar, info_pro, foto, "x", tmp / "s6.mp4")
-    assert type(e) is RuntimeError and "saldo" in str(e) and "US$30" in str(e) and len(red) == 1
+    assert type(e) is ia.SinSaldo and "saldo" in str(e) and "US$30" in str(e) and len(red) == 1
     escenario({CREAR: [(403, {"error": {"code": "OperationDenied.ServiceOverdue"}})]})
     assert "saldo" in str(falla(seedance.animar, info_pro, foto, "x", tmp / "s6.mp4"))
     escenario({CREAR: [(400, {"error": {"code": "InputTextSensitiveContentDetected", "message": f"bad {CLAVE}"}})]})

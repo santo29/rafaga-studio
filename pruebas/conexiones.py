@@ -250,6 +250,66 @@ assert hecho["estado"] == "clave_ok" and "User: Read" in hecho["detalle"] and no
 sonda = actividad.ultimas(1)[0]
 assert (sonda["proveedor"], sonda["tarea"], sonda["resultado"], sonda["costo"]) == ("gemini", "Claves de IA",
                                                                                       "fallo", 0.0), sonda
+# Conectar una clave: el motivo de verdad, en claro (antes todo era «Clave no válida», con el error de httpx en inglés
+# y el nombre interno «elevenlabs»). Sin «Voices: Read» se conecta igual: la música no lo necesita, sus voces no salen
+SIN_VOCES = SIN_PERMISO.replace("user_read", "voices_read")
+VOZ = {"voice_id": "v1", "name": "Rafa", "labels": {"accent": "caribeño"}}
+assert claves._permiso(SIN_VOCES) == "Voices: Read" and claves._permiso("Forbidden") == ""
+assert claves._permiso("You don't have permission to access this resource") == ""
+assert claves._permiso("missing the permission text_to_speech") == "Text to speech"
+
+
+def eleven_falso(modelos, voces=None):
+    """httpx.get de ElevenLabs al conectar: su lista de modelos responde `modelos`, la de voces `voces` (o lanzan)."""
+    def get(url, **k):
+        assert "elevenlabs.io/v1/models" in url or "elevenlabs.io/v2/voices" in url, url  # las letras no se miran
+        r = modelos if "/v1/models" in url else voces
+        if isinstance(r, Exception):
+            raise r
+        return r
+    return get
+
+
+def sin_permiso(texto):
+    return respuesta(401, {"detail": {"status": "missing_permissions", "message": texto}})
+
+
+NO_VALE = respuesta(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
+PROHIBIDO = respuesta(403, {"detail": "Forbidden"})
+CON_VOCES = respuesta(200, {"voices": [VOZ], "has_more": False})
+casos = {  # caso: (lista de modelos, lista de voces, estado del fallo o None si conecta, cómo empieza lo que dice)
+    "sin user_read": (respuesta(200, []), CON_VOCES, None, None),
+    "sin voices_read": (respuesta(200, []), sin_permiso(SIN_VOCES), None,
+                        "La clave de ElevenLabs quedó conectada, pero le falta el permiso «Voices: Read»"),
+    "sin models_read": (sin_permiso(SIN_PERMISO.replace("user_read", "models_read")), None, "permiso",
+                        "La clave de ElevenLabs vale, pero le falta el permiso «Models: Read». En la web de ElevenLabs"),
+    "no vale": (NO_VALE, None, "clave", "ElevenLabs no acepta esta clave (401: Invalid API key). Comprueba"),
+    "403": (PROHIBIDO, None, "permiso", "ElevenLabs reconoce la clave, pero no le deja usar su API (403: Forbidden)"),
+    "sin red": (httpx.ConnectError("sin internet"), None, "sin_conexion",
+                "Sin conexión con ElevenLabs. Revisa tu internet e inténtalo de nuevo."),
+    "sin red en las voces": (respuesta(200, []), httpx.ConnectError("x"), "sin_conexion", "Sin conexión con ElevenLabs."),
+    "sin saldo": (respuesta(402, {"detail": "quota_exceeded"}), None, "sin_saldo",
+                  "ElevenLabs no tiene saldo (402: quota_exceeded). Recarga saldo en elevenlabs.io"),
+}
+for caso, (modelos, voces, fallo, dice) in casos.items():
+    httpx.get = eleven_falso(modelos, voces)
+    try:
+        if fallo:
+            e = falla(claves.detectar, ELEVEN["clave"], error=claves.NoConecta)
+            assert e.estado == fallo and str(e).startswith(dice), (caso, e.estado, str(e))
+            assert "Client error" not in str(e) and "elevenlabs" not in str(e).replace("elevenlabs.io", ""), str(e)
+            assert fallo == "sin_conexion" or "inténtalo de nuevo" not in str(e), (caso, str(e))  # un permiso no
+        else:
+            info = claves.detectar(ELEVEN["clave"])
+            assert info["proveedor"] == "elevenlabs" and info["modelo_musica"] == "music_v2_5", (caso, info)
+            if dice:
+                assert info["voces"] == [] and info["aviso"].startswith(dice), (caso, info)
+            else:
+                assert info["voces"] == [{"id": "v1", "nombre": "Rafa", "acento": "caribeño"}] and "aviso" not in info
+    finally:
+        httpx.get = sin_red
+e = falla(claves.detectar, "hola", error=claves.NoConecta)  # sin preguntar a nadie
+assert e.estado == "formato" and str(e).startswith("No reconozco el formato de esta clave"), (e.estado, str(e))
 # Con saldo: lo que cuesta es una fracción de centavo; y si la clave no tiene el modelo barato, con el de sus guiones
 conectar(GEMINI)
 modelos = []
@@ -724,6 +784,30 @@ try:
     assert pagina.tabla.isHidden() and not pagina.sin_actividad.isHidden()
 finally:
     claves.comprobar, pagina_claves.mensaje_error = comprobar_real, error_real
+# Conectar desde la página: el título de la ventana es el motivo de verdad, no «Clave no válida» para todo
+errores, avisos, mensaje_real = [], [], pagina_claves.mensaje
+pagina_claves.mensaje_error = lambda *a: errores.append(a)
+pagina_claves.mensaje = lambda *a: avisos.append(a)
+try:
+    for clave, modelos, titulo in (("hola", None, "Formato no reconocido"),
+                                   (ELEVEN["clave"], httpx.ConnectError("x"), "Sin conexión"),
+                                   (ELEVEN["clave"], NO_VALE, "Clave no válida"),
+                                   (ELEVEN["clave"], PROHIBIDO, "Falta un permiso")):
+        httpx.get = eleven_falso(modelos)
+        pagina.entrada.setText(clave)
+        pagina._conectar()
+        esperar(lambda: errores and pagina.conectar.isEnabled())
+        assert errores.pop()[1] == titulo and not errores, titulo
+    # Sin «Voices: Read»: queda conectada (sin el aviso dentro de claves.json) y se dice qué pasa con sus voces
+    httpx.get = eleven_falso(respuesta(200, []), sin_permiso(SIN_VOCES))
+    pagina.entrada.setText(ELEVEN["clave"])
+    pagina._conectar()
+    esperar(lambda: avisos and pagina.conectar.isEnabled())
+    assert avisos[0][1] == "Falta un permiso" and "«Voices: Read»" in avisos[0][2] and not errores, avisos
+    assert claves.cargar()["elevenlabs"]["voces"] == [] and "aviso" not in claves.cargar()["elevenlabs"]
+    assert pagina.entrada.text() == ""
+finally:
+    httpx.get, pagina_claves.mensaje_error, pagina_claves.mensaje = sin_red, error_real, mensaje_real
 # Cerrar la app con la comprobación del arranque aún en marcha (Modal tarda hasta 60 s; Gemini, hasta 40): sale enseguida
 # y sin caerse. Con un QThread vivo salía con 0xC0000409 («QThread destroyed while running»)
 conectar(GROQ)

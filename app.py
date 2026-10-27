@@ -174,27 +174,35 @@ class Ventana(QMainWindow):
             self.diseno.abrir(carpeta)
             self.ir_a(self.orden.index(self.diseno))
 
-    def _disenar_imagen(self, ruta):
+    def _disenar_imagen(self, ruta, titulo=""):
         """«Editar en Diseño» del visor: un diseño guardado (lo que hizo el Director) se abre tal cual; una imagen
-        suelta (un ejemplo) entra en un diseño nuevo."""
+        suelta (un ejemplo) entra en un diseño nuevo, con su título."""
         if (Path(ruta).parent / "diseno.json").is_file():
             return self._abrir_diseno(Path(ruta).parent)
         if self.diseno._descartar_ok():
-            self.diseno.desde_imagen(ruta)
+            self.diseno.desde_imagen(ruta, titulo)
             self.ir_a(self.orden.index(self.diseno))
 
     def _animar_imagen(self, ruta):
         """«Animar» del visor: Crear con IA con la imagen, «Solo animar la imagen» y el formato que más se le parece,
-        escrito y sin empezar (si anima una IA de pago, «Generar video» pregunta antes lo que cuesta)."""
+        escrito y sin empezar (si anima una IA de pago, «Generar video» pregunta antes lo que cuesta). Un pedido que
+        el usuario ya escribió ahí no se pisa sin preguntar."""
         crear, tam = self.crear, QImageReader(ruta).size()
+        sugerido, escrito = t("Que cobre vida con un movimiento suave y natural"), crear.prompt.toPlainText().strip()
+        if escrito and escrito != sugerido and QMessageBox.question(
+                self, t("Animar la imagen"), t("En Crear con IA ya hay un pedido escrito. ¿Cambiarlo por el de animar "
+                                               "esta imagen?")) != QMessageBox.Yes:
+            return
         forma = tam.width() / tam.height() if not tam.isEmpty() else 1
         proporciones = {f: int(f.split(":")[0]) / int(f.split(":")[1]) for f in NOMBRES_FORMATO}
         elegido = min(proporciones, key=lambda f: abs(math.log(proporciones[f] / forma)))  # un cuadrado no se recorta
         next(b for b in crear.formato.grupo.buttons() if b.property("formato") == elegido).setChecked(True)
         crear.imagen.setText(ruta)
         crear.modo.setCurrentIndex(1)
-        crear.prompt.setPlainText(t("Que cobre vida con un movimiento suave y natural"))
+        crear.prompt.setPlainText(sugerido)
         self.ir_a(self.orden.index(crear))
+        if crear.modelo.valor() == "ninguno":  # «Sin animar» recordado no anima: Automático, que llegue listo
+            next(a for a in crear.modelo.menu().actions() if a.data() == "auto").trigger()
         crear.prompt.setFocus()
         crear.prompt.selectAll()  # escribir encima cambia el movimiento
 

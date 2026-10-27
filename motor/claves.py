@@ -638,8 +638,11 @@ def apartadas() -> list[Path]:
 
 def guardar(info: dict) -> None:
     todas = _leer_para_cambiar()
+    nueva = todas.get(info["proveedor"], {}).get("clave") != info.get("clave")
     todas[info["proveedor"]] = info
     _escribir(todas)
+    if nueva:  # su «sin saldo» o «clave mal» era de la clave anterior: sin esto, la nueva ni se probaba en horas
+        olvidar(info["proveedor"])
 
 
 def borrar(proveedor: str) -> None:
@@ -1010,8 +1013,19 @@ def recordar(proveedor: str, codigo: int, detalle: str = "") -> None:
         pass
 
 
-def _vigente(proveedor: str, cuales=NO_ATIENDE) -> dict | None:
-    """El estado guardado del servicio si es uno de `cuales` y es reciente (VIGENCIA)."""
+def olvidar(proveedor: str) -> None:
+    """Quita el estado recordado de un servicio (al conectar otra clave suya). Nunca lanza: es solo un aviso."""
+    try:
+        with _cerrojo_estados, guardia._cerrojo(CONEXIONES):
+            todos = estados()
+            if todos.pop(proveedor, None) is not None:
+                _reemplazar(CONEXIONES, json.dumps(todos, ensure_ascii=False, indent=1))
+    except Exception:  # como recordar: guardar la clave nueva no falla por esto
+        pass
+
+
+def _vigente(proveedor: str, cuales=NO_ATIENDE, vigencia: float = VIGENCIA) -> dict | None:
+    """El estado guardado del servicio si es uno de `cuales` y es reciente (`vigencia`, en segundos)."""
     e = estados().get(proveedor)
     if not e or e.get("estado") not in cuales:
         return None
@@ -1019,7 +1033,7 @@ def _vigente(proveedor: str, cuales=NO_ATIENDE) -> dict | None:
         fecha = time.mktime(time.strptime(str(e.get("fecha")), "%Y-%m-%d %H:%M:%S"))
     except (ValueError, OverflowError):
         return None
-    return e if time.time() - fecha < VIGENCIA else None
+    return e if time.time() - fecha < vigencia else None
 
 
 def frase(proveedor: str, estado: str) -> str:

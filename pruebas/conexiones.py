@@ -565,12 +565,30 @@ try:
     enviados.clear()
     ia.texto_json("i", "p", esquema)
     assert [b for b, _ in enviados] == [claves.OPENAI_COMPAT["gemini"], claves.OPENAI_COMPAT["groq"]], enviados
-    # Pasadas las 12 h (pudo recargar) se le vuelve a pedir, y también si «Comprobar conexiones» dice que ya atiende
-    for que, hace in (("sin_saldo", claves.VIGENCIA + 60), ("ok", 0)):
+    # Pasada una hora (pudo recargar) se le vuelve a pedir, y también si «Comprobar conexiones» dice que ya atiende
+    for que, hace in (("sin_saldo", ia.SALTO + 60), ("ok", 0)):
         estado("gemini", que, hace)
         enviados.clear()
         ia.texto_json("i", "p", esquema)
         assert enviados[0][0] == claves.OPENAI_COMPAT["gemini"], (que, enviados)
+    # Una clave NUEVA de Gemini: el «sin saldo» era de la anterior, así que se le pide (y no bloquea lo de pago).
+    # Volver a guardar la misma (p. ej. con el modelo que funcionó) no lo olvida
+    estado("gemini", "sin_saldo")
+    claves.guardar({**GEMINI, "modelo_texto": "gemini-flash-lite-latest"})
+    assert claves.estados()["gemini"]["estado"] == "sin_saldo"
+    claves.guardar({**GEMINI, "clave": "AIzaSyNUEVA00000000000000000000000000"})
+    assert "gemini" not in claves.estados() and claves.impide(["video_voz"]) is None
+    enviados.clear()
+    ia.texto_json("i", "p", esquema)
+    assert enviados[0][0] == claves.OPENAI_COMPAT["gemini"], enviados
+    # Un 403 que no habla de la clave (la moderación de OpenRouter) no apaga esa IA de texto; uno de la clave sí
+    conectar(GEMINI, GROQ)
+    for detalle, saltada in (("403: Your input was flagged by moderation", False), ("401: Invalid API Key", True),
+                             ("403: API key not valid", True)):
+        todos = claves.estados()
+        todos["groq"] = {"estado": "clave", "detalle": detalle, "paso": "", "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
+        claves.CONEXIONES.write_text(json.dumps(todos), encoding="utf-8")
+        assert (ia._saltado(GROQ) is not None) == saltada, detalle
     # Sin ninguna que atienda: la gratis sin clave, y si tampoco, el motivo de la elegida en claro
     conectar(GEMINI)
     estado("gemini", "sin_saldo")
@@ -609,6 +627,30 @@ try:
         enviados.clear()
         assert ia.texto_json("i", "p", esquema, rapido=True) == {"palabra": "listo"}
         assert [k.get("extra_body") for _, k in enviados] == [{"reasoning_effort": "none"}, None], enviados
+    finally:
+        OpenAIFalso.crear = crear_real
+    # Sin pensar respondió a medias: la otra vez, pensando (con toda su calidad). Y el 400 de un modelo que no deja
+    # apagarlo no se gasta el reintento: 400, una a medias y una buena salen bien
+
+    def responde(*contenidos, rechaza=False):
+        cola = list(contenidos)
+
+        def crear(self, **k):
+            enviados.append((self.base, k))
+            if rechaza and (k.get("extra_body") or {}).get("reasoning_effort"):
+                cuerpo = {"error": {"message": "reasoning_effort is not supported with this model"}}
+                raise openai.APIStatusError("400", body=cuerpo, response=httpx.Response(400, request=pedido,
+                                                                                          json=cuerpo))
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(
+                content=cola.pop(0)))], usage=types.SimpleNamespace(prompt_tokens=100, completion_tokens=10))
+        return crear
+    try:
+        for rechaza in (False, True):
+            OpenAIFalso.crear = responde('{"pala', '{"palabra": "listo"}', rechaza=rechaza)
+            enviados.clear()
+            assert ia.texto_json("i", "p", esquema, rapido=True) == {"palabra": "listo"}
+            esperado = [{"reasoning_effort": "none"}, None] + ([None] if rechaza else [])
+            assert [k.get("extra_body") for _, k in enviados] == esperado, (rechaza, enviados)
     finally:
         OpenAIFalso.crear = crear_real
     conectar(CLAUDE, GROQ)

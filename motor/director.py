@@ -60,8 +60,9 @@ Reglas:
   Si corriges una palabra que cambia el sentido, dilo en tu mensaje («Entendí calavera; si querías el barco, dímelo»).
 - Elige la herramienta por lo que quiere recibir:
   · diseño, imagen, logo, post, flyer, miniatura o tarjeta → crear_diseno. Dibujo para camiseta, taza o sticker →
-    crear_diseno con tipo "estampado". Una foto, o algo real o realista («una mariposa real en un jardín») →
-    crear_diseno con tipo "foto": la foto llena todo el lienzo.
+    crear_diseno con tipo "estampado". Una foto, algo real o realista («una mariposa real en un jardín») o una
+    escena con un lugar sin pedir dibujo (en un jardín, en la playa, un paisaje) → crear_diseno con tipo "foto": la
+    foto llena todo el lienzo.
   · Dibujos animados (dibujo animado, caricatura, cartoon o serie con personajes) → crear_serie y, en este mismo
     pedido, crear_episodio con el "nombre" que devuelve. Estilo "Cartoon 2D" si no dijo otro; formato 9:16 si es
     para TikTok, Reels o Shorts.
@@ -108,9 +109,12 @@ def _doc(f) -> str:
                     if p.split(" ", 1)[0] not in OCULTOS | DEL_USUARIO)
 
 
-def catalogo() -> str:
-    """Cada herramienta con sus argumentos (y lo que valen por defecto) y su explicación, en una línea."""
-    return "\n".join(f"- {nombre}{_firma(f)}: {_doc(f)}" for nombre, f in herramientas.TODAS.items())
+def catalogo(enteras=None) -> str:
+    """Cada herramienta con sus argumentos (y lo que valen por defecto) y su explicación, en una línea. Con `enteras`,
+    solo esas van así y las demás con su nombre y su primera frase (los pasos que siguen al primero, ver dirigir)."""
+    return "\n".join(f"- {nombre}{_firma(f)}: {_doc(f)}" if enteras is None or nombre in enteras
+                     else f"- {nombre}: {_doc(f).split('. ')[0].rstrip('.')}."
+                     for nombre, f in herramientas.TODAS.items())
 
 
 def _archivos(respuesta: str) -> list[str]:
@@ -363,8 +367,10 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     if not pedido:
         raise ValueError(t("Dime qué trabajo quieres que haga."))
     recuerdos = "\n".join(f"- {d}: {'; '.join(lista)}" for d, lista in memoria.cargar().items() if lista)
-    instrucciones = (INSTRUCCIONES.replace("{catalogo}", catalogo()).replace("{departamentos}", roles.manual())
-                     .replace("{idioma}", IDIOMAS[actual()]).replace("{memoria}", recuerdos or "(nada todavía)"))
+
+    def instrucciones(enteras=None):
+        return (INSTRUCCIONES.replace("{catalogo}", catalogo(enteras)).replace("{departamentos}", roles.manual())
+                .replace("{idioma}", IDIOMAS[actual()]).replace("{memoria}", recuerdos or "(nada todavía)"))
     del_usuario = _norma("\n".join([pedido, *(m["texto"] for m in historial if m.get("rol") == "usuario")]))
     # lo que hizo el estudio en pedidos anteriores también vale (su resumen, no lo que escribió la IA)
     de_antes = _norma("\n".join(str(m.get("hecho", "")) for m in historial if m.get("rol") == "director"))
@@ -388,10 +394,19 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         return False
     for n in range(MAX_PASOS + 1):
         aviso(t("Pensando…"), n / (MAX_PASOS + 1))
+        # Tras el primer paso, enteras solo las herramientas ya usadas y las de sus departamentos (lo que suele seguir:
+        # el episodio tras la serie, o terminar). El catálogo entero son unos 2.500 tokens y en la cuenta gratis de Groq
+        # (6.000 por minuto) la respuesta final esperaba al límite: pasó, 38 s. Si elige otra, se repite entero
+        usadas = {p["herramienta"] for p in pasos}
+        enteras = None if not pasos else usadas | {h for d in roles.DEPARTAMENTOS.values() for h in d["herramientas"]
+                                                   if usadas & set(d["herramientas"])}
+        contexto = _contexto(pedido, historial, pasos)
         try:
             # rapido: elegir el paso no necesita que el modelo piense antes (ver ia._sin_razonar); los guiones y los
             # diseños los escribe cada herramienta con toda su calidad
-            r = ia.texto_json(instrucciones, _contexto(pedido, historial, pasos), ESQUEMA, rapido=True)
+            r = ia.texto_json(instrucciones(enteras), contexto, ESQUEMA, rapido=True)
+            if enteras is not None and str(r.get("herramienta", "")).strip() not in enteras | {""}:
+                r = ia.texto_json(instrucciones(), contexto, ESQUEMA, rapido=True)
         except Exception as e:  # la IA falla a mitad: lo que ya se hizo no se pierde
             if not pasos:
                 raise

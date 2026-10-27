@@ -189,7 +189,7 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
     if not isinstance(calidad, str) or calidad not in ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]:
         raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 1K, 2K o 4K.", calidad=calidad))
     if tipo == "ilustracion" and diseno_ia.pide_foto(pedido):  # el Director (una IA pequeña) la pide para toda imagen
-        tipo = "foto"
+        tipo, estilo = "foto", "foto"  # y un «vector» suyo la dejaba en dibujo
     delante = {}
     if propuesta is None and str(pedido or "").strip():
         e = diseno_ia.entender(pedido, tipo)

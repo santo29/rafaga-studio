@@ -634,7 +634,19 @@ with tempfile.TemporaryDirectory() as d:
                                      ("uma borboleta de verdade num jardim", "foto", "foto"),
                                      ("una imagen de una mariposa", "ilustracion", "vector"),
                                      ("dibujo de una mariposa real", "ilustracion", "vector"),
-                                     ("un sticker de una mariposa realista", "ilustracion", "vector")):
+                                     ("un sticker de una mariposa realista", "ilustracion", "vector"),
+                                     # Una escena con un lugar, sin decir foto: la mariposa con su jardín (se perdía)
+                                     ("una mariposa en un jardín", "foto", "foto"),
+                                     ("un paisaje de montañas al amanecer", "foto", "foto"),
+                                     ("a butterfly in a garden", "foto", "foto"),
+                                     ("un dibujo de una mariposa en un jardín", "ilustracion", "vector"),
+                                     # Arte o nombres propios, no fotos
+                                     ("una imagen surrealista de un reloj derritiéndose", "ilustracion", "vector"),
+                                     ("un cuadro hiperrealista de una manzana", "ilustracion", "vector"),
+                                     ("el tamaño real de una ballena", "ilustracion", "vector"),
+                                     ("flyer para el Palacio Real", "ilustracion", "vector"),
+                                     ("un post del Real Madrid", "ilustracion", "vector"),
+                                     ("una foto hiperrealista de una manzana", "foto", "foto")):
             e = diseno_ia.entender(pedido)
             assert (e["tipo"], e["estilo"]) == (tipo, estilo), (pedido, e)
         assert diseno_ia.entender("una mariposa real", "ilustracion")["tipo"] == "ilustracion"  # la eligió el usuario
@@ -665,8 +677,31 @@ with tempfile.TemporaryDirectory() as d:
     d = r["diseno"]
     assert d["fondo"]["tipo"] == "imagen" and not [c for c in d["capas"] if c["tipo"] == "imagen"], d
     assert fotos == [(fotos[0][0], 1080, 1080)] and fotos[0][0].startswith("a monarch butterfly on a flower")
+    assert "jardín" in fotos[0][0]  # la capa solo decía el motivo: el lugar pedido también llega a la foto
     assert "professional photography" in fotos[0][0] and "isolated" not in fotos[0][0]  # foto, no un recorte
     assert esquinas(r) == {"#00aa00"}  # las cuatro esquinas son la foto, no el #F3FFF9 de detrás
+    # Por el Director (crear_diseno): aunque pida «ilustracion», «auto» o «foto» con estilo «vector» (la mariposa del
+    # dueño se llamó «Mariposa Vectorial»), una foto real se fotografía y no sale dibujo a sangre
+    from motor import herramientas
+    del_diseno = ia.texto_json
+
+    def entiende_y_disena(instrucciones, pedido, esquema, uso="texto", rapido=False):
+        if esquema is diseno_ia.ESQUEMA_ENTENDER:  # como la IA pequeña: un dibujo vectorial suelto
+            return {"entendido": "una mariposa real en un jardín", "seguro": True, "pregunta": "", "opciones": [],
+                    "tipo": "ilustracion", "estilo": "vector"}
+        return del_diseno(instrucciones, pedido, esquema, uso, rapido)
+    ia.texto_json = entiende_y_disena
+    try:
+        for tipo in ("ilustracion", "auto", "foto"):
+            crear([capa(tipo="imagen", x=10, y=10, ancho=80, alto=80, prompt_imagen="a monarch butterfly")],
+                  tipo="foto", pedido="x")  # deja lista la respuesta de diseñar
+            fotos.clear()
+            r = json.loads(herramientas.crear_diseno("una mariposa real en un jardín", tipo, False, estilo="vector"))
+            assert len(fotos) == 1 and "professional photography" in fotos[0][0], (tipo, fotos)
+            assert "vector" not in fotos[0][0] and "jardín" in fotos[0][0], (tipo, fotos)
+            assert r["diseno"]["fondo"]["tipo"] == "imagen" and r["entendido"], (tipo, r)
+    finally:
+        ia.texto_json = del_diseno
     # La IA la manda como foto de fondo (lo que pide su pista) y sin capas: una foto sola también es un diseño
     r = crear([], tipo="foto", pedido="foto realista de un perro en la playa",
               fondo_prompt_imagen="a golden retriever running on a beach at sunset")

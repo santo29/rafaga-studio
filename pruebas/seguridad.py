@@ -460,8 +460,13 @@ herramientas.TODAS["programar_publicacion"] = lambda **k: subido.append(k["archi
 
 
 def guion_ia(*pasos):
-    cola = list(pasos)
-    return lambda instrucciones, pedido, esquema, **k: cola.pop(0)
+    cola, ultimo = list(pasos), {}
+
+    def pensar(instrucciones, pedido, esquema, **k):
+        if ultimo.get("pedido") != pedido:  # el mismo paso, repetido con el catálogo entero, responde lo mismo
+            ultimo.update(pedido=pedido, respuesta=cola.pop(0))
+        return dict(ultimo["respuesta"])
+    return pensar
 
 
 def paso(herramienta, mensaje="Hecho.", **argumentos):

@@ -1237,13 +1237,13 @@ class PaginaDiseno(QWidget):
             return mensaje_error(self, t("No se pudo abrir el diseño"), e)
         self._empezar(abierto, Path(carpeta))
 
-    def desde_imagen(self, ruta) -> bool:
+    def desde_imagen(self, ruta, nombre: str = "") -> bool:
         """Un diseño nuevo con esta imagen llenando el lienzo, del tamaño más parecido a ella («Editar en Diseño» del
-        visor con una imagen suelta, p. ej. un ejemplo). False si la imagen no vale (ya avisado)."""
+        visor con una imagen suelta, p. ej. un ejemplo, y su título). False si la imagen no vale (ya avisado)."""
         tam = QImageReader(str(ruta)).size()
         forma = tam.width() / tam.height() if not tam.isEmpty() else 1
         tamano = min(diseno.TAMANOS, key=lambda k: abs(math.log(diseno.TAMANOS[k][0] / diseno.TAMANOS[k][1] / forma)))
-        self._empezar(diseno.nuevo(tamano, t("Mi diseño")), None)
+        self._empezar(diseno.nuevo(tamano, nombre.strip() or t("Mi diseño")), None)
         nombre = self._importar(ruta)
         return bool(nombre) and self.anadir({"tipo": "imagen", "archivo": nombre, "x": 0, "y": 0, "ajuste": "cubrir",
                                              "ancho": self.diseno["ancho"], "alto": self.diseno["alto"]})

@@ -35,12 +35,21 @@ ESTILOS = {"auto": "", "vector": "flat vector illustration, bold clean outlines,
            "foto": "professional photography, realistic, natural light"}
 _ILUSTRADOS = ("ilustracion", "estampado", "logo")  # el motivo ES la pieza: entero, sin recortar y sin el logo encima
 # Un pedido que quiere una foto de verdad y no un dibujo («una mariposa real en un jardín», «foto realista de…»): la IA
-# de texto pequeña lo tomaba por un dibujo suelto y salía un sticker vectorial sobre un fondo liso
-_PIDE_FOTO = re.compile(r"\b(?:fotos?|fotograf\w*|photos?|photograph\w*|\w*realistas?|\w*realistic|\w*réaliste|real|"
-                        r"reales|réel(?:le)?s?|de verdad|de verdade)\b", re.I)
+# de texto pequeña lo tomaba por un dibujo suelto y salía un sticker vectorial sobre un fondo liso. «surrealista» no
+# (es arte), ni «Real» con mayúscula (Real Madrid, Palacio Real) ni «tamaño real»
+_PIDE_FOTO = re.compile(r"\b(?:fotos?|fotograf\w*|photos?|photograph\w*|(?:foto|photo|hiper|hyper|ultra)?-?r?"
+                        r"(?:realistas?|realistic|réalistes?)|(?<!tamaño )(?<!tamano )(?-i:real|reales)(?! estate)|"
+                        r"réel(?:le)?s?|de verdad|de verdade)\b", re.I)
+# Una escena en un lugar («una mariposa en un jardín», «un paisaje de montañas al amanecer») sin pedir dibujo también
+# es una foto: como ilustración, la pista pide un motivo centrado sobre fondo liso y el lugar desaparecía
+_ESCENA = re.compile(r"\b(?:jard[ií]n(?:es)?|jardim|jardins?|gardens?|playas?|beach|praia|plage|bosques?|forests?|"
+                     r"florestas?|for[eê]ts?|selvas?|jungles?|monta[ñn]as?|mountains?|montanhas?|montagnes?|"
+                     r"paisajes?|landscapes?|paisage[mn]s?|paysages?|amanecer|atardecer|sunrise|sunset|"
+                     r"p[oô]r do sol|coucher de soleil)\b", re.I)
 _PIDE_DIBUJO = re.compile(r"\b(?:dibuj\w*|ilustraci\w*|illustrat\w*|desenh\w*|dessin\w*|pintur\w*|painting|acuarela|"
                           r"watercolou?r|vector\w*|stickers?|pegatinas?|caricatur\w*|cartoons?|anime|logos?|tatuajes?|"
-                          r"tattoos?|estampados?|camisetas?|tazas?|escudos?|emblemas?|iconos?|icons?|3d)\b", re.I)
+                          r"tattoos?|estampados?|camisetas?|tazas?|escudos?|emblemas?|iconos?|icons?|3d|cuadros?|"
+                          r"óleo|oleo|lienzos?|canvas|surreal\w*)\b", re.I)
 # Gemini las escribe por costumbre. Solo las de estilo: «photographer» es el motivo, no el estilo
 _FOTO = re.compile(r"\b(?:(?:hyper|ultra|photo)-?)?realis(?:tic|m)\b-?|\bphoto(?:s|graphs?|graphy|graphic)?\b-?", re.I)
 _DECORATIVAS = ("Pirata One", "Grenze Gotisch", "Metal Mania", "New Rocker", "Creepster", "Cinzel Decorative")
@@ -171,7 +180,8 @@ nada. """ + FALTAS + """
   a 3 pedidos completos (uno por lectura). Si seguro es true, pregunta "" y opciones [].
 - tipo: la pieza que mejor encaja: """ + "; ".join(f"{k} ({v[1].split(': ')[0]})" for k, v in TIPOS.items()) + """.
   Camiseta, taza o sticker: estampado. Un dibujo o motivo suelto: ilustracion. Una foto, o algo real o realista
-  (una mariposa real en un jardín): foto.
+  (una mariposa real en un jardín): foto. Una escena con un lugar (en un jardín, en la playa, un paisaje) sin pedir
+  dibujo: foto.
 - estilo de las imágenes: vector, sticker, tatuaje, poster, grabado, render3d (render 3D), neon_oscuro (arte digital
   oscuro con neón y humo, p. ej. una portada de álbum), animado3d (personaje 3D de película animada), urbano (calle,
   gorras, grafiti, humo) o foto (foto solo para un producto, un lugar o una persona reales, o si pide una foto)."""
@@ -468,8 +478,10 @@ def _convertir(r: dict, ancho: int, alto: int, fuente_titulo: str, fuente_texto:
 
 
 def pide_foto(pedido: str) -> bool:
-    """Si el pedido quiere una foto de verdad («una mariposa real en un jardín») y no un dibujo."""
-    return bool(_PIDE_FOTO.search(str(pedido))) and not _PIDE_DIBUJO.search(str(pedido))
+    """Si el pedido quiere una foto de verdad («una mariposa real en un jardín», «una mariposa en un jardín») y no un
+    dibujo."""
+    pedido = str(pedido)
+    return bool(_PIDE_FOTO.search(pedido) or _ESCENA.search(pedido)) and not _PIDE_DIBUJO.search(pedido)
 
 
 def entender(pedido: str, tipo: str = "auto") -> dict:
@@ -544,7 +556,7 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     elif not pedido:
         raise ValueError(t("Escribe qué diseño quieres."))
     _comprobar(tipo, estilo)
-    estilo = "foto" if tipo == "foto" and estilo == "auto" else estilo
+    estilo = "foto" if tipo == "foto" else estilo  # una foto se fotografía aunque el Director pidiera «vector»
     diseno.asegurar_qt()  # medir los textos necesita Qt y las fuentes de assets/ registradas
     tamano, pistas = TIPOS[tipo]
     ancho, alto, _ = diseno.TAMANOS[tamano]
@@ -599,9 +611,9 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     d = _convertir(r, ancho, alto, fuente_titulo, fuente_texto, paleta, avisos, ilustra, permitido)
     if tipo == "foto":  # la foto ES la pieza y llena el lienzo, aunque la IA la pusiera en una capa: sin motivos encima
         sueltas = [c for c in d["capas"] if c["tipo"] == "imagen"]
-        if d["fondo"]["tipo"] != "imagen":
+        if d["fondo"]["tipo"] != "imagen":  # la capa describe solo el motivo: el pedido trae el lugar, la luz…
             d["fondo"] = {"tipo": "imagen", "colores": d["fondo"]["colores"][:1], "imagen": "fondo.png",
-                          "prompt_imagen": sueltas[0]["prompt_imagen"] if sueltas else pedido}
+                          "prompt_imagen": f"{sueltas[0]['prompt_imagen']}, {pedido}" if sueltas else pedido}
         d["capas"] = [c for c in d["capas"] if c["tipo"] != "imagen"]
     if not d["capas"] and d["fondo"]["tipo"] != "imagen":  # una foto sola sí es un diseño
         raise RuntimeError(t("La IA no devolvió ninguna capa que se pueda usar. Inténtalo de nuevo o cambia el "

@@ -1,8 +1,8 @@
 """Lo que tarda el Director en hacer una imagen, medido con un reloj simulado y sin red: la conversación de la mariposa
 del dueño (Gemini sin saldo desde las 07:03, Groq con Qwen y la imagen gratis de Pollinations), antes y después.
 Groq y Gemini son de mentira pero cuentan los tokens como el servicio (también los del razonamiento escondido) y el
-límite de tokens por minuto de la cuenta gratis: al pasarlo, la librería de OpenAI espera sola lo que dice Groq.
-python -m pruebas.rapidez"""
+límite de tokens por minuto de la cuenta gratis: un pedido que no cabe espera (Groq responde 429 con lo que hay que
+esperar y la librería de OpenAI lo espera sola). Cada mejora se mide por separado. python -m pruebas.rapidez"""
 import json
 import os
 import tempfile
@@ -30,8 +30,8 @@ claves.guardar({"proveedor": "groq", "clave": "gsk_PRUEBA00000000000000000000000
                 "modelo_texto": "qwen/qwen3.8-27b"})
 
 # Lo que se supone, ajustado al registro de actividad del dueño (08:25:22-08:26:13): el 402 de Gemini, ~1 s; el primer
-# paso del Director, 1-2 s; entender, <1 s; diseñar, 3 s; la imagen, ~6 s, y la respuesta final, 38 s. Con 6.000
-# tokens por minuto (el límite gratis de Groq para Qwen 3) que se dejan gastar de más y luego se esperan, sale igual
+# paso del Director, 1-2 s; entender, <1 s; diseñar, 3 s; la imagen, ~6 s, y la respuesta final, 38 s. Esos 38 s
+# salen solos con 6.000 tokens por minuto (el límite gratis de Groq para Qwen 3): la respuesta final espera la cuota
 LETRAS_POR_TOKEN = 3.8  # español con JSON
 GROQ_LATENCIA, GROQ_LEE, GROQ_ESCRIBE = 0.3, 25_000, 450  # s; tokens/s al leer el pedido y al escribir
 TPM = 6_000  # tokens por minuto de la cuenta gratis para ese modelo (se rellena poco a poco, como en Groq)
@@ -58,13 +58,12 @@ def respuesta(para: str, usuario: str) -> dict:
 
 
 def gastar(tokens: float) -> None:
-    """La cuota de tokens por minuto, que se rellena poco a poco: un pedido entra si queda algo (aunque la deje en
-    negativo) y, si ya está en negativo, espera a que vuelva a cero (Groq responde 429 con lo que hay que esperar y la
-    librería de OpenAI lo espera sola, sin que la app lo sepa)."""
+    """La cuota de tokens por minuto, que se rellena poco a poco: un pedido espera hasta que caben sus tokens (Groq
+    responde 429 con lo que hay que esperar y la librería de OpenAI lo espera sola, sin que la app lo sepa)."""
     reloj["cuota"] = min(TPM, reloj["cuota"] + (reloj["ahora"] - reloj["visto"]) * TPM / 60)
-    if reloj["cuota"] < 0:
-        reloj["ahora"] += -reloj["cuota"] / (TPM / 60)
-        reloj["cuota"] = 0.0
+    if reloj["cuota"] < tokens:
+        reloj["ahora"] += (tokens - reloj["cuota"]) / (TPM / 60)
+        reloj["cuota"] = tokens
     reloj["cuota"] -= tokens
     reloj["visto"] = reloj["ahora"]
 
@@ -111,54 +110,68 @@ def imagen(prompt, ancho, alto, destino, calidad="1K"):
     return Path(destino)
 
 
-def conversacion(mejorada: bool) -> dict:
-    """«Hazme una imagen de una mariposa real en un jardín» al Director, con Gemini sin saldo comprobado a las 07:03.
-    Sin la mejora: se le pide igual a Gemini y Qwen piensa antes de cada respuesta."""
+MEJORAS = ("saltar Gemini", "sin razonar", "catálogo corto")
+
+
+def conversacion(*mejoras) -> dict:
+    """«Hazme una imagen de una mariposa real en un jardín» al Director, con Gemini sin saldo comprobado hace una hora.
+    Sin «saltar Gemini» se le pide igual; sin «sin razonar», Qwen piensa antes de cada respuesta; sin «catálogo corto»,
+    cada paso del Director lleva el catálogo entero de herramientas."""
     eventos.clear()
     reloj.update(ahora=0.0, cuota=float(TPM), visto=0.0)
     claves.CONEXIONES.write_text(json.dumps({"gemini": {
         "estado": "sin_saldo", "detalle": "402: Your prepayment credits are depleted.", "paso": "",
-        "fecha": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3600))}}), encoding="utf-8")
+        "fecha": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1800))}}), encoding="utf-8")
     actividad.ARCHIVO.unlink(missing_ok=True)
-    reales = ia._saltado, ia._sin_razonar
-    if not mejorada:
-        ia._saltado, ia._sin_razonar = (lambda c: None), (lambda proveedor, modelo: {})
+    reales = ia._saltado, ia._sin_razonar, director.catalogo
+    if "saltar Gemini" not in mejoras:
+        ia._saltado = lambda c: None
+    if "sin razonar" not in mejoras:
+        ia._sin_razonar = lambda proveedor, modelo: {}
+    if "catálogo corto" not in mejoras:
+        director.catalogo = lambda enteras=None: reales[2]()
     preguntas = []
     try:
         r = director.dirigir("hazme una imagen de una mariposa real en un jardín",
                              confirmar=lambda p: preguntas.append(p) or True)
     finally:
-        ia._saltado, ia._sin_razonar = reales
+        ia._saltado, ia._sin_razonar, director.catalogo = reales
     assert not preguntas  # todo gratis: nada que preguntar
     fin_imagen = next(fin for quien, _, _, fin, _ in eventos if quien == "pollinations")
     hecho = json.loads((Path(r["resultados"][0]["archivo"]).parent / "diseno.json").read_text(encoding="utf-8"))
     return {"total": reloj["ahora"], "final": reloj["ahora"] - fin_imagen, "diseno": hecho,
             "gemini": sum(quien == "gemini" for quien, *_ in eventos),
             "tokens": round(sum(t for quien, *_, t in eventos if quien == "groq")),
+            "pasos": [(para, round(fin - inicio, 1), round(t)) for quien, para, inicio, fin, t in eventos],
             "saltos": [a for a in actividad.ultimas() if a["motivo"].startswith("No se le pidió")]}
 
 
 abrir_openai, imagen_real = openai.OpenAI, ia.imagen
 openai.OpenAI, ia.imagen = OpenAIFalso, imagen
 try:
-    antes, despues = conversacion(False), conversacion(True)
+    vueltas = [conversacion(*MEJORAS[:n]) for n in range(len(MEJORAS) + 1)]  # antes y cada mejora sumada
 finally:
     openai.OpenAI, ia.imagen = abrir_openai, imagen_real
+antes, despues = vueltas[0], vueltas[-1]
+for n, vez in enumerate(vueltas):
+    print(f"{'Antes' if not n else '+ ' + MEJORAS[n - 1]}: {vez['total']:.1f} s en total; la respuesta final del "
+          f"Director, {vez['final']:.1f} s; {vez['gemini']} esperas a Gemini; {vez['tokens']} tokens a Groq.")
 
-# Antes: cada paso de texto (2 del Director, entender el pedido y diseñar) esperaba el 402 de Gemini, y Qwen pensaba
-# antes de cada respuesta. Después: Gemini ni se pregunta (queda en la actividad que se saltó) y el Director y entender
-# responden sin pensar; diseñar sigue pensando (calidad)
+# Antes: cada paso de texto (2 del Director, entender el pedido y diseñar) esperaba el 402 de Gemini, Qwen pensaba
+# antes de cada respuesta y cada paso del Director llevaba el catálogo entero. Después: Gemini ni se pregunta (queda en
+# la actividad que se saltó), el Director, entender y diseñar una foto (es solo su prompt) responden sin pensar, y el
+# paso final lleva el catálogo corto. Lo que más pesa es el límite de 6.000 tokens por minuto: lo que queda de la
+# respuesta final es esperarlo. Saltar Gemini ahorra poco aquí (su espera se solapa con la de la cuota), pero sí en los
+# pedidos que caben en la cuota
 assert antes["gemini"] == 4 and not antes["saltos"], antes
 assert despues["gemini"] == 0 and len(despues["saltos"]) == 4, despues
 assert {s["paso_a"] for s in despues["saltos"]} == {"groq"}
-assert despues["tokens"] < antes["tokens"] - 1500, (antes["tokens"], despues["tokens"])
-assert despues["total"] < antes["total"] - 8 and despues["final"] < antes["final"] / 2, (antes, despues)
-# Las dos veces, la foto llena el lienzo (el Director pidió «ilustracion», pero el pedido dice «real»)
-for vez in (antes, despues):
+assert all(b["total"] <= a["total"] for a, b in zip(vueltas, vueltas[1:])), vueltas  # ninguna mejora empeora
+assert despues["tokens"] < antes["tokens"] - 4000, (antes["tokens"], despues["tokens"])
+assert vueltas[3]["final"] < vueltas[2]["final"] - 10  # el catálogo corto: unos 1.400 tokens menos en el paso final
+assert despues["total"] < antes["total"] * 0.6 and despues["final"] < antes["final"] * 0.65, (antes, despues)
+# Siempre, la foto llena el lienzo (el Director pidió «ilustracion», pero el pedido dice «real»)
+for vez in vueltas:
     d = vez["diseno"]
     assert d["fondo"]["tipo"] == "imagen" and not [c for c in d["capas"] if c["tipo"] == "imagen"], d
-print(f"Antes: {antes['total']:.1f} s en total; la respuesta final del Director, {antes['final']:.1f} s; "
-      f"{antes['gemini']} esperas a Gemini sin saldo; {antes['tokens']} tokens a Groq.")
-print(f"Después: {despues['total']:.1f} s en total; la respuesta final del Director, {despues['final']:.1f} s; "
-      f"{despues['gemini']} esperas a Gemini; {despues['tokens']} tokens a Groq.")
 print("Pruebas de rapidez del Director pasadas.")

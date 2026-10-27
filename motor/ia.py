@@ -457,13 +457,20 @@ def _no_atendio(c: dict, fallo: "SinServicio", siguiente: str) -> None:
                      paso_a=siguiente)
 
 
+SALTO = 3600  # s: lo que se salta una IA sin saldo o con la clave mal antes de volver a probarla (pudo recargar)
+
+
 def _saltado(c: dict) -> SinServicio | None:
     """El fallo, sin pedirle nada, de una IA que ya se sabe que no atiende: sin saldo o con la clave mal, comprobado
-    hace menos de claves.VIGENCIA (pasó: cada paso del Director esperaba 1-3 s el 402 de Gemini antes de ir a Groq).
-    Se le vuelve a pedir pasada la VIGENCIA o cuando «Comprobar conexiones» dice que ya atiende. Sin cuota no se
-    salta: suele ser el límite por minuto y pasa enseguida."""
-    malo = claves._vigente(c["proveedor"], claves.BLOQUEA)
+    hace menos de SALTO (pasó: cada paso del Director esperaba 1-3 s el 402 de Gemini antes de ir a Groq).
+    Se le vuelve a pedir pasado SALTO, cuando «Comprobar conexiones» dice que ya atiende o al conectar otra clave
+    suya. Sin cuota no se salta: suele ser el límite por minuto y pasa enseguida. Tampoco un 403 que no habla de la
+    clave (p. ej. la moderación de OpenRouter): la clave sí vale."""
+    malo = claves._vigente(c["proveedor"], claves.BLOQUEA, SALTO)
     if not malo:
+        return None
+    detalle = str(malo.get("detalle", ""))
+    if malo["estado"] == "clave" and detalle.startswith("403") and not re.search(r"key|token", detalle, re.I):
         return None
     problema = claves.frase(c["proveedor"], malo["estado"])
     fallo = SinServicio(f"{problema}. {claves.paso(c['proveedor'], malo['estado'])}")
@@ -541,7 +548,8 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
                                               f"{json.dumps(esquema)}"},
                 {"role": "user", "content": pedido}]
     sin_razonar = _sin_razonar(c["proveedor"], modelo) if rapido else {}
-    for _ in range(2):  # si la respuesta llega cortada o incompleta, se pide una vez más
+    respuestas = 0
+    while respuestas < 2:  # si la respuesta llega cortada o incompleta, se pide una vez más
         try:
             r = cliente.chat.completions.create(model=c["modelo_texto"], response_format={"type": "json_object"},
                                                 messages=mensajes,
@@ -549,13 +557,15 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
                                                 extra_body={**({"private": True} if c["proveedor"] == "pollinations"
                                                                else {}), **sin_razonar} or None)
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
-            if sin_razonar and e.status_code == 400:  # un modelo que no deja apagarlo: otra vez, como siempre
+            # Un modelo que no deja apagarlo: otra vez, como siempre (no cuenta como intento: no respondió nada)
+            if sin_razonar and e.status_code == 400:
                 sin_razonar = {}
                 continue
             raise _error_texto(c, e.status_code, motivo(e.response)) from None
         except Exception as e:  # sin conexión, cortado…: también se apunta
             actividad.anotar("texto", c["proveedor"], modelo, error=e)
             raise
+        respuestas += 1
         contenido = r.choices[0].message.content or ""
         try:
             valido = _validar(_json_de(contenido, esquema), esquema)
@@ -569,6 +579,7 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         if valido is not None:
             claves.recordar(c["proveedor"], 200)
             return _limpio(valido)
+        sin_razonar = {}  # sin pensar pudo dejarlo a medias: la otra vez, con toda su calidad
     raise RuntimeError(t("La IA de texto ({proveedor}) respondió incompleto dos veces. Inténtalo de nuevo o "
                          "elige otra IA de texto en «Claves de IA».", proveedor=nombre))
 

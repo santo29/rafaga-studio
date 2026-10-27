@@ -89,6 +89,25 @@ assert abiertas == [carpeta]
 b["Cerrar"].click()
 app.processEvents()
 assert cerrado(visor)
+# En JPG, lo transparente sale blanco (salía negro): el JPG no tiene transparencia
+con_alfa = tmp / "con-alfa.png"
+recorte = QImage(200, 100, QImage.Format_ARGB32)
+recorte.fill(Qt.transparent)
+recorte.setPixelColor(100, 50, QColor("#FF0000"))
+assert recorte.save(str(con_alfa))
+visor = ver_imagen(None, con_alfa, "Recorte")
+destinos.append(str(tmp / "recorte.jpg"))
+botones(visor)["Descargar"].click()
+bajada = QImage(str(tmp / "recorte.jpg"))
+assert bajada.pixelColor(2, 2).name() == "#ffffff" and bajada.size() == recorte.size(), bajada.pixelColor(2, 2).name()
+destinos.append(str(tmp / "recorte.png"))  # en PNG, la transparencia se queda
+botones(visor)["Descargar"].click()
+assert QImage(str(tmp / "recorte.png")).pixelColor(2, 2).alpha() == 0
+visor.close()
+# Un ejemplo de la galería vive entre los archivos del programa: sin «Abrir carpeta» (ahí no se manda a borrar)
+visor = ver_imagen(None, Path(__file__).resolve().parent.parent / "ejemplos" / "anuncio-rafaga.jpg", "Ejemplo")
+assert visibles(visor) == ["Descargar", "Cerrar"], visibles(visor)
+visor.close()
 
 # ---------- En la app: editar en Diseño y animar llevan a su página sin empezar nada ----------
 import app as aplicacion  # noqa: E402
@@ -100,15 +119,19 @@ assert VisorImagen.al_disenar is not None and VisorImagen.al_animar is not None
 visor = ver_imagen(ventana, vista, "Mariposa Vectorial")
 app.processEvents()
 assert visibles(visor) == ["Descargar", "Editar en Diseño", "Animar", "Abrir carpeta", "Cerrar"], visibles(visor)
+assert botones(visor)["Editar en Diseño"].toolTip() == "Cambiar sus textos, colores y capas en la página Diseño"
 botones(visor)["Editar en Diseño"].click()  # un diseño guardado se abre tal cual
 app.processEvents()
 assert cerrado(visor) and ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
 assert ventana.diseno.carpeta == carpeta and ventana.diseno.diseno["nombre"] == "Mariposa Vectorial"
 # Una imagen suelta (un ejemplo de la galería) entra en un diseño nuevo de su forma, llenándolo
 visor = ver_imagen(ventana, suelta, "Flyer de ejemplo")
+# Entra como una sola imagen: la ayuda no promete cambiar sus textos, y el diseño lleva el título del ejemplo
+assert botones(visor)["Editar en Diseño"].toolTip() == "Ponerla en un diseño nuevo para añadirle textos y formas"
 botones(visor)["Editar en Diseño"].click()
 nuevo = ventana.diseno.diseno
 assert ventana.diseno.carpeta not in (None, carpeta) and (nuevo["ancho"], nuevo["alto"]) == (1080, 1350), nuevo
+assert nuevo["nombre"] == "Flyer de ejemplo", nuevo["nombre"]
 capa = nuevo["capas"][0]
 assert (capa["tipo"], capa["x"], capa["y"], capa["ancho"], capa["alto"], capa["ajuste"]) == (
     "imagen", 0, 0, 1080, 1350, "cubrir"), capa
@@ -124,6 +147,31 @@ for imagen, formato in ((vista, "1:1"), (suelta, "4:5")):
     assert crear.imagen.text() == str(imagen) and crear.modo.currentIndex() == 1 and crear.formato.valor() == formato
     assert crear.prompt.toPlainText() and crear.prompt.textCursor().hasSelection()  # escribir encima lo cambia
     assert crear.tarea is None and crear.iniciar.isEnabled()  # nada empezó solo
+# Lo que el usuario ya escribió en Crear con IA no se pisa sin preguntar: con un «no», todo se queda como estaba
+crear.prompt.setPlainText("Mi video de la playa")
+crear.imagen.setText("")
+crear.modo.setCurrentIndex(0)
+preguntas = []
+for respuesta, pedido in ((QMessageBox.No, "Mi video de la playa"),
+                          (QMessageBox.Yes, "Que cobre vida con un movimiento suave y natural")):
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, r=respuesta: preguntas.append(texto) or r)
+    visor = ver_imagen(ventana, vista, "x")
+    botones(visor)["Animar"].click()
+    assert crear.prompt.toPlainText() == pedido and crear.imagen.text() == ("" if respuesta == QMessageBox.No
+                                                                             else str(vista)), respuesta
+assert preguntas == ["En Crear con IA ya hay un pedido escrito. ¿Cambiarlo por el de animar esta imagen?"] * 2
+preguntas.clear()
+botones(ver_imagen(ventana, vista, "x"))["Animar"].click()  # el pedido es el sugerido: no hay nada que perder
+assert not preguntas
+QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+# Con «Sin animar» recordado en su «Modelo de video», «Generar video» decía «Elige un modelo de video»: llega en
+# Automático (que si es de pago, pregunta el costo antes)
+claves.elegir_por_defecto(crear.modelo.clave, "ninguno")
+crear.modelo.recargar()
+assert crear.modelo.valor() == "ninguno"
+botones(ver_imagen(ventana, vista, "x"))["Animar"].click()
+assert crear.modelo.valor() == "auto" and claves.ajustes()[crear.modelo.clave] == "auto"
+assert crear.tarea is None  # y tampoco empezó nada
 
 # «Imagen» desde Inicio: si pide una foto real, a Diseño como foto (salía sticker vectorial); si no, ilustración
 for texto, tipo in (("una mariposa real en un jardín", "foto"), ("una mariposa", "ilustracion")):

@@ -57,7 +57,8 @@ Reglas:
   Si corriges una palabra que cambia el sentido, dilo en tu mensaje («Entendí calavera; si querías el barco, dímelo»).
 - Elige la herramienta por lo que quiere recibir:
   · diseño, imagen, logo, post, flyer, miniatura o tarjeta → crear_diseno. Dibujo para camiseta, taza o sticker →
-    crear_diseno con tipo "estampado".
+    crear_diseno con tipo "estampado". Una foto, o algo real o realista («una mariposa real en un jardín») →
+    crear_diseno con tipo "foto": la foto llena todo el lienzo.
   · Dibujos animados (dibujo animado, caricatura, cartoon o serie con personajes) → crear_serie y, en este mismo
     pedido, crear_episodio con el "nombre" que devuelve. Estilo "Cartoon 2D" si no dijo otro; formato 9:16 si es
     para TikTok, Reels o Shorts.
@@ -366,7 +367,9 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     for n in range(MAX_PASOS + 1):
         aviso(t("Pensando…"), n / (MAX_PASOS + 1))
         try:
-            r = ia.texto_json(instrucciones, _contexto(pedido, historial, pasos), ESQUEMA)
+            # rapido: elegir el paso no necesita que el modelo piense antes (ver ia._sin_razonar); los guiones y los
+            # diseños los escribe cada herramienta con toda su calidad
+            r = ia.texto_json(instrucciones, _contexto(pedido, historial, pasos), ESQUEMA, rapido=True)
         except Exception as e:  # la IA falla a mitad: lo que ya se hizo no se pierde
             if not pasos:
                 raise

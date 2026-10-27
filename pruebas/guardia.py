@@ -534,7 +534,7 @@ conexion_mcp.CLIENTES[cliente].unlink()
 
 # ---------- La IA solo explica: recibe el evento limpio y su respuesta es texto ----------
 pedidos, texto_json_real = [], ia.texto_json
-ia.texto_json = lambda instrucciones, pedido, esquema: pedidos.append((instrucciones, pedido)) or {
+ia.texto_json = lambda instrucciones, pedido, esquema, **k: pedidos.append((instrucciones, pedido)) or {
     "explicacion": "Un agente pidió algo.\n\nNo pasa nada."}
 try:
     respuesta = guardia.explicar({"fecha": "2026-10-24 10:00:00", "tipo": "red", "gravedad": "media",

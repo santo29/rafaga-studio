@@ -4,6 +4,7 @@ el pedido (pregunta si duda), diseña en capas editables o dibuja una ilustraci�
 de motor/diseno.py: cada cambio se escribe ahí y el lienzo lo repinta."""
 import copy
 import html
+import math
 import os
 import re
 import tempfile
@@ -29,7 +30,8 @@ FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Lí
 FUSIONES = {"normal": t("Normal"), "multiplicar": t("Multiplicar"), "trama": t("Trama"),  # las de diseno.FUSIONES
             "superponer": t("Superponer"), "aclarar": t("Aclarar"), "oscurecer": t("Oscurecer")}
 # «auto»: la pieza la elige la IA al entender el pedido (motor/diseno_ia.entender); el resto, las claves de sus TIPOS
-TIPOS_IA = {"auto": t("Automático"), "ilustracion": t("Ilustración"), "estampado": t("Estampado (camiseta, sticker)"),
+TIPOS_IA = {"auto": t("Automático"), "foto": t("Foto realista"), "ilustracion": t("Ilustración"),
+            "estampado": t("Estampado (camiseta, sticker)"),
             "anuncio": t("Anuncio"), "post": t("Post"), "historia": t("Historia / Reel"),
             "miniatura": t("Miniatura de YouTube"), "flyer": t("Flyer"), "logo": t("Logo"),
             "tarjeta": t("Tarjeta de presentación"), "marca_personal": t("Marca personal"),
@@ -1234,6 +1236,17 @@ class PaginaDiseno(QWidget):
         except ValueError as e:
             return mensaje_error(self, t("No se pudo abrir el diseño"), e)
         self._empezar(abierto, Path(carpeta))
+
+    def desde_imagen(self, ruta) -> bool:
+        """Un diseño nuevo con esta imagen llenando el lienzo, del tamaño más parecido a ella («Editar en Diseño» del
+        visor con una imagen suelta, p. ej. un ejemplo). False si la imagen no vale (ya avisado)."""
+        tam = QImageReader(str(ruta)).size()
+        forma = tam.width() / tam.height() if not tam.isEmpty() else 1
+        tamano = min(diseno.TAMANOS, key=lambda k: abs(math.log(diseno.TAMANOS[k][0] / diseno.TAMANOS[k][1] / forma)))
+        self._empezar(diseno.nuevo(tamano, t("Mi diseño")), None)
+        nombre = self._importar(ruta)
+        return bool(nombre) and self.anadir({"tipo": "imagen", "archivo": nombre, "x": 0, "y": 0, "ajuste": "cubrir",
+                                             "ancho": self.diseno["ancho"], "alto": self.diseno["alto"]})
 
     def guardar(self):
         try:

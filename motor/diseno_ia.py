@@ -3,6 +3,7 @@ lo limpia, genera las imágenes (ilustraciones o fotos) con la IA de imágenes, 
 vista previa PNG. Antes, entender() dice qué quiso decir el usuario (faltas incluidas) sin gastar imágenes."""
 import math
 import re
+import shutil
 from fractions import Fraction
 from pathlib import Path
 from typing import Callable
@@ -33,6 +34,13 @@ ESTILOS = {"auto": "", "vector": "flat vector illustration, bold clean outlines,
                      "light, gritty texture, no gore",
            "foto": "professional photography, realistic, natural light"}
 _ILUSTRADOS = ("ilustracion", "estampado", "logo")  # el motivo ES la pieza: entero, sin recortar y sin el logo encima
+# Un pedido que quiere una foto de verdad y no un dibujo («una mariposa real en un jardín», «foto realista de…»): la IA
+# de texto pequeña lo tomaba por un dibujo suelto y salía un sticker vectorial sobre un fondo liso
+_PIDE_FOTO = re.compile(r"\b(?:fotos?|fotograf\w*|photos?|photograph\w*|\w*realistas?|\w*realistic|\w*réaliste|real|"
+                        r"reales|réel(?:le)?s?|de verdad|de verdade)\b", re.I)
+_PIDE_DIBUJO = re.compile(r"\b(?:dibuj\w*|ilustraci\w*|illustrat\w*|desenh\w*|dessin\w*|pintur\w*|painting|acuarela|"
+                          r"watercolou?r|vector\w*|stickers?|pegatinas?|caricatur\w*|cartoons?|anime|logos?|tatuajes?|"
+                          r"tattoos?|estampados?|camisetas?|tazas?|escudos?|emblemas?|iconos?|icons?|3d)\b", re.I)
 # Gemini las escribe por costumbre. Solo las de estilo: «photographer» es el motivo, no el estilo
 _FOTO = re.compile(r"\b(?:(?:hyper|ultra|photo)-?)?realis(?:tic|m)\b-?|\bphoto(?:s|graphs?|graphy|graphic)?\b-?", re.I)
 _DECORATIVAS = ("Pirata One", "Grenze Gotisch", "Metal Mania", "New Rocker", "Creepster", "Cinzel Decorative")
@@ -77,6 +85,9 @@ TIPOS = {
                                   "una misma rejilla. Nada de párrafos."),
     "ilustracion": ("post", "Ilustración: un motivo grande, entero y centrado (capa imagen cuadrada del 70 al 90 % del "
                             "ancho) sobre fondo liso. Sin textos salvo que los pida el pedido."),
+    "foto": ("post", "Foto realista: la foto ES la pieza y llena todo el lienzo. Va en fondo_prompt_imagen (en inglés, "
+                     "como una foto de cámara: el motivo, el lugar, la luz y el encuadre) y capas va vacío, salvo los "
+                     "textos que pida el pedido."),
     "estampado": ("post", "Estampado para camiseta, taza o sticker: la ilustración ES la pieza (capa imagen cuadrada "
                           "del 80 al 95 % del ancho, centrada) sobre fondo liso. Como mucho el texto que pida el "
                           "pedido, nunca textos de venta."),
@@ -159,7 +170,8 @@ nada. """ + FALTAS + """
 - seguro: false solo si dos lecturas son igual de probables. Entonces pregunta es una pregunta corta y opciones, de 2
   a 3 pedidos completos (uno por lectura). Si seguro es true, pregunta "" y opciones [].
 - tipo: la pieza que mejor encaja: """ + "; ".join(f"{k} ({v[1].split(': ')[0]})" for k, v in TIPOS.items()) + """.
-  Camiseta, taza o sticker: estampado. Un dibujo o motivo suelto: ilustracion.
+  Camiseta, taza o sticker: estampado. Un dibujo o motivo suelto: ilustracion. Una foto, o algo real o realista
+  (una mariposa real en un jardín): foto.
 - estilo de las imágenes: vector, sticker, tatuaje, poster, grabado, render3d (render 3D), neon_oscuro (arte digital
   oscuro con neón y humo, p. ej. una portada de álbum), animado3d (personaje 3D de película animada), urbano (calle,
   gorras, grafiti, humo) o foto (foto solo para un producto, un lugar o una persona reales, o si pide una foto)."""
@@ -455,6 +467,11 @@ def _convertir(r: dict, ancho: int, alto: int, fuente_titulo: str, fuente_texto:
             "capas": capas}
 
 
+def pide_foto(pedido: str) -> bool:
+    """Si el pedido quiere una foto de verdad («una mariposa real en un jardín») y no un dibujo."""
+    return bool(_PIDE_FOTO.search(str(pedido))) and not _PIDE_DIBUJO.search(str(pedido))
+
+
 def entender(pedido: str, tipo: str = "auto") -> dict:
     """Qué quiso decir el usuario, con una sola llamada de texto y sin gastar imágenes: {entendido, seguro, pregunta,
     opciones (hasta 3 pedidos completos), tipo (de TIPOS), estilo (de ESTILOS)}. Con seguro=False hay que preguntar
@@ -465,18 +482,21 @@ def entender(pedido: str, tipo: str = "auto") -> dict:
     _comprobar("post" if tipo == "auto" else tipo)
     pieza = "" if tipo == "auto" else f"\nPieza elegida por el usuario: {tipo}."
     try:
-        r = ia.texto_json(INSTRUCCIONES_ENTENDER, f"Pedido: {pedido}{pieza}", ESQUEMA_ENTENDER, uso="diseno")
+        r = ia.texto_json(INSTRUCCIONES_ENTENDER, f"Pedido: {pedido}{pieza}", ESQUEMA_ENTENDER, uso="diseno",
+                          rapido=True)  # solo entender el pedido: sin que el modelo piense antes (ia._sin_razonar)
         r = r if isinstance(r, dict) else {}
     except Exception:  # sin IA de texto o caída: mejor diseñar lo escrito que no diseñar
         r = {}
     opciones = r.get("opciones") if isinstance(r.get("opciones"), list) else []
     opciones = [o for o in (_txt(o, 300) for o in opciones) if o][:3]
     elegido, estilo = _txt(r.get("tipo"), 30), _txt(r.get("estilo"), 30)
+    if tipo == "auto":
+        tipo = elegido if elegido in TIPOS else "ilustracion"
+        tipo = "foto" if tipo == "ilustracion" and pide_foto(pedido) else tipo  # pide una foto, no un dibujo suelto
     return {"entendido": _txt(r.get("entendido"), 2000) or pedido,
             "seguro": r.get("seguro") is not False or not opciones,  # sin opciones no hay nada que elegir
-            "pregunta": _txt(r.get("pregunta"), 300), "opciones": opciones,
-            "tipo": tipo if tipo != "auto" else elegido if elegido in TIPOS else "ilustracion",
-            "estilo": estilo if estilo in ESTILOS else "auto"}
+            "pregunta": _txt(r.get("pregunta"), 300), "opciones": opciones, "tipo": tipo,
+            "estilo": "foto" if tipo == "foto" else estilo if estilo in ESTILOS else "auto"}
 
 
 def ilustracion(prompt: str, estilo: str, destino: Path, calidad: str = "1K") -> Path:
@@ -516,13 +536,15 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     texto (las fotos sí se generan, y el diseño pasa por las mismas comprobaciones). Los datos reales (precios, webs,
     teléfonos…) tienen que venir en el pedido o en la marca: los demás se cambian por su hueco, como los de la IA.
     estilo: de ESTILOS; fuera de «auto» y «foto» (y siempre en ilustracion, estampado y logo) las imágenes son
-    ilustraciones enteras y cuadradas. calidad: la de cada foto en ia.imagen (1K, 2K o 4K con Gemini)."""
+    ilustraciones enteras y cuadradas. Con tipo «foto», la foto es el fondo y llena todo el lienzo.
+    calidad: la de cada foto en ia.imagen (1K, 2K o 4K con Gemini)."""
     pedido = str(pedido or "").strip()[:2000]  # da para cualquier pieza; más solo gasta tokens de la IA de texto
     if propuesta is not None:  # se comprueba antes de crear nada
         propuesta = ia.de_fuera(propuesta, ESQUEMA, t("El diseño"))
     elif not pedido:
         raise ValueError(t("Escribe qué diseño quieres."))
     _comprobar(tipo, estilo)
+    estilo = "foto" if tipo == "foto" and estilo == "auto" else estilo
     diseno.asegurar_qt()  # medir los textos necesita Qt y las fuentes de assets/ registradas
     tamano, pistas = TIPOS[tipo]
     ancho, alto, _ = diseno.TAMANOS[tamano]
@@ -530,7 +552,7 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
     fuente_titulo, fuente_texto = (m[k] if usar_marca and m[k] in fuentes else marca.POR_DEFECTO[k]
                                    for k in ("fuente_titulo", "fuente_texto"))
     paleta = (m["colores"] if usar_marca else []) + _PALETA
-    logo = marca.ruta_logo() if usar_marca and tipo not in _ILUSTRADOS else None
+    logo = marca.ruta_logo() if usar_marca and tipo not in (*_ILUSTRADOS, "foto") else None
     ilustra = estilo not in ("auto", "foto") or tipo in _ILUSTRADOS
     lado, margen = round(min(ancho, alto) * 0.14), round(min(ancho, alto) * 0.04)
     # En una historia, por encima del 15 % de abajo, donde la app pone sus botones
@@ -567,14 +589,21 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
 
     if propuesta is None:
         aviso(t("La IA está diseñando…"), 0.05)
+    # Una foto es solo su prompt (y los textos que pida): sin que el modelo piense antes, como el Director
     r = propuesta if propuesta is not None else ia.texto_json(INSTRUCCIONES, "\n".join(lineas) + memoria.para("diseno"),
-                                                              ESQUEMA, uso="diseno")
+                                                              ESQUEMA, uso="diseno", rapido=tipo == "foto")
     r = r if isinstance(r, dict) else {}
     avisos = []
     # También en una propuesta: el Director de la app (una IA gratis) la escribe él mismo y también inventa
     permitido = " ".join([pedido] + ([m["nombre"], m["eslogan"], m["tono"]] if usar_marca else []))
     d = _convertir(r, ancho, alto, fuente_titulo, fuente_texto, paleta, avisos, ilustra, permitido)
-    if not d["capas"]:
+    if tipo == "foto":  # la foto ES la pieza y llena el lienzo, aunque la IA la pusiera en una capa: sin motivos encima
+        sueltas = [c for c in d["capas"] if c["tipo"] == "imagen"]
+        if d["fondo"]["tipo"] != "imagen":
+            d["fondo"] = {"tipo": "imagen", "colores": d["fondo"]["colores"][:1], "imagen": "fondo.png",
+                          "prompt_imagen": sueltas[0]["prompt_imagen"] if sueltas else pedido}
+        d["capas"] = [c for c in d["capas"] if c["tipo"] != "imagen"]
+    if not d["capas"] and d["fondo"]["tipo"] != "imagen":  # una foto sola sí es un diseño
         raise RuntimeError(t("La IA no devolvió ninguna capa que se pueda usar. Inténtalo de nuevo o cambia el "
                              "pedido."))
 
@@ -613,6 +642,9 @@ def crear(pedido: str, tipo: str = "post", usar_marca: bool = True,
                 nota = t("La foto {n} no salió ({causa}). Se quitó esa capa.", n=n, causa=causa)
             avisos.append(nota)
             aviso(nota, paso)
+    if not d["capas"] and d["fondo"]["tipo"] != "imagen":  # era solo la foto y no salió: no queda diseño que guardar
+        shutil.rmtree(carpeta, ignore_errors=True)
+        raise RuntimeError(avisos[-1])
     _contraste(d["capas"], d["fondo"], alto)
     if logo:
         try:

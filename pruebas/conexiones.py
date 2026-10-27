@@ -344,7 +344,7 @@ claves.elegir_por_defecto("musica", "auto")
 # El Director: lo dice en el chat antes de su primer paso, y lo de pago imposible vuelve como ERROR sin preguntar
 dichos, preguntas, usadas = [], [], []
 real_texto = ia.texto_json
-ia.texto_json = lambda instrucciones, pedido, esquema, uso="texto": {"mensaje": "Listo.", "herramienta": "",
+ia.texto_json = lambda instrucciones, pedido, esquema, uso="texto", **k: {"mensaje": "Listo.", "herramienta": "",
                                                                     "argumentos": "{}"}
 try:
     director.dirigir("hazme un video", al_decir=dichos.append)
@@ -397,6 +397,7 @@ import anthropic  # noqa: E402
 import openai  # noqa: E402
 
 pedido = httpx.Request("POST", "https://api.example/v1/chat/completions")
+enviados = []  # (servicio, lo que se le mandó) de cada pedido a una IA compatible con OpenAI
 
 
 class OpenAIFalso:
@@ -405,6 +406,7 @@ class OpenAIFalso:
         self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.crear))
 
     def crear(self, **k):
+        enviados.append((self.base, k))
         if "googleapis" in self.base:
             raise openai.APIStatusError("402", body=SIN_SALDO, response=httpx.Response(402, request=pedido,
                                                                                          json=SIN_SALDO))
@@ -434,6 +436,66 @@ try:
     assert gemini["motivo"] == "402: Your prepayment credits are depleted."
     assert (groq["proveedor"], groq["resultado"], groq["costo"]) == ("groq", "ok", 0.0), groq  # Groq: gratis
     assert claves.estados()["gemini"]["estado"] == "sin_saldo"  # el próximo trabajo ya avisa antes
+    # Ya se sabe que Gemini no tiene saldo: los siguientes pedidos ni le preguntan (cada paso del Director esperaba
+    # 1-3 s su 402) y van directo a Groq; en la actividad queda que se saltó y por qué, sin gastar un pedido
+    enviados.clear()
+    assert ia.texto_json("i", "p", esquema) == {"palabra": "listo"}
+    assert [b for b, _ in enviados] == [claves.OPENAI_COMPAT["groq"]], enviados
+    groq, gemini = actividad.ultimas(2)
+    assert (gemini["proveedor"], gemini["resultado"], gemini["paso_a"]) == ("gemini", "fallo", "groq"), gemini
+    assert gemini["motivo"].startswith("No se le pidió: Gemini no tiene saldo (comprobado hoy a las"), gemini
+    assert groq["resultado"] == "ok"
+    # Sin cuota (el límite por minuto) no se salta: pasa enseguida
+    estado("gemini", "sin_cuota")
+    enviados.clear()
+    ia.texto_json("i", "p", esquema)
+    assert [b for b, _ in enviados] == [claves.OPENAI_COMPAT["gemini"], claves.OPENAI_COMPAT["groq"]], enviados
+    # Pasadas las 12 h (pudo recargar) se le vuelve a pedir, y también si «Comprobar conexiones» dice que ya atiende
+    for que, hace in (("sin_saldo", claves.VIGENCIA + 60), ("ok", 0)):
+        estado("gemini", que, hace)
+        enviados.clear()
+        ia.texto_json("i", "p", esquema)
+        assert enviados[0][0] == claves.OPENAI_COMPAT["gemini"], (que, enviados)
+    # Sin ninguna que atienda: la gratis sin clave, y si tampoco, el motivo de la elegida en claro
+    conectar(GEMINI)
+    estado("gemini", "sin_saldo")
+    gratis, ia._texto_gratis = ia._texto_gratis, lambda *a: (_ for _ in ()).throw(RuntimeError("sin red"))
+    enviados.clear()
+    try:
+        error = falla(ia.texto_json, "i", "p", esquema, error=ia.SinServicio)
+    finally:
+        ia._texto_gratis = gratis
+    assert str(error).startswith("Gemini no tiene saldo. Recarga en AI Studio") and enviados == [], error
+    # La ortografía tampoco espera a una IA sin saldo: el aviso del trabajo lo dice y queda en la actividad
+    notas = []
+    assert ia.ortografia(["Miren que bien"], "es", notas) == ["Miren que bien"] and enviados == []
+    assert notas == ["No se pudo repasar la ortografía (Gemini: Gemini no tiene saldo. Recarga en AI Studio: "
+                     "aistudio.google.com → tu proyecto → Billing.)."], notas
+    assert actividad.ultimas(1)[0]["motivo"].startswith("No se le pidió: Gemini no tiene saldo")
+    # El Director y entender un pedido, sin el razonamiento escondido de Qwen en Groq (lo que más tardaba); los
+    # guiones, con él. Un modelo que no deja apagarlo responde 400: se repite como siempre, sin fallar
+    conectar(GROQ)
+    enviados.clear()
+    ia.texto_json("i", "p", esquema, rapido=True)
+    ia.texto_json("i", "p", esquema)
+    assert [k.get("extra_body") for _, k in enviados] == [{"reasoning_effort": "none"}, None], enviados
+    assert ia._sin_razonar("groq", "openai/gpt-oss-120b") == {"reasoning_effort": "low"}
+    assert ia._sin_razonar("groq", "llama-3.3-70b-versatile") == ia._sin_razonar("gemini", "qwen3") == {}
+    crear_real = OpenAIFalso.crear
+
+    def no_admite(self, **k):
+        if (k.get("extra_body") or {}).get("reasoning_effort"):
+            enviados.append((self.base, k))
+            cuerpo = {"error": {"message": "reasoning_effort is not supported with this model"}}
+            raise openai.APIStatusError("400", body=cuerpo, response=httpx.Response(400, request=pedido, json=cuerpo))
+        return crear_real(self, **k)
+    OpenAIFalso.crear = no_admite
+    try:
+        enviados.clear()
+        assert ia.texto_json("i", "p", esquema, rapido=True) == {"palabra": "listo"}
+        assert [k.get("extra_body") for _, k in enviados] == [{"reasoning_effort": "none"}, None], enviados
+    finally:
+        OpenAIFalso.crear = crear_real
     conectar(CLAUDE, GROQ)
     assert ia.texto_json("i", "p", esquema) == {"palabra": "listo"}
     groq, claude = actividad.ultimas(2)

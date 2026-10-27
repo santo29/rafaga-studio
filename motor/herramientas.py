@@ -130,8 +130,9 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
                  estilo: str = "auto", calidad: str = "1K") -> str:
     """Diseña una pieza gráfica en capas editables: textos, formas, iconos, emojis e ilustraciones o fotos.
     tipo: auto (la IA lo elige según el pedido), anuncio, post, historia, miniatura, flyer, logo, tarjeta,
-    marca_personal, presentacion (diapositiva 16:9), ilustracion (un dibujo grande, sin textos salvo que los pida) o
-    estampado (camiseta, taza o sticker: el dibujo es la pieza, sin textos de venta).
+    marca_personal, presentacion (diapositiva 16:9), ilustracion (un dibujo grande, sin textos salvo que los pida),
+    foto (una foto realista que llena todo el lienzo: algo real, p. ej. una mariposa real en un jardín) o estampado
+    (camiseta, taza o sticker: el dibujo es la pieza, sin textos de venta).
     estilo del dibujo: auto, vector, sticker, tatuaje, poster, grabado, render3d (render 3D), neon_oscuro (arte
     digital oscuro con neón y humo, p. ej. portadas de álbum), animado3d (personaje 3D de película animada), urbano
     (calle, gorras, grafiti, humo) o foto (foto solo para un producto, lugar o persona real).
@@ -159,6 +160,8 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
                            estilos=", ".join(diseno_ia.ESTILOS)))
     if not isinstance(calidad, str) or calidad not in ia.PRECIO_IMAGEN_GEMINI[ia.IMAGEN_GEMINI]:
         raise ValueError(t("Calidad desconocida ({calidad!r:.20}); valen 1K, 2K o 4K.", calidad=calidad))
+    if tipo == "ilustracion" and diseno_ia.pide_foto(pedido):  # el Director (una IA pequeña) la pide para toda imagen
+        tipo = "foto"
     delante = {}
     if propuesta is None and str(pedido or "").strip():
         e = diseno_ia.entender(pedido, tipo)

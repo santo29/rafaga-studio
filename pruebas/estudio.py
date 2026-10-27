@@ -102,7 +102,7 @@ pedidos = []
 _pensar = ia.texto_json
 
 
-def anotar(instrucciones, pedido, esquema):
+def anotar(instrucciones, pedido, esquema, **k):
     pedidos.append((instrucciones, pedido))
     raise Basta
 
@@ -230,7 +230,7 @@ def videoclip_falso(cancion: str, formato: str = "9:16", idea: str = "", letra: 
 def guion(*pasos):
     vistos = []
 
-    def pensar(instrucciones, pedido, esquema):
+    def pensar(instrucciones, pedido, esquema, **k):
         vistos.append((instrucciones, pedido))
         return dict(pasos[min(len(vistos), len(pasos)) - 1])
     return pensar, vistos
@@ -417,17 +417,17 @@ def respuesta_de(contenido, cual):
 
 
 try:
-    ia.texto_json = lambda instrucciones, contenido, esquema: respuesta_de(contenido, lambda c: c["ejemplo"])
+    ia.texto_json = lambda instrucciones, contenido, esquema, **k: respuesta_de(contenido, lambda c: c["ejemplo"])
     aciertos, fallos = examen.examinar(escribir=lambda texto: None)
     assert aciertos == len(examen.CASOS) and not fallos, fallos
     # Mal elegido o con los argumentos mal: cada caso lo nota y lo explica
-    ia.texto_json = lambda instrucciones, contenido, esquema: respuesta_de(contenido, lambda c: ("listar_proyectos", {}))
+    ia.texto_json = lambda instrucciones, contenido, esquema, **k: respuesta_de(contenido, lambda c: ("listar_proyectos", {}))
     aciertos, fallos = examen.examinar(escribir=lambda texto: None)
     assert aciertos == 0 and len(fallos) == len(examen.CASOS) and "usó listar_proyectos" in fallos[0]
     malo = ("crear_diseno", {"pedido": "otra cosa", "tipo": "logo"})
     assert examen.revisar(examen.CASOS[1], *malo) == ['tipo = "logo"', 'pedido = "otra cosa"']
     assert "argumentos no válidos" in examen.revisar(examen.CASOS[1], "crear_diseno", {"color": "rojo"})[0]
-    ia.texto_json = lambda *a: (_ for _ in ()).throw(RuntimeError("cuota agotada"))
+    ia.texto_json = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cuota agotada"))
     aciertos, fallos = examen.examinar(examen.CASOS[:1], escribir=lambda texto: None)
     assert aciertos == 0 and "cuota agotada" in fallos[0]
     assert director._usar is real  # nada se quedó interceptado

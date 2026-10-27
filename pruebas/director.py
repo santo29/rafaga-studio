@@ -127,8 +127,9 @@ def guion(*pasos):
     """Una IA falsa que responde estos pasos en orden y guarda lo que le preguntaron."""
     vistos = []
 
-    def pensar(instrucciones, pedido, esquema):
+    def pensar(instrucciones, pedido, esquema, rapido=False):
         assert esquema is director.ESQUEMA and "crear_video(" in instrucciones and "Español" in instrucciones
+        assert rapido is True  # elegir el paso no necesita que el modelo piense antes (ia._sin_razonar)
         vistos.append(pedido)
         return dict(pasos[len(vistos) - 1])
     return pensar, vistos
@@ -691,7 +692,7 @@ finally:
 # crear_cancion: sin género lo elige la IA según la idea, y la letra va en el idioma de la idea
 _para, _gemini, _proyectos, pedidos_musica, producidos = claves.para, musica._gemini, musica.PROYECTOS, [], []
 claves.para = lambda uso: {"proveedor": "gemini", "clave": "falsa", "modelo_musica": "m"}
-ia.texto_json = lambda instrucciones, pedido, esquema: pedidos_musica.append((instrucciones, pedido)) or {
+ia.texto_json = lambda instrucciones, pedido, esquema, **k: pedidos_musica.append((instrucciones, pedido)) or {
     "titulo": "T", "estilo": "sad bachata, female vocals", "letra": "[Chorus] ay", "descripcion": "d", "hashtags": []}
 musica._gemini = lambda c, estilo, letra, segundos: producidos.append(estilo) or b"ID3"
 try:
@@ -766,7 +767,7 @@ try:
     # Si la IA falla a mitad, lo ya hecho no se pierde
     llamadas = []
 
-    def falla_a_la_segunda(instrucciones, pedido, esquema):
+    def falla_a_la_segunda(instrucciones, pedido, esquema, **k):
         llamadas.append(1)
         if len(llamadas) > 1:
             raise RuntimeError("se cayó el servicio")
@@ -774,7 +775,7 @@ try:
     ia.texto_json = falla_a_la_segunda
     r = director.dirigir("shorts de https://youtu.be/abc")
     assert r["resultados"] and "No pude seguir" in r["mensaje"] and "se cayó" in r["mensaje"]
-    ia.texto_json = lambda *a: (_ for _ in ()).throw(RuntimeError("sin IA"))
+    ia.texto_json = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("sin IA"))
     try:
         director.dirigir("algo")
         raise AssertionError("sin pasos hechos, el error debe llegar al usuario")

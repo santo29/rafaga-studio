@@ -461,7 +461,7 @@ herramientas.TODAS["programar_publicacion"] = lambda **k: subido.append(k["archi
 
 def guion_ia(*pasos):
     cola = list(pasos)
-    return lambda instrucciones, pedido, esquema: cola.pop(0)
+    return lambda instrucciones, pedido, esquema, **k: cola.pop(0)
 
 
 def paso(herramienta, mensaje="Hecho.", **argumentos):

@@ -274,20 +274,36 @@ def sin_permiso(texto):
     return respuesta(401, {"detail": {"status": "missing_permissions", "message": texto}})
 
 
+# Sin «User: Read» ni «Models: Read», «Comprobar conexiones» tampoco la pinta ámbar: esa lista la app no la usa
+SIN_MODELOS = SIN_PERMISO.replace("user_read", "models_read")
+httpx.get = lambda url, **k: sin_permiso(SIN_MODELOS if "elevenlabs.io/v1/models" in url else SIN_PERMISO)
+try:
+    hecho = claves._comprobar_uno("elevenlabs", ELEVEN)
+finally:
+    httpx.get = sin_red
+assert hecho["estado"] == "clave_ok" and "User: Read" in hecho["detalle"], hecho
 NO_VALE = respuesta(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
 PROHIBIDO = respuesta(403, {"detail": "Forbidden"})
 CON_VOCES = respuesta(200, {"voices": [VOZ], "has_more": False})
+CONECTADA_SIN_VOCES = "La clave de ElevenLabs quedó conectada, pero le falta el permiso «Voices: Read»"
 casos = {  # caso: (lista de modelos, lista de voces, estado del fallo o None si conecta, cómo empieza lo que dice)
     "sin user_read": (respuesta(200, []), CON_VOCES, None, None),
-    "sin voices_read": (respuesta(200, []), sin_permiso(SIN_VOCES), None,
-                        "La clave de ElevenLabs quedó conectada, pero le falta el permiso «Voices: Read»"),
-    "sin models_read": (sin_permiso(SIN_PERMISO.replace("user_read", "models_read")), None, "permiso",
-                        "La clave de ElevenLabs vale, pero le falta el permiso «Models: Read». En la web de ElevenLabs"),
+    "sin voices_read": (respuesta(200, []), sin_permiso(SIN_VOCES), None, CONECTADA_SIN_VOCES),
+    # Sin «Models: Read» también conecta: ElevenLabs reconoce la clave y esa lista no se usa para narrar ni para música
+    "sin models_read": (sin_permiso(SIN_MODELOS), CON_VOCES, None, None),
+    "sin models_read ni voices_read": (sin_permiso(SIN_MODELOS), sin_permiso(SIN_VOCES), None, CONECTADA_SIN_VOCES),
+    "403 llano en las voces": (respuesta(200, []), PROHIBIDO, None, CONECTADA_SIN_VOCES),  # ya listó los modelos
     "no vale": (NO_VALE, None, "clave", "ElevenLabs no acepta esta clave (401: Invalid API key). Comprueba"),
-    "403": (PROHIBIDO, None, "permiso", "ElevenLabs reconoce la clave, pero no le deja usar su API (403: Forbidden)"),
+    # Un servicio que repite la clave en su respuesta: a la ventana y a la consola llega tapada (guardia.limpiar)
+    "repite la clave": (respuesta(401, {"detail": {"message": f"Invalid API key: {ELEVEN['clave']}"}}), None, "clave",
+                        "ElevenLabs no acepta esta clave (401: Invalid API key: [clave])."),
+    "403": (PROHIBIDO, None, "permiso", "ElevenLabs no deja usar esta clave (403: Forbidden). En la web de ElevenLabs"),
     "sin red": (httpx.ConnectError("sin internet"), None, "sin_conexion",
                 "Sin conexión con ElevenLabs. Revisa tu internet e inténtalo de nuevo."),
     "sin red en las voces": (respuesta(200, []), httpx.ConnectError("x"), "sin_conexion", "Sin conexión con ElevenLabs."),
+    # Un portal wifi o un proxy que redirige sin fin, o una respuesta que no se puede leer: tampoco hay conexión
+    "redirección sin fin": (httpx.TooManyRedirects("x"), None, "sin_conexion", "Sin conexión con ElevenLabs."),
+    "respuesta ilegible": (httpx.DecodingError("x"), None, "sin_conexion", "Sin conexión con ElevenLabs."),
     "sin saldo": (respuesta(402, {"detail": "quota_exceeded"}), None, "sin_saldo",
                   "ElevenLabs no tiene saldo (402: quota_exceeded). Recarga saldo en elevenlabs.io"),
 }
@@ -299,6 +315,7 @@ for caso, (modelos, voces, fallo, dice) in casos.items():
             assert e.estado == fallo and str(e).startswith(dice), (caso, e.estado, str(e))
             assert "Client error" not in str(e) and "elevenlabs" not in str(e).replace("elevenlabs.io", ""), str(e)
             assert fallo == "sin_conexion" or "inténtalo de nuevo" not in str(e), (caso, str(e))  # un permiso no
+            assert ELEVEN["clave"] not in str(e), (caso, str(e))
         else:
             info = claves.detectar(ELEVEN["clave"])
             assert info["proveedor"] == "elevenlabs" and info["modelo_musica"] == "music_v2_5", (caso, info)
@@ -310,6 +327,44 @@ for caso, (modelos, voces, fallo, dice) in casos.items():
         httpx.get = sin_red
 e = falla(claves.detectar, "hola", error=claves.NoConecta)  # sin preguntar a nadie
 assert e.estado == "formato" and str(e).startswith("No reconozco el formato de esta clave"), (e.estado, str(e))
+e = falla(claves.detectar, GEMINI["clave"], "kling", error=claves.NoConecta)  # pegada en el botón de Kling
+assert e.estado == "formato" and "no de Kling" in str(e), (e.estado, str(e))
+# OpenAI: una clave restringida sin «Models: Read» responde 401 «Missing scopes» (pasó lo mismo que con ElevenLabs):
+# es un permiso que falta, no una clave mal copiada; «Comprobar conexiones» dice lo mismo
+SCOPES = ("You have insufficient permissions for this operation. Missing scopes: api.model.read. Check that you have the "
+          "correct role in your organization, and if you're using a restricted API key, that it has the necessary scopes.")
+assert claves.clasificar(401, SCOPES) == "permiso" and claves._permiso(SCOPES) == "api.model.read"
+CLAVE_OPENAI = "sk-proj-" + "A1b2" * 12
+
+
+def openai_sin_scopes(url, **k):
+    assert url.startswith("https://api.openai.com/v1/models"), url
+    return respuesta(401, {"error": {"message": SCOPES, "type": "invalid_request_error"}}, url=url)
+
+
+httpx.get = openai_sin_scopes
+try:
+    e = falla(claves.detectar, CLAVE_OPENAI, error=claves.NoConecta)
+    hecho = claves._comprobar_uno("openai", {"proveedor": "openai", "clave": CLAVE_OPENAI})
+finally:
+    httpx.get = sin_red
+assert e.estado == "permiso" and "«api.model.read»" in str(e) and "copiaste entera" not in str(e), str(e)
+assert hecho["estado"] == "permiso" and "api.model.read" in hecho["detalle"], hecho
+# Cloudflare: el token solo que no vale es «Clave no válida»; si falta pegar la cuenta, es lo que se pegó; y un 403 con
+# la cuenta pegada puede ser el ID de una zona (también 32 letras y números)
+TOKEN_CF = "cfut_" + "A1b2C3d4" * 6
+for clave, cf, motivo_cf, dice in (
+        (TOKEN_CF, respuesta(401), "clave", "Cloudflare no acepta ese token"),
+        (TOKEN_CF, respuesta(200, {"result": []}), "formato", "Pega también tu Account ID"),
+        (f"{'0123456789abcdef' * 2} {TOKEN_CF}", respuesta(403, {"errors": [{"message": "Authentication error"}]}),
+         "permiso", "Cloudflare no deja usar esta clave (403: Authentication error)")):
+    httpx.get = lambda url, cf=cf, **k: cf if url.startswith("https://api.cloudflare.com/") else sin_red(url)
+    try:
+        e = falla(claves.detectar, clave, error=claves.NoConecta)
+    finally:
+        httpx.get = sin_red
+    assert e.estado == motivo_cf and str(e).startswith(dice), (motivo_cf, e.estado, str(e))
+    assert motivo_cf != "permiso" or str(e).endswith("(no el de una zona)."), str(e)
 # Con saldo: lo que cuesta es una fracción de centavo; y si la clave no tiene el modelo barato, con el de sus guiones
 conectar(GEMINI)
 modelos = []
@@ -789,11 +844,13 @@ errores, avisos, mensaje_real = [], [], pagina_claves.mensaje
 pagina_claves.mensaje_error = lambda *a: errores.append(a)
 pagina_claves.mensaje = lambda *a: avisos.append(a)
 try:
-    for clave, modelos, titulo in (("hola", None, "Formato no reconocido"),
-                                   (ELEVEN["clave"], httpx.ConnectError("x"), "Sin conexión"),
-                                   (ELEVEN["clave"], NO_VALE, "Clave no válida"),
-                                   (ELEVEN["clave"], PROHIBIDO, "Falta un permiso")):
-        httpx.get = eleven_falso(modelos)
+    for clave, get, titulo in (("hola", sin_red, "Formato no reconocido"),
+                               (ELEVEN["clave"], eleven_falso(httpx.ConnectError("x")), "Sin conexión"),
+                               (ELEVEN["clave"], eleven_falso(NO_VALE), "Clave no válida"),
+                               (ELEVEN["clave"], eleven_falso(PROHIBIDO), "Falta un permiso"),
+                               (CLAVE_OPENAI, openai_sin_scopes, "Falta un permiso"),
+                               (TOKEN_CF, lambda url, **k: respuesta(401), "Clave no válida")):
+        httpx.get = get
         pagina.entrada.setText(clave)
         pagina._conectar()
         esperar(lambda: errores and pagina.conectar.isEnabled())

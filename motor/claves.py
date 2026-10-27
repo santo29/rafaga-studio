@@ -170,6 +170,10 @@ def _ids_modelos(proveedor: str, clave: str) -> list[dict]:
         return []
     elif proveedor == "elevenlabs":
         r = httpx.get("https://api.elevenlabs.io/v1/models", headers={"xi-api-key": clave}, timeout=20)
+        # Sin «Models: Read» ElevenLabs ya dijo que la clave es suya (nombra el permiso que le falta), y la app no usa
+        # esta lista ni para narrar ni para la música: una clave hecha solo con esos permisos se conecta igual
+        if r.status_code in (401, 403) and clasificar(r.status_code, r.text) == "permiso":
+            return []
         r.raise_for_status()
         return []
     elif proveedor == "modal":
@@ -306,10 +310,13 @@ class NoConecta(ValueError):
 
 def _permiso(detalle: str) -> str:
     """El permiso que falta según el servicio, como lo enseña su web: «missing the permission voices_read» →
-    «Voices: Read». "" si no lo dice (un «no permission to access» no nombra ninguno)."""
-    m = re.search(r"missing[_ ](?:the )?permissions?[\s:]+(\w+)", detalle, re.IGNORECASE)
+    «Voices: Read»; el de una clave restringida de OpenAI, tal cual («Missing scopes: api.model.read»). "" si no lo
+    dice (un «no permission to access» no nombra ninguno)."""
+    m = re.search(r"missing[_ ](?:the )?permissions?[\s:]+(\w+)|missing scopes?:\s*([\w.]+)", detalle, re.IGNORECASE)
     if not m:
         return ""
+    if m[2]:
+        return m[2].rstrip(".")
     que, _, nivel = m[1].lower().rpartition("_")
     return f"{que.replace('_', ' ').capitalize()}: {nivel.capitalize()}" if que and nivel in ("read", "write") \
         else m[1].replace("_", " ").capitalize()
@@ -329,7 +336,8 @@ def _voces_al_conectar(clave: str) -> tuple[list[dict], str]:
         return voces_elevenlabs(clave), ""
     except httpx.HTTPStatusError as e:
         detalle = motivo(e.response)
-        if clasificar(e.response.status_code, detalle) != "permiso":
+        # Un 403 llano también: la clave ya listó los modelos, así que lo que le niegan son las voces
+        if e.response.status_code != 403 and clasificar(e.response.status_code, detalle) != "permiso":
             raise
         return [], t("La clave de ElevenLabs quedó conectada, pero le falta el permiso «{permiso}»: tus voces de "
                      "ElevenLabs no saldrán para narrar (la música no lo necesita). Para elegirlas, dale ese permiso "
@@ -370,14 +378,14 @@ def _cuenta_cloudflare(token: str) -> str:
         raise NoConecta(t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
                           servicio=nombre("cloudflare")), "sin_conexion") from None
     if r.status_code in (401, 403):
-        raise ValueError(t("Cloudflare no acepta ese token (¿se copió entero?). {falta}", falta=falta))
+        raise NoConecta(t("Cloudflare no acepta ese token (¿se copió entero?). {falta}", falta=falta), "clave")
     try:
         cuentas = {str(a.get("id")) for a in r.json().get("result") or [] if isinstance(a, dict)}
     except (ValueError, AttributeError):
         cuentas = set()
     cuentas = {c for c in cuentas if re.fullmatch(r"[0-9a-f]{32}", c)}
     if r.status_code >= 400 or len(cuentas) != 1:
-        raise ValueError(falta)
+        raise NoConecta(falta, "formato")  # falta una parte de lo que se pega, como con Modal
     return cuentas.pop()
 
 
@@ -395,9 +403,9 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
         if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE) or re.match(AJENAS, clave):
             # «baja»: lo hace la persona al pegar la clave en el cuadro equivocado y no se manda (sin escudo ámbar)
             guardia.registrar("clave_ajena", "baja", t("Se rechazó una clave de otro servicio pegada en «Conectar» "
-                                                        "de {proveedor}: no se mandó.", proveedor=proveedor.capitalize()))
-            raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
-                               "la reconoce sola.", proveedor=proveedor.capitalize()))
+                                                        "de {proveedor}: no se mandó.", proveedor=nombre(proveedor)))
+            raise NoConecta(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
+                              "la reconoce sola.", proveedor=nombre(proveedor)), "formato")
         opciones = [proveedor]
     else:
         clave = limpiar(clave)
@@ -421,12 +429,13 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
             voces, aviso = _voces_al_conectar(clave) if proveedor == "elevenlabs" else ([], "")
         except ImportError:  # esta copia de la app aún no trae su conexión
             raise ValueError(t("Esta versión de Ráfaga Studio todavía no trae {proveedor}: actualízala.",
-                               proveedor=proveedor.capitalize())) from None
+                               proveedor=servicio)) from None
         except httpx.HTTPStatusError as e:
             from .ia import motivo  # aquí: ia importa este módulo
-            codigo, detalle = e.response.status_code, motivo(e.response)
+            # limpiar: el cuerpo de la respuesta va a la ventana y a la consola, y hay servicios que repiten la clave
+            codigo, detalle = e.response.status_code, guardia.limpiar(motivo(e.response))
             respuesta = str(codigo) if detalle == str(codigo) else f"{codigo}: {detalle}"
-            # 403: el servicio reconoce la clave pero no la deja (ni es de otro proveedor, ni se arregla reintentando)
+            # 403: el servicio no deja usar la clave (no hay que probarla con otro proveedor, y reintentar no lo arregla)
             estado = "permiso" if codigo == 403 else clasificar(codigo, detalle)
             if estado == "clave":
                 # Solo si ESTE proveedor rechaza la clave se prueba con el siguiente: así la clave no se manda a otro
@@ -440,16 +449,18 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
                 texto = t("La clave de {servicio} vale, pero le falta el permiso «{permiso}». En la web de {servicio} "
                           "(botón «Conseguir clave ↗»), edita la clave y dale ese permiso, o crea una con acceso "
                           "completo; luego vuelve a conectarla.", servicio=servicio, permiso=permiso) if permiso else \
-                    t("{servicio} reconoce la clave, pero no le deja usar su API ({respuesta}). En la web de "
-                      "{servicio} (botón «Conseguir clave ↗»), revisa los permisos de la clave o crea una con acceso "
-                      "completo; luego vuelve a conectarla.", servicio=servicio, respuesta=respuesta)
+                    t("{servicio} no deja usar esta clave ({respuesta}). En la web de {servicio} (botón «Conseguir "
+                      "clave ↗»), revisa los permisos de la clave o crea una con acceso completo; luego vuelve a "
+                      "conectarla.", servicio=servicio, respuesta=respuesta)
+                if proveedor == "cloudflare":  # el ID de una zona también mide 32: con él, Cloudflare dice 403
+                    texto += " " + t("Comprueba también que el ID de cuenta es el de tu cuenta (no el de una zona).")
             elif estado in ("sin_saldo", "sin_cuota"):
                 texto = f"{frase(proveedor, estado)} ({respuesta}). {paso(proveedor, estado)}"
             else:
                 texto = t("{proveedor} no respondió bien ({codigo}); inténtalo de nuevo.", proveedor=servicio,
                           codigo=respuesta)
             raise NoConecta(texto, estado) from None
-        except httpx.TransportError:
+        except httpx.RequestError:  # también las redirecciones sin fin de un portal wifi o un proxy
             raise NoConecta(t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
                               servicio=servicio), "sin_conexion") from None
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # Modal (único candidato de su formato)
@@ -718,8 +729,10 @@ def clasificar(codigo: int, detalle: str = "") -> str:
                                   r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits", texto):
         return "sin_saldo"
     # La clave vale pero no tiene ese permiso (ElevenLabs deja crear claves con permisos sueltos: «missing the
-    # permission user_read»). Pasó: una clave buena, con saldo, salía como «Clave no válida»
-    if codigo in (401, 403) and re.search(r"missing[_ ](?:the )?permission", texto):
+    # permission user_read»; OpenAI, claves restringidas: «insufficient permissions… Missing scopes: api.model.read»).
+    # Pasó: una clave buena, con saldo, salía como «Clave no válida»
+    if codigo in (401, 403) and re.search(r"missing[_ ](?:the )?permission|missing scopes?\b|insufficient permissions",
+                                          texto):
         return "permiso"
     if codigo in (401, 403) or (codigo == 400 and re.search(r"api[_ ]key", texto)):
         return "clave"
@@ -786,9 +799,10 @@ def _sonda(proveedor: str, info: dict):
         r = httpx.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": clave}, timeout=20)
         if r.status_code in (401, 403) and clasificar(r.status_code, r.text) == "permiso":
             # Una clave sin «User: Read» vale igual para voces y música, pero no deja ver las letras que quedan: si su
-            # lista de modelos responde, la clave vale (como las de SALDO_INVISIBLE)
+            # lista de modelos responde, la clave vale (como las de SALDO_INVISIBLE). Si tampoco tiene «Models: Read»,
+            # ElevenLabs reconoce la clave igual, y esa lista la app no la usa: no se pinta ámbar por ella
             modelos = httpx.get("https://api.elevenlabs.io/v1/models", headers={"xi-api-key": clave}, timeout=20)
-            if modelos.status_code < 400:
+            if modelos.status_code < 400 or clasificar(modelos.status_code, modelos.text) == "permiso":
                 return "clave_ok", t("Sin el permiso «User: Read» de esta clave no se ven las letras que te quedan.")
             return modelos
         if r.status_code < 400:

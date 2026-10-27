@@ -106,7 +106,7 @@ IDEAS = [
     (t("Anuncio de café"), "diseno",
      t("Un anuncio para Instagram de mi café de montaña, con la taza humeante y el botón «Pídelo hoy»")),
     (t("Canción de dembow"), "musica", t("Una canción de dembow alegre sobre salir con los amigos el viernes")),
-    (t("Serie animada"), "director",
+    (t("Dibujos animados"), "director",
      t("Una serie animada de tres capítulos sobre una niña y su perro en Santo Domingo")),
 ]
 # El selector de la caja de arriba: (clave, nombre, icono, página del menú donde se escribe la idea, sin traducir)

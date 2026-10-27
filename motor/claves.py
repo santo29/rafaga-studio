@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -614,3 +615,298 @@ def publico() -> list[dict]:
     """Lo que el panel puede ver: nunca la clave completa (ni el secreto del cliente de YouTube)."""
     return [{**{k: v for k, v in i.items() if k not in ("clave", "voces", "client_secret")},
              "clave": i["clave"][:6] + "…" + i["clave"][-4:]} for i in cargar().values()]
+
+
+# ---------- Comprobar conexiones: el estado real de cada servicio conectado, antes de que un trabajo falle ----------
+
+CONEXIONES = ARCHIVO.with_name("conexiones.json")  # el último estado de cada servicio (nunca su clave)
+ESTADOS = ("ok", "clave_ok", "sin_saldo", "sin_cuota", "clave", "sin_conexion", "error")
+NO_ATIENDE = {"sin_saldo", "sin_cuota", "clave"}  # con estos, un trabajo que lo usa falla seguro: se avisa antes
+# De pago, y su comprobación gratis (la lista de modelos, la cuenta, las tareas) solo dice si la clave vale: responde
+# bien aunque no quede saldo (OpenAI da luego 429 insufficient_quota; Claude, 400 «credit balance is too low»). Con
+# ellos no se dice «Funciona» sino «clave_ok»; su «sin saldo» llega en la primera llamada de verdad (recordar)
+SALDO_INVISIBLE = {"openai", "anthropic", "xai", "replicate", "pollinations", "kling", "seedance", "modal"}
+BLOQUEA = {"sin_saldo", "clave"}  # y con estos, un paso que solo se puede hacer pagando ni empieza
+VIGENCIA = 12 * 3600  # un estado más viejo ya no se usa para avisar (pudo recargar): en la página se ve igual
+# Dónde se recarga el saldo de cada servicio de pago (sin «https://»: se lee mejor en un aviso)
+RECARGA = {"openai": "platform.openai.com/settings/organization/billing",
+           "anthropic": "console.anthropic.com/settings/billing", "deepseek": "platform.deepseek.com/top_up",
+           "openrouter": "openrouter.ai/settings/credits", "xai": "console.x.ai",
+           "elevenlabs": "elevenlabs.io/app/subscription", "replicate": "replicate.com/account/billing",
+           "pollinations": "enter.pollinations.ai", "modal": "modal.com/settings/usage",
+           "kling": "kling.ai/dev/api-key", "seedance": "ai.byteplus.com"}
+GEMINI_BARATO = "gemini-flash-lite-latest"  # el modelo de texto más barato de Gemini, para su comprobación
+_cerrojo_estados = threading.Lock()  # la comprobación y las llamadas escriben a la vez (el MCP: guardia._cerrojo)
+
+
+def clasificar(codigo: int, detalle: str = "") -> str:
+    """El estado que dice la respuesta de un servicio: ok, sin_saldo (402, o el texto lo dice: «prepayment credits are
+    depleted», «credit balance is too low»), sin_cuota (429: el límite gratis o por minuto), clave (401, 403, o la
+    clave que Gemini no reconoce, que llega como 400) o error (un 5xx o lo que no se entiende)."""
+    texto = str(detalle or "").lower()
+    if codigo < 400:
+        return "ok"
+    if codigo == 402 or re.search(r"prepayment|credits? (?:are |is )?(?:depleted|exhausted)|credit balance|"
+                                  r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits", texto):
+        return "sin_saldo"
+    if codigo in (401, 403) or (codigo == 400 and re.search(r"api[_ ]key", texto)):
+        return "clave"
+    return "sin_cuota" if codigo == 429 else "error"
+
+
+def paso(proveedor: str, estado: str) -> str:
+    """Qué hacer con un servicio que no atiende, dicho en una frase."""
+    if estado == "sin_saldo":
+        if proveedor == "gemini":
+            return t("Recarga en AI Studio: aistudio.google.com → tu proyecto → Billing.")
+        return t("Recarga saldo en {web}.", web=RECARGA.get(proveedor, nombre(proveedor)))
+    if estado == "sin_cuota":
+        return t("Espera un rato (o hasta mañana) o usa otra IA.")
+    if estado == "clave":
+        return t("La clave ya no vale: en «Claves de IA», pulsa «Conseguir clave ↗» de este servicio, crea una nueva y "
+                 "conéctala.")
+    if estado == "sin_conexion":
+        return t("Revisa tu internet y pulsa «Comprobar conexiones» en «Claves de IA».")
+    if estado == "error":
+        return t("El servicio falló justo ahora: vuelve a comprobar en un rato.")
+    return ""
+
+
+def _sonda(proveedor: str, info: dict):
+    """La petición más barata que dice el estado real de la clave: las listas gratis donde las hay (modelos, cuenta,
+    saldo) y, en Gemini, un pedido de 1 token al modelo de texto más barato (menos de una milésima de centavo): solo
+    un pedido de verdad dice «prepayment credits are depleted». Devuelve la respuesta, o (estado, detalle) si la
+    respuesta se lee de otra forma (el saldo de DeepSeek u OpenRouter, la cuota de ElevenLabs, el token de Modal)."""
+    clave = info["clave"]
+    if proveedor == "gemini":
+        from . import actividad, ia  # aquí: ia importa este módulo
+        cuerpo = {"contents": [{"parts": [{"text": "1"}]}], "generationConfig": {"maxOutputTokens": 1}}
+        for modelo in dict.fromkeys((GEMINI_BARATO, info.get("modelo_texto") or "gemini-flash-latest")):
+            r = httpx.post(f"{ia.API_GEMINI}/models/{modelo}:generateContent", headers={"x-goog-api-key": clave},
+                           json=cuerpo, timeout=20)
+            if r.status_code != 404:  # 404: la clave no tiene ese modelo, se prueba con el de sus guiones
+                break
+        if r.status_code >= 400:  # no atendió: no cobra
+            actividad.anotar("texto", "gemini", modelo, error=f"{r.status_code}: {ia.motivo(r)}")
+            return r
+        uso = r.json().get("usageMetadata") or {}
+        actividad.anotar("texto", "gemini", modelo, ia.costo_texto("gemini", uso.get("promptTokenCount", 2),
+                                                                     uso.get("candidatesTokenCount", 1)))
+        return r
+    if proveedor == "anthropic":
+        return httpx.get("https://api.anthropic.com/v1/models?limit=1",
+                         headers={"x-api-key": clave, "anthropic-version": "2023-06-01"}, timeout=20)
+    if proveedor == "deepseek":  # su saldo, gratis: «is_available» es falso sin saldo
+        r = httpx.get("https://api.deepseek.com/user/balance", headers={"Authorization": f"Bearer {clave}"}, timeout=20)
+        if r.status_code < 400 and r.json().get("is_available") is False:
+            return "sin_saldo", t("La cuenta no tiene saldo.")
+        return r
+    if proveedor == "openrouter":  # la lista de modelos es pública: la de la clave dice si vale y cuánto le queda
+        r = httpx.get("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {clave}"}, timeout=20)
+        restante = (r.json().get("data") or {}).get("limit_remaining") if r.status_code < 400 else None
+        if isinstance(restante, (int, float)) and restante <= 0:
+            return "sin_saldo", t("La clave llegó a su límite de gasto.")
+        return r
+    if proveedor == "elevenlabs":  # la suscripción, gratis: las letras usadas y las del plan
+        r = httpx.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": clave}, timeout=20)
+        if r.status_code < 400:
+            d = r.json()
+            usadas, tope = d.get("character_count"), d.get("character_limit")
+            if isinstance(usadas, int) and isinstance(tope, int) and tope and usadas >= tope:
+                return "sin_saldo", t("Se acabaron las letras de tu plan de este mes.")
+        return r
+    if proveedor == "modal":  # su token, con su propia herramienta (sin GPU ni costo)
+        import subprocess
+        try:
+            _ids_modelos("modal", clave)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            # Sin red, «modal app list» también falla (o no acaba): no es que la clave no valga. Sin detalle: su texto
+            # diría «Modal rechazó el token», y el paso ya dice qué hacer
+            if isinstance(e, subprocess.TimeoutExpired) or \
+                    re.search(r"\bconnect|network|timed? ?out|resolve|getaddrinfo", str(e), re.IGNORECASE):
+                return "sin_conexion", ""
+            return "clave", str(e)
+        return "ok", ""
+    if proveedor in VIDEO_DE_PAGO:  # consultar tareas es gratis (ver kling.validar y seedance.validar)
+        try:
+            modulo_video(proveedor).validar(clave)
+        except httpx.HTTPStatusError as e:
+            return e.response
+        return "ok", ""
+    if proveedor in ("replicate", "huggingface", "cloudflare"):
+        try:
+            _ids_modelos(proveedor, clave)
+        except httpx.HTTPStatusError as e:
+            return e.response
+        return "ok", ""
+    # ponytail: Pollinations, OpenAI y xAI no tienen (que sepamos) una consulta de saldo gratis; su lista de modelos solo
+    # dice si la clave vale (SALDO_INVISIBLE). Su «sin saldo» se ve en la actividad de la IA cuando pasa.
+    return httpx.get(f"{OPENAI_COMPAT[proveedor]}/models", headers={"Authorization": f"Bearer {clave}"}, timeout=20)
+
+
+def _comprobar_uno(proveedor: str, info: dict) -> dict:
+    from .ia import motivo  # aquí: ia importa este módulo
+    try:
+        r = _sonda(proveedor, info)
+        if isinstance(r, tuple):
+            estado, detalle = r
+        else:
+            estado = clasificar(r.status_code, motivo(r) if r.status_code >= 400 else "")
+            detalle = "" if estado == "ok" else f"{r.status_code}: {motivo(r)}"
+    except Exception as e:  # sin red (sin_conexion) o una respuesta rara, que no tumba las demás comprobaciones
+        from .idioma import texto_de_error  # en claro: no «ConnectError» ni «KeyError»
+        estado, detalle = "sin_conexion" if isinstance(e, httpx.TransportError) else "error", texto_de_error(e)
+    if estado == "ok" and proveedor in SALDO_INVISIBLE:  # la clave vale; el saldo no se ve desde aquí
+        estado = "clave_ok"
+    return {"estado": estado, "detalle": guardia.limpiar(detalle)[:240], "paso": paso(proveedor, estado),
+            "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
+
+
+PLAZO_COMPROBAR = 90  # s: cada sonda tiene el suyo (20 s; Modal, 60): esto solo cubre una que se quede colgada
+
+
+def comprobar(proveedores=None) -> dict:
+    """Comprueba cada servicio conectado (o solo `proveedores`) con la petición más barata que dice su estado real
+    (_sonda), todos a la vez. Devuelve {proveedor: {"estado", "detalle", "paso", "fecha"}} y lo recuerda en
+    conexiones.json: así los trabajos avisan ANTES de empezar (antes_de, impide). Nunca guarda claves.
+    Cada sonda va en un hilo daemon y no en un ThreadPoolExecutor, al que Python espera al salir: cerrar la app con la
+    comprobación en marcha no la deja colgada. La que no termina en PLAZO_COMPROBAR no se guarda."""
+    todas = cargar()
+    elegidos = [p for p in (proveedores or todas) if p in todas and p in USOS]
+    hechos = {}
+    hilos = [threading.Thread(target=lambda p=p: hechos.__setitem__(p, _comprobar_uno(p, todas[p])), daemon=True)
+             for p in elegidos]
+    for h in hilos:
+        h.start()
+    fin = time.monotonic() + PLAZO_COMPROBAR
+    for h in hilos:
+        h.join(max(0.0, fin - time.monotonic()))
+    resultados = {p: hechos[p] for p in elegidos if p in hechos}
+    with _cerrojo_estados, guardia._cerrojo(CONEXIONES):
+        guardados = {p: e for p, e in estados().items() if p in todas}  # las claves quitadas ya no salen
+        guardados.update(resultados)
+        try:
+            _reemplazar(CONEXIONES, json.dumps(guardados, ensure_ascii=False, indent=1))
+        except OSError:  # se comprueba otra vez la próxima: no tumba la página
+            pass
+    return resultados
+
+
+def estados() -> dict:
+    """El último estado comprobado de cada servicio: {proveedor: {"estado", "detalle", "paso", "fecha"}}."""
+    try:
+        datos = json.loads(CONEXIONES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {p: e for p, e in datos.items() if isinstance(e, dict) and e.get("estado") in ESTADOS
+            and isinstance(e.get("fecha"), str)} if isinstance(datos, dict) else {}
+
+
+def recordar(proveedor: str, codigo: int, detalle: str = "") -> None:
+    """Lo que acaba de responder un servicio en una llamada de verdad pone al día su estado: Gemini sin saldo a media
+    tarde ya avisa en el trabajo siguiente, y al volver a funcionar deja de avisar. Nunca lanza."""
+    try:
+        estado = clasificar(codigo, detalle)
+        if estado == "error":  # un fallo pasajero no cambia lo que se sabe del servicio
+            return
+        with _cerrojo_estados, guardia._cerrojo(CONEXIONES):
+            todos = estados()
+            if estado == "ok" and todos.get(proveedor, {}).get("estado") in (None, "ok"):
+                return  # ya se sabía: no se escribe en cada llamada que sale bien
+            todos[proveedor] = {"estado": estado, "detalle": guardia.limpiar(f"{codigo}: {detalle}" if estado != "ok"
+                                                                             else "")[:240],
+                                "paso": paso(proveedor, estado), "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
+            _reemplazar(CONEXIONES, json.dumps(todos, ensure_ascii=False, indent=1))
+    except Exception:  # es solo un aviso para la próxima vez
+        pass
+
+
+def _vigente(proveedor: str, cuales=NO_ATIENDE) -> dict | None:
+    """El estado guardado del servicio si es uno de `cuales` y es reciente (VIGENCIA)."""
+    e = estados().get(proveedor)
+    if not e or e.get("estado") not in cuales:
+        return None
+    try:
+        fecha = time.mktime(time.strptime(str(e.get("fecha")), "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, OverflowError):
+        return None
+    return e if time.time() - fecha < VIGENCIA else None
+
+
+def frase(proveedor: str, estado: str) -> str:
+    """«Gemini no tiene saldo», «La clave de Groq no vale»…"""
+    n = nombre(proveedor)
+    return {"sin_saldo": t("{servicio} no tiene saldo", servicio=n),
+            "sin_cuota": t("{servicio} no tiene cuota ahora", servicio=n),
+            "clave": t("La clave de {servicio} no vale", servicio=n),
+            "sin_conexion": t("Sin conexión con {servicio}", servicio=n)}.get(estado, t("{servicio} falló", servicio=n))
+
+
+def _cuando(e: dict) -> str:
+    fecha = str(e.get("fecha", ""))
+    if fecha[:10] == time.strftime("%Y-%m-%d"):
+        return t("comprobado hoy a las {hora}", hora=fecha[11:16])
+    return t("comprobado el {fecha}", fecha=f"{fecha[8:10]}/{fecha[5:7]} {fecha[11:16]}")
+
+
+def antes_de(usos) -> list[str]:
+    """Lo que se le dice al usuario ANTES de empezar un trabajo que usa estas IA (texto, imagen, musica, video), según el
+    último estado comprobado: «Gemini no tiene saldo: usaré Groq para el texto». Lo de pago que no se puede hacer lo
+    dice impide()."""
+    avisos = []
+    if "texto" in usos:
+        c = para("texto") or {}
+        if c.get("clave") and (malo := _vigente(c["proveedor"])):
+            todas = cargar()
+            otra = next((p for p in PREFERENCIA["texto"] if p != c["proveedor"] and p in todas
+                         and "texto" in USOS.get(p, []) and not _vigente(p)), None)
+            avisos.append(t("{problema}: usaré {otra} para el texto.", problema=frase(c["proveedor"], malo["estado"]),
+                            otra=nombre(otra)) if otra else
+                          t("{problema}: usaré la IA gratis sin clave para el texto (más lenta).",
+                            problema=frase(c["proveedor"], malo["estado"])))
+    if "imagen" in usos:
+        c = para("imagen") or {}
+        if c.get("proveedor") in SOLO_ELIGIENDO["imagen"] and (malo := _vigente(c["proveedor"])):
+            avisos.append(t("{problema}: las imágenes las hará la siguiente opción gratis.",
+                            problema=frase(c["proveedor"], malo["estado"])))
+    if "musica" in usos:
+        c = para("musica") or {}
+        if c.get("proveedor") == "gemini" and _vigente("gemini") and "elevenlabs" in cargar() \
+                and ajustes().get("musica", "auto") == "auto" and not _vigente("elevenlabs"):
+            from .musica import PRECIO
+            from .idioma import dinero
+            avisos.append(t("{problema}: la canción la hará ElevenLabs (hasta unos {costo}).",
+                            problema=frase("gemini", _vigente("gemini")["estado"]), costo=dinero(PRECIO["elevenlabs"])))
+    if "video" in usos:  # Kling o Seedance elegidos para animar: sin ellos (nunca otro de pago) va con zoom suave
+        quien = ajustes().get("video")
+        if quien in VIDEO_DE_PAGO and quien in cargar() and (malo := _vigente(quien, BLOQUEA)):
+            avisos.append(t("{problema}: las escenas irán con zoom suave, sin animar.",
+                            problema=frase(quien, malo["estado"])))
+    return avisos
+
+
+def impide(usos) -> str | None:
+    """Por qué un paso que solo se hace pagando no puede empezar (el servicio que lo haría no tiene saldo o su clave
+    no vale, según el último estado comprobado); None si puede. Así no se espera minutos para un fallo seguro.
+    Como impide que se haga el pedido, ninguna respuesta buena lo desbloquea sola: se dice cómo (pasó: recargó y
+    seguía bloqueado hasta 12 h)."""
+
+    def que_hacer(proveedor: str, estado: str) -> str:
+        return f"{paso(proveedor, estado)} " + t("Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» "
+                                                 "en «Claves de IA».")
+    if "video_voz" in usos:
+        quien = (para("video_voz") or {}).get("proveedor")
+        if quien and (malo := _vigente(quien, BLOQUEA)):
+            return t("No se puede hacer el video que habla: {problema} ({cuando}). {paso} O desmarca «Video animado "
+                     "con IA». No se cobró nada.", problema=frase(quien, malo["estado"]), cuando=_cuando(malo),
+                     paso=que_hacer(quien, malo["estado"]))
+    if "musica" in usos:
+        c = para("musica") or {}
+        respaldo = "elevenlabs" in cargar() and ajustes().get("musica", "auto") == "auto" and \
+            not _vigente("elevenlabs", BLOQUEA)
+        if c.get("clave") and (malo := _vigente(c["proveedor"], BLOQUEA)) and not (c["proveedor"] == "gemini"
+                                                                                    and respaldo):
+            return t("No se puede hacer la canción: {problema} ({cuando}). {paso} No se cobró nada.",
+                     problema=frase(c["proveedor"], malo["estado"]), cuando=_cuando(malo),
+                     paso=que_hacer(c["proveedor"], malo["estado"]))
+    return None

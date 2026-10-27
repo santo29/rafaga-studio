@@ -298,5 +298,9 @@ if __name__ == "__main__":
                            ["-s", "-E", "-m", "pip", "install", "--isolated", "-q", "-U", "--no-deps",
                             "--disable-pip-version-check", "--only-binary", ":all:",
                             "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
-    Ventana().show()
+    ventana = Ventana()
+    ventana.show()
+    # Cada servicio conectado, comprobado en segundo plano al abrir (aquí y no en la ventana: las pruebas la crean sin
+    # red): así un trabajo avisa ANTES de empezar si Gemini se quedó sin saldo, y «Claves de IA» enseña su estado
+    ventana.claves.comprobar_ahora(al_abrir=True)
     sys.exit(app.exec())

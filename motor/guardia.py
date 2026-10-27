@@ -114,12 +114,14 @@ def _leer() -> dict:
 
 
 @contextmanager
-def _cerrojo():
+def _cerrojo(archivo: Path | None = None):
     """Un solo proceso a la vez cambia el historial (la app y el MCP escriben a la vez): sin esto, dos que leen a la vez
     pierden el evento del otro. Un cerrojo de más de 10 s es de un proceso que murió a medias: se quita. Se espera 2 s
     como mucho (quien lo tiene lo suelta en milisegundos): un .lock que otro programa mantiene fresco no congela la
-    ventana, que también escribe aquí (marcar_visto, bloquear…)."""
-    cerrojo = ARCHIVO.with_name(ARCHIVO.name + ".lock")
+    ventana, que también escribe aquí (marcar_visto, bloquear…). archivo: otro diario compartido igual por la app y el
+    MCP (la actividad de la IA); sin él, el de Guardia."""
+    archivo = archivo or ARCHIVO
+    cerrojo = archivo.with_name(archivo.name + ".lock")
     fd = None
     for _ in range(40):
         try:

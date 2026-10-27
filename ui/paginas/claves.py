@@ -1,12 +1,38 @@
-"""Página «Claves de IA»: conectar claves, elegir proveedor por defecto y la nube Modal."""
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QInputDialog, QLineEdit, QListWidget,
-                               QListWidgetItem, QSpinBox, QVBoxLayout, QWidget)
+"""Página «Claves de IA»: conectar claves, comprobar que funcionan, ver en qué se va el dinero (la actividad de la IA),
+elegir proveedor por defecto y la nube Modal."""
+import threading
+import time
+import traceback
 
-from motor import claves, nube
-from motor.idioma import t
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QHeaderView,
+                               QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QSpinBox, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
+
+from motor import actividad, claves, nube
+from motor.idioma import t, texto_de_error
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
+from ui.paginas.guardia import _estilo_chip  # la misma pastilla de vidrio que la gravedad de Ráfaga Guardia
+
+# Lo que dice cada estado comprobado junto a su servicio, y su color: verde funciona, ámbar espera o revisa, rojo no
+# funciona hasta que hagas algo (recargar o cambiar la clave); gris, la clave vale pero su saldo no se ve sin usarla
+# (claves.SALDO_INVISIBLE: no se dice «Funciona» de lo que no se ha comprobado)
+ESTADOS = {"ok": (t("Funciona"), "#3DDC97"), "clave_ok": (t("La clave vale"), "#A9A9B6"),
+           "sin_saldo": (t("Sin saldo"), "#FF4D8D"),
+           "clave": (t("Clave no válida"), "#FF4D8D"), "sin_cuota": (t("Sin cuota ahora"), "#FFB454"),
+           "sin_conexion": (t("Sin conexión"), "#FFB454"), "error": (t("Falló al comprobar"), "#FFB454"),
+           "comprobando": (t("Comprobando…"), "#A9A9B6"), "conectada": (t("Conectada"), "#A9A9B6")}
+MAX_ACTIVIDAD = 50  # las últimas llamadas a la IA que se ven (actividad.json guarda más)
+# La tabla de la actividad, como las listas de la app: fondo oscuro, sin rejilla y la cabecera discreta
+ESTILO_TABLA = """
+QTableWidget { background: #0F0F13; border: 1px solid #24242C; border-radius: 10px; padding: 4px;
+               gridline-color: transparent; selection-background-color: rgba(124, 92, 255, 0.30); font-size: 14px; }
+QTableWidget::item { padding: 4px 8px; }
+QHeaderView { background: transparent; border: none; }
+QHeaderView::section { background: transparent; color: #8D8D9A; border: none; border-bottom: 1px solid #24242C;
+                       padding: 6px 8px; font-size: 13px; font-weight: 600; }
+"""
 
 
 USOS_UI = {"texto": t("Guiones y selección de clips"), "diseno": t("IA que diseña"), "imagen": t("Imágenes"),
@@ -56,6 +82,8 @@ SERVICIOS = [
 
 
 class PaginaClaves(QWidget):
+    revisada = Signal(str, bool)  # la comprobación terminó: su error en claro ("" si no) y si era la de al abrir
+
     def __init__(self):
         super().__init__()
         lay = QVBoxLayout(self)
@@ -84,24 +112,44 @@ class PaginaClaves(QWidget):
         lay.addWidget(caja)
         # Todos los servicios a la vista, con su estado y dónde se saca cada clave
         servicios, servicios_lay = tarjeta()
-        servicios_lay.addWidget(etiqueta(t("Servicios que puedes conectar"), "sub"))
+        # Comprobar: si cada servicio conectado funciona de verdad, si le queda saldo o cuota y si su clave vale
+        cabeza = QHBoxLayout()
+        cabeza.addWidget(etiqueta(t("Servicios que puedes conectar"), "sub"), 1)
+        self.comprobado = etiqueta("", "sub")
+        self.comprobado.setWordWrap(False)
+        cabeza.addWidget(self.comprobado)
+        self.comprobar = boton(t("Comprobar conexiones"))
+        self.comprobar.setToolTip(t("Pregunta a cada servicio conectado si funciona, si le queda saldo o cuota y si su "
+                                    "clave vale. Es gratis, salvo en Gemini: menos de una milésima de centavo."))
+        self.comprobar.clicked.connect(lambda: self.comprobar_ahora())
+        cabeza.addWidget(self.comprobar)
+        servicios_lay.addLayout(cabeza)
         servicios_lay.addWidget(etiqueta(t("Kling y Seedance son de pago: se conectan con su botón «Conectar», y antes "
                                            "de cada trabajo que los usa la app te dice lo que puede costar."), "sub"))
+        # Qué hacer con cada servicio que no atiende (recargar, otra clave…), arriba: se ve sin bajar por la lista
+        self.pasos = etiqueta("")
+        self.pasos.setStyleSheet("color: #FFB454;")
+        servicios_lay.addWidget(self.pasos)
         rejilla = QGridLayout()
         rejilla.setHorizontalSpacing(16)
         self.estados, self.botones_pago = {}, {}
         for n, (clave, nombre, para, precio, web) in enumerate(SERVICIOS):
             titulo = etiqueta(nombre)
             titulo.setStyleSheet("font-weight: 700;")
-            estado = etiqueta("")
+            estado = QLabel()  # una pastilla de su color, del ancho de su texto (no de la columna)
+            estado.setAlignment(Qt.AlignCenter)
             conseguir = boton(t("Conseguir clave ↗"))
             conseguir.clicked.connect(lambda _, w=web, c=clave: self._abrir_consola(w, c))
-            for columna, w in enumerate((titulo, etiqueta(para, "sub"), etiqueta(precio, "sub"), estado, conseguir)):
+            for columna, w in enumerate((titulo, etiqueta(para, "sub"), etiqueta(precio, "sub"))):
                 rejilla.addWidget(w, n, columna)
+            rejilla.addWidget(estado, n, 3, Qt.AlignLeft | Qt.AlignVCenter)
+            botones = QVBoxLayout()  # uno encima del otro: una columna más dejaba la descripción en 120 px a 1280 px
+            botones.addWidget(conseguir)
             if clave in claves.VIDEO_DE_PAGO:  # su clave no se reconoce sola: se dice de quién es
                 self.botones_pago[clave] = boton(t("Conectar"))
                 self.botones_pago[clave].clicked.connect(lambda _, c=clave, s=nombre: self._conectar(c, s))
-                rejilla.addWidget(self.botones_pago[clave], n, 5)
+                botones.addWidget(self.botones_pago[clave])
+            rejilla.addLayout(botones, n, 4)
             self.estados[clave] = estado
         rejilla.setColumnStretch(1, 1)
         servicios_lay.addLayout(rejilla)
@@ -113,6 +161,34 @@ class PaginaClaves(QWidget):
         quitar.clicked.connect(self._quitar)
         lay.addWidget(self.lista, 1)
         lay.addWidget(quitar, 0, Qt.AlignLeft)
+        # Actividad de la IA: adónde se va el dinero de cada servicio (pasó: el dueño no sabía en qué se le fueron los
+        # US$5 de Gemini). La apunta motor/actividad.py en cada llamada, desde la app y desde el MCP
+        uso_ia, uso_lay = tarjeta()
+        uso_lay.addWidget(etiqueta(t("Actividad de la IA"), "sub"))
+        uso_lay.addWidget(etiqueta(t("Cada vez que el estudio usa una IA queda aquí: para qué, con qué servicio, lo que "
+                                     "cuesta como mucho y cómo salió. Es una estimación por lo alto con los precios del "
+                                     "estudio: lo exacto está en la web de cada servicio."), "sub"))
+        self.gasto = etiqueta("")
+        uso_lay.addWidget(self.gasto)
+        self.tabla = QTableWidget(0, 6)
+        self.tabla.setHorizontalHeaderLabels([t("Cuándo"), t("Tarea"), t("Qué"), t("Servicio"), t("Costo"),
+                                              t("Resultado")])
+        self.tabla.setStyleSheet(ESTILO_TABLA)
+        self.tabla.verticalHeader().hide()
+        self.tabla.setShowGrid(False)
+        self.tabla.setWordWrap(False)
+        self.tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tabla.setFocusPolicy(Qt.NoFocus)
+        self.tabla.setMinimumHeight(320)
+        cabecera = self.tabla.horizontalHeader()
+        cabecera.setSectionResizeMode(QHeaderView.ResizeToContents)
+        cabecera.setSectionResizeMode(5, QHeaderView.Stretch)  # el resultado ocupa lo que quede (entero, al pasar)
+        cabecera.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        uso_lay.addWidget(self.tabla)
+        self.sin_actividad = etiqueta(t("Todavía no hay llamadas a la IA."), "sub")
+        uso_lay.addWidget(self.sin_actividad)
+        lay.addWidget(uso_ia)
         # Qué proveedor usa el software por defecto en cada tarea.
         defecto, defecto_lay = tarjeta()
         defecto_lay.addWidget(etiqueta(t("IA que usa Ráfaga Studio por defecto"), "sub"))
@@ -131,12 +207,14 @@ class PaginaClaves(QWidget):
             if uso == "diseno":
                 self.nota_diseno = etiqueta(t("Claude o ChatGPT diseñan mejor: conecta su clave."), "sub")
                 defecto_lay.addWidget(self.nota_diseno)
-        # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip)
-        fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): permitir descargas a través de él. Con esto la app "
-                              "ya no puede impedir que un enlace llegue a tu red local."))
+        # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip).
+        # El aviso va debajo: una casilla no parte su texto en líneas y, entero, la página no cabía en 1280 px
+        fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): permitir descargas a través de él."))
         fake_ip.setChecked(claves.ajustes().get("proxy_fake_ip") is True)
         fake_ip.toggled.connect(lambda v: claves.elegir_por_defecto("proxy_fake_ip", v))
         defecto_lay.addWidget(fake_ip)
+        defecto_lay.addWidget(etiqueta(t("Con esto la app ya no puede impedir que un enlace llegue a tu red local."),
+                                       "sub"))
         lay.addWidget(defecto)
         # Nube de video en Modal: instalar el motor una vez y fijar el tope diario para no pasar del crédito gratis.
         nube_caja, nube_lay = tarjeta()
@@ -161,8 +239,110 @@ class PaginaClaves(QWidget):
         fila.addWidget(self.instalar)
         nube_lay.addLayout(fila)
         lay.addWidget(nube_caja)
-        self.tarea = None
+        self.tarea = None  # conectar o instalar (la comprobación de conexiones va a la vez, aparte)
+        self.comprobando = False
+        self.revisada.connect(self._comprobado)
         self._refrescar()
+
+    def showEvent(self, evento):  # lo apuntado mientras se trabajaba en otra página
+        self._pintar_estados()
+        self._pintar_actividad()
+        super().showEvent(evento)
+
+    def comprobar_ahora(self, al_abrir: bool = False):
+        """Comprueba en otro hilo cada servicio conectado (claves.comprobar). al_abrir: la de cuando se abre la app;
+        si falla, no salta ninguna ventana (se ve en su pastilla y se puede repetir con el botón).
+        Un hilo daemon y no un QThread (Tarea): Modal tarda hasta 60 s, y cerrar la app con un QThread vivo la tumbaba
+        («QThread destroyed while running»). El resultado vuelve por la señal `revisada`, en el hilo de la ventana."""
+        if self.comprobando or not claves.cargar():
+            return
+        self.comprobando = True
+        self.comprobar.setEnabled(False)
+        self.comprobar.setText(t("Comprobando…"))
+        self._pintar_estados(comprobando=True)
+
+        def revisar():
+            try:
+                claves.comprobar()
+                error = ""
+            except Exception as e:  # se cuenta en claro; el detalle, en la consola
+                traceback.print_exc()
+                error = texto_de_error(e)
+            try:
+                self.revisada.emit(error, al_abrir)
+            except RuntimeError:  # la ventana ya se cerró: no hay a quién contárselo
+                pass
+        threading.Thread(target=revisar, daemon=True).start()
+
+    def _comprobado(self, error: str, al_abrir: bool):
+        self.comprobando = False
+        self.comprobar.setEnabled(True)
+        self.comprobar.setText(t("Comprobar conexiones"))
+        self._pintar_estados()
+        self._pintar_actividad()  # la comprobación de Gemini es un pedido de verdad: también sale ahí
+        if error and not al_abrir:
+            mensaje_error(self, t("No se pudo comprobar"), error)
+
+    def _pintar_estados(self, comprobando: bool = False):
+        """La pastilla de cada servicio (Funciona, Sin saldo, Clave no válida…), con el detalle y qué hacer al pasar
+        el ratón; debajo, qué hacer con los que no atienden; arriba, cuándo se comprobó."""
+        conectadas, estados = claves.cargar(), claves.estados()
+        pasos, fechas = [], []
+        for proveedor, pastilla in self.estados.items():
+            e = estados.get(proveedor) or {}
+            if proveedor not in conectadas:
+                pastilla.setText(t("No conectada"))
+                pastilla.setStyleSheet("color: #8D8D9A;")
+                pastilla.setToolTip("")
+                continue
+            texto, color = ESTADOS["comprobando" if comprobando else e.get("estado", "conectada")]
+            pastilla.setText(texto)
+            pastilla.setStyleSheet(_estilo_chip(color))
+            saldo = t("Su saldo solo se ve al usarla: si se acaba, la actividad de la IA lo dice.") \
+                if e.get("estado") == "clave_ok" else ""
+            pastilla.setToolTip("\n".join(d for d in (e.get("detalle"), e.get("paso"), saldo, claves._cuando(e)) if d)
+                                if e else t("Pulsa «Comprobar conexiones» para saber si funciona."))
+            if e:
+                fechas.append(e["fecha"])
+            if e.get("estado", "ok") != "ok" and e.get("paso"):
+                pasos.append(f"⚠️ {claves.frase(proveedor, e['estado'])}. {e['paso']}")
+        self.pasos.setText("\n".join(pasos))
+        self.pasos.setVisible(bool(pasos))
+        ultima = claves._cuando({"fecha": max(fechas)}) if fechas else ""
+        self.comprobado.setText(ultima[:1].upper() + ultima[1:])
+
+    def _pintar_actividad(self):
+        """Lo gastado hoy y este mes por servicio, y las últimas llamadas a la IA (de la más nueva a la más vieja)."""
+        gasto = actividad.gasto()
+
+        def importes(por_servicio: dict) -> str:
+            if not por_servicio:
+                return t("nada de pago")
+            partes = [f"{actividad.nombre_servicio(p)} {actividad.texto_costo(usd)}"
+                      for p, usd in sorted(por_servicio.items(), key=lambda x: -x[1])]
+            total = t("total {costo}", costo=actividad.texto_costo(sum(por_servicio.values())))
+            return " · ".join(partes) + (f" ({total})" if len(partes) > 1 else "")
+        self.gasto.setText(t("Gasto estimado de hoy: {importes}", importes=importes(gasto["hoy"])) + "\n"
+                           + t("Este mes: {importes}", importes=importes(gasto["mes"])))
+        llamadas = actividad.ultimas(MAX_ACTIVIDAD)
+        hoy = time.strftime("%Y-%m-%d")
+        self.tabla.setRowCount(len(llamadas))
+        for fila, l in enumerate(llamadas):
+            fecha, fallo = l["fecha"], l["resultado"] != "ok"
+            tarea = actividad.nombre_tarea(l["tarea"])
+            celdas = (fecha[11:16] if fecha[:10] == hoy else f"{fecha[8:10]}/{fecha[5:7]} {fecha[11:16]}",
+                      f"{t('Agente MCP')} · {tarea}" if l["origen"] == "mcp" else tarea,
+                      actividad.nombre_que(l["que"]), actividad.nombre_servicio(l["proveedor"]),
+                      t("no se cobró") if fallo and not l["costo"] else actividad.texto_costo(l["costo"]),
+                      actividad.texto_resultado(l))
+            for columna, texto in enumerate(celdas):
+                celda = QTableWidgetItem(texto)
+                celda.setToolTip(f"{texto}\n{l['modelo']}" if columna == 3 and l["modelo"] else texto)
+                if columna == 5:
+                    celda.setForeground(QColor("#FFB454" if fallo else "#3DDC97"))
+                self.tabla.setItem(fila, columna, celda)
+        self.tabla.setVisible(bool(llamadas))
+        self.sin_actividad.setVisible(not llamadas)
 
     def _instalar_nube(self):
         self.instalar.setEnabled(False)
@@ -196,9 +376,8 @@ class PaginaClaves(QWidget):
                                  "Para más calidad y velocidad, conecta claves gratis: Groq (console.groq.com), "
                                  "Cloudflare (imágenes) y Hugging Face (animar fotos)."))
         conectadas = claves.cargar()
-        for clave, estado in self.estados.items():
-            estado.setText(f"✓ {t('Conectada')}" if clave in conectadas else t("No conectada"))
-            estado.setStyleSheet("color: #3DDC97; font-weight: 700;" if clave in conectadas else "color: #8D8D9A;")
+        self._pintar_estados()
+        self._pintar_actividad()
         self.uso_nube.setText(t("Hoy: {n} de {m} clips", n=nube.usados_hoy(), m=nube.limite())
                               if "modal" in conectadas else t("Sin conectar"))
         self.nota_diseno.setVisible(not {"anthropic", "openai"} & conectadas.keys())

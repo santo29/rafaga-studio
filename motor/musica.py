@@ -1,5 +1,6 @@
 """Estudio de música: la IA escribe la letra y produce la canción o la pista, de cualquier género."""
 import base64
+import functools
 import json
 import re
 import time
@@ -7,8 +8,8 @@ from typing import Callable
 
 import httpx
 
-from . import claves, guardia, ia, memoria
-from .idioma import t
+from . import actividad, claves, guardia, ia, memoria
+from .idioma import dinero, t, texto_de_error
 from .shorts import PROYECTOS
 
 # Descripción musical en inglés: los modelos de música la entienden mejor. Nada de samples: composición original.
@@ -59,6 +60,24 @@ INSTRUCCIONES = """Eres compositor y productor musical de éxitos. Escribe canci
 - """ + ia.FALTAS
 
 
+def _apuntada(proveedor: str):
+    """Cada canción pedida queda en la actividad de la IA: la que sale, con su precio (PRECIO); la que no, con su
+    motivo y sin costo (ni ElevenLabs ni Gemini cobran lo que rechazan)."""
+    def envolver(funcion):
+        @functools.wraps(funcion)
+        def con_actividad(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:
+            try:
+                datos = funcion(c, estilo, letra, segundos)
+            except Exception as e:
+                actividad.anotar("musica", proveedor, c.get("modelo_musica") or "", error=e)
+                raise
+            actividad.anotar("musica", proveedor, c.get("modelo_musica") or "", PRECIO[proveedor])
+            return datos
+        return con_actividad
+    return envolver
+
+
+@_apuntada("elevenlabs")
 def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:
     prompt = estilo if letra is None else f"{estilo}\n\nLyrics:\n{letra}"
     r = httpx.post("https://api.elevenlabs.io/v1/music", params={"output_format": "mp3_48000_192"},  # el de los modelos v2
@@ -72,24 +91,37 @@ def _elevenlabs(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes
                                  "clave y activa «Music». ({detalle})", detalle=detalle))
         raise RuntimeError(t("ElevenLabs no dejó crear la música ({codigo}): {detalle}", codigo=r.status_code,
                              detalle=detalle))
-    r.raise_for_status()
+    if r.status_code >= 400:  # su motivo en claro, no el texto de httpx en inglés con su enlace
+        raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio="ElevenLabs", codigo=r.status_code,
+                             detalle=ia.motivo(r)))
     return r.content
 
 
 class SinPlanGemini(RuntimeError):
-    """Gemini rechazó Lyria (403 o 429) sin cobrar nada: en automático se puede probar con ElevenLabs."""
+    """Gemini rechazó Lyria sin cobrar nada (402 sin saldo, o 403 o 429 sin facturación): en automático se puede
+    probar con ElevenLabs. sin_saldo: fue por el saldo (402), no por el plan."""
+    sin_saldo = False
 
 
+@_apuntada("gemini")
 def _gemini(c: dict, estilo: str, letra: str | None, segundos: int) -> bytes:
     pedido = (f"{estilo}. Duration about {segundos} seconds."
               + ("\nInstrumental only, no vocals." if letra is None else f"\n\nLyrics:\n{letra}"))
     r = httpx.post("https://generativelanguage.googleapis.com/v1beta/interactions", timeout=900,
                    headers={"x-goog-api-key": c["clave"]}, json={"model": c["modelo_musica"], "input": pedido})
+    if r.status_code == 402:  # sin saldo prepago (pasó con el texto): tampoco cobra, y en automático pasa a ElevenLabs
+        claves.recordar("gemini", 402, ia.motivo(r))
+        error = SinPlanGemini(t("Gemini no tiene saldo para Lyria (402): recarga en AI Studio (aistudio.google.com → "
+                                "tu proyecto → Billing) o elige ElevenLabs en «Claves de IA» → «Música». ({detalle})",
+                                detalle=ia.motivo(r)))
+        error.sin_saldo = True
+        raise error
     if r.status_code in (403, 429):  # Lyria no tiene plan gratis: sin facturación, Google responde así
         raise SinPlanGemini(t("Lyria no está en el plan gratis de Gemini ({codigo}): activa la facturación en Google "
                               "AI Studio o elige ElevenLabs en «Claves de IA» → «Música». ({detalle})",
                               codigo=r.status_code, detalle=ia.motivo(r)))
-    r.raise_for_status()
+    if r.status_code >= 400:  # su motivo en claro, no el texto de httpx en inglés con su enlace
+        raise RuntimeError(t("Gemini respondió {codigo}: {detalle}", codigo=r.status_code, detalle=ia.motivo(r)))
 
     def buscar(nodo):  # el audio viene en base64 dentro de un bloque {"type": "audio", "data": …}
         if isinstance(nodo, dict):
@@ -144,20 +176,23 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
             respaldo = claves.cargar().get("elevenlabs")
             if not respaldo or claves.ajustes().get("musica", "auto") != "auto":
                 raise
-            avisos.append(t("Gemini no dejó usar Lyria (necesita la facturación de Gemini activada en Google AI "
+            avisos.append(t("Gemini no tiene saldo para Lyria (no cobró nada): esta canción se hizo con tu clave de "
+                            "ElevenLabs, hasta unos {costo}. Recarga en AI Studio: aistudio.google.com → tu proyecto → "
+                            "Billing.", costo=dinero(PRECIO["elevenlabs"])) if de_gemini.sin_saldo else
+                          t("Gemini no dejó usar Lyria (necesita la facturación de Gemini activada en Google AI "
                             "Studio): esta canción se hizo con tu clave de ElevenLabs."))
             aviso(t("Produciendo con {proveedor} (puede tardar unos minutos)…", proveedor=claves.nombre("elevenlabs")),
                   0.3)
             try:
                 datos = producir(respaldo)
             except Exception as de_eleven:  # si los dos fallan, los dos motivos: el de Gemini es el que se arregla
-                raise RuntimeError(f"{de_gemini}\n\n{de_eleven}") from de_eleven
+                raise RuntimeError(f"{de_gemini}\n\n{texto_de_error(de_eleven)}") from de_eleven
         audio.write_bytes(datos)
     except Exception as e:
         if not con_voz:
             raise
         raise RuntimeError(t("{error}\n\nTu letra no se perdió: está en {archivo}",
-                             error=str(e).strip() or type(e).__name__, archivo=archivo_letra)) from e
+                             error=texto_de_error(e), archivo=archivo_letra)) from e
 
     # En el texto para publicar, la letra sin las marcas de sección para el modelo ([Intro], [Chorus]…, en inglés)
     para_publicar = re.sub(r"\n{3,}", "\n\n", re.sub(r"(?m)^[ \t]*\[[^\]\n]+\][ \t]*$", "", letra)).strip()

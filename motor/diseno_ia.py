@@ -10,7 +10,7 @@ from typing import Callable
 from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QTextDocument, QTextOption
 
 from . import diseno, ia, marca, memoria, recursos
-from .idioma import actual, IDIOMAS, t
+from .idioma import actual, IDIOMAS, t, texto_de_error
 
 MAX_CAPAS, MAX_FOTOS = 14, 2  # el gasto (cada foto es una imagen de IA) y el tiempo no los decide la IA
 _PALETA = ["#0F0F13", "#FF4D8D"]  # sin marca: fondo y acento
@@ -289,7 +289,7 @@ def _sin_inventos(texto: str, permitido: str) -> str:
 
 def _causa(error: Exception) -> str:
     """El porqué de una imagen que no salió, corto y sin la URL ni el ID de la cuenta del servicio."""
-    causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+    causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
     # Se mira lo que dijo cada servicio, sin su nombre: «Hugging Face (cuota gratis): sin internet» no es cuota
     motivos = [re.sub(r"^[^:]+: ", "", linea) for linea in causa.split(" · ")]
     if any(re.search(r"\b429\b|quota|cuota|neurons", m, re.I) for m in motivos):  # nubes ya lo resume así

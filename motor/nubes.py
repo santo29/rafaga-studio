@@ -12,7 +12,7 @@ from typing import Callable
 
 import httpx
 
-from . import claves, seguro
+from . import actividad, claves, seguro
 from .idioma import t
 
 USO = Path(__file__).resolve().parent.parent / "datos" / "uso_nubes.json"
@@ -155,6 +155,9 @@ def _causa(e: Exception, proveedor: str) -> str:
     if isinstance(e, httpx.HTTPStatusError):  # el código y lo que dice el servicio (p. ej. qué campo no acepta)
         from .ia import motivo  # su «message», no el JSON entero: aquí, ia también carga este módulo
         causa = f"{e.response.status_code} {e.response.reason_phrase} — {motivo(e.response)}"
+    elif isinstance(e, httpx.TransportError):  # «[Errno 11001] getaddrinfo failed», en inglés: dicho en claro
+        from .idioma import texto_de_error
+        causa = texto_de_error(e)
     if re.search(r"\b429\b|quota|neurons", causa, re.IGNORECASE):
         return t("se acabó la cuota gratis de hoy") if proveedor in CUOTA_DIARIA else \
             t("límite de uso alcanzado: espera un poco o revisa tu saldo")
@@ -163,24 +166,41 @@ def _causa(e: Exception, proveedor: str) -> str:
     return re.sub(r"https?://\S+|\b[0-9a-fA-F]{32}\b", lambda m: m[0] if m[0].startswith(fijas) else "…", causa)
 
 
+def _apuntar(uso: str, proveedor: str, que_fue, error=None, paso_a: str = "", cobrado: bool = False) -> None:
+    """Un intento de la rotación en la actividad de la IA. Lo que no se cobró (falló) cuesta 0; lo cobrado sin llegar
+    (Cobrado), lo de siempre. Lo de este PC no es un servicio de IA: no se apunta."""
+    if proveedor == "pc" or uso not in ("imagen", "video"):
+        return
+    try:
+        modelo, costo = que_fue(proveedor)
+    except Exception:  # el modelo y el precio son informativos: nunca tumban la rotación
+        modelo, costo = "", 0.0
+    actividad.anotar(uso, proveedor, modelo, costo if error is None or cobrado else 0.0, error, paso_a)
+
+
 def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[str, float], None] = lambda t, f: None,
-          progreso: float = 0.0):
-    """Ejecuta la primera tarea que funcione siguiendo `orden(uso)`. Devuelve (resultado, proveedor)."""
+          progreso: float = 0.0, que_fue: Callable[[str], tuple[str, float]] = lambda p: ("", 0.0)):
+    """Ejecuta la primera tarea que funcione siguiendo `orden(uso)`. Devuelve (resultado, proveedor).
+    Cada intento queda en la actividad de la IA: el que no pudo, con su motivo y la opción que se probó después; el
+    que sí, con su modelo y lo que cuesta (que_fue(proveedor) → (modelo, US$ como mucho)). Lo de este PC no se apunta."""
     errores = []
-    for proveedor in orden(uso):
-        if proveedor not in tareas:
-            continue
+    cola = [p for p in orden(uso) if p in tareas]
+    for i, proveedor in enumerate(cola):
+        siguiente = cola[i + 1] if i + 1 < len(cola) else ""
         try:
             resultado = tareas[proveedor]()
         except Exception as e:  # cuota agotada, servicio caído…: se pasa al siguiente
             from .ia import Cobrado
             if isinstance(e, Cobrado):  # ya se pagó: sigue hacia arriba para la nota de gasto, sin probar otra opción
+                _apuntar(uso, proveedor, que_fue, e, cobrado=True)
                 raise
             causa = _causa(e, proveedor)
+            _apuntar(uso, proveedor, que_fue, causa, paso_a=siguiente)
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),
                   progreso)
             continue
+        _apuntar(uso, proveedor, que_fue)
         try:
             contar(proveedor)
         except Exception:  # el contador es informativo: nunca debe tirar un resultado ya hecho (y pagado)

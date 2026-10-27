@@ -197,6 +197,37 @@ def clips(nombre: str, args: dict) -> int:
     return min(desde_prompt.MAX_CLIPS_PAGO, FOTOS[nombre](args))
 
 
+# Las herramientas que escriben con la IA de texto (salvo que el agente traiga su guion, biblia o propuesta)
+CON_TEXTO = {"crear_video", "sacar_shorts", "investigar_nichos", "crear_anuncios", "crear_cancion",
+             "crear_video_musical", "crear_diseno", "crear_serie", "crear_episodio"}
+# Los avisos de servicios que no atienden ya dichos en el chat, de toda la conversación y no de cada mensaje (salía
+# «Gemini no tiene saldo: usaré Groq» al empezar cada respuesta). El que deja de valer se olvida: si vuelve, se dice
+_DICHOS = set()
+
+
+def usos(nombre: str, args: dict) -> list[str]:
+    """Las IA que usa una herramienta (texto, imagen, música, video, escenas que hablan): con ellas se avisa ANTES de
+    empezar de las que no atienden (claves.antes_de) y se para lo de pago que no se puede hacer (impide)."""
+    lista = []
+    if nombre in CON_TEXTO and not any(args.get(k) for k in OCULTOS) and not _solo_anima(args):
+        lista.append("texto")
+    if nombre in FOTOS:
+        lista.append("imagen")
+    if nombre == "crear_cancion":
+        lista.append("musica")
+    if nombre in ANIMAN:
+        lista.append("video")
+    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args):
+        lista.append("video_voz")
+    return lista
+
+
+def impide(nombre: str, args: dict) -> str | None:
+    """Por qué esta herramienta no puede hacer su parte de pago ahora (el servicio no tiene saldo o su clave no vale,
+    según la última comprobación): se dice antes de preguntar el costo y de esperar minutos a un fallo seguro."""
+    return claves.impide(usos(nombre, args))
+
+
 def costo(nombre: str, args: dict) -> str | None:
     """La pregunta para el usuario si esta llamada gasta dinero (con su costo aproximado, por lo alto) o publica en su
     canal o queda guardado en la memoria del estudio; None si es gratis y se hace directo. Lo decide el código, nunca
@@ -252,10 +283,11 @@ def costo(nombre: str, args: dict) -> str | None:
 
 
 def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: str,
-          confirmar=lambda pregunta: False) -> tuple[dict, str]:
+          confirmar=lambda pregunta: False, avisar=lambda avisos: None) -> tuple[dict, str]:
     """(argumentos leídos, respuesta de la herramienta). Un error vuelve como texto «ERROR: …» para que la IA lo lea
     y decida: corregir, probar otra cosa o explicárselo al usuario. Lo que cuesta dinero o publica, solo con el sí de
-    confirmar(pregunta)."""
+    confirmar(pregunta). avisar(avisos): lo que el usuario debe saber antes de que empiece («Gemini no tiene saldo:
+    usaré Groq para el texto», ver claves.antes_de)."""
     funcion = herramientas.TODAS.get(nombre)
     if funcion is None:
         guardia.registrar("herramienta", "baja", t("El Director pidió una herramienta que no existe: {herramienta}",
@@ -274,6 +306,8 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         guardia.registrar("director", "media", t("El Director no pudo {herramienta}: {motivo}",
                                                  herramienta=herramientas.nombre(nombre), motivo=problema), "director")
         return args, f"ERROR: {problema}"
+    if no_se_puede := impide(nombre, args):  # el servicio de pago no tiene saldo: ni se pregunta ni se espera
+        return args, f"ERROR: {no_se_puede}"
     pregunta = costo(nombre, args)
     if pregunta and guardia.bloqueado():  # lo de pago, publicar y la memoria (lo que costo pregunta): bloqueado
         guardia.registrar("bloqueado", "baja", t("El Director no pudo {herramienta}: el estudio está bloqueado.",
@@ -281,13 +315,15 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         return args, f"ERROR: {guardia.mensaje_bloqueo()}"
     if pregunta and not confirmar(pregunta):
         return args, f"ERROR: {t('el usuario no lo aceptó: no se hizo ni se gastó nada')}"
+    avisar(claves.antes_de(usos(nombre, args)))
     al_usar(nombre)
     herramientas._hilo.aviso = aviso
     try:
         return args, funcion(**args)
     except Exception as e:  # cuota agotada, foto que no existe…: la IA lo lee y el usuario lo ve en su respuesta
         traceback.print_exc()
-        return args, f"ERROR: {str(e).strip() or type(e).__name__}"
+        # en claro: un error de httpx llegaba en inglés y con un enlace a mozilla.org
+        return args, f"ERROR: {texto_de_error(e) if str(e).strip() else type(e).__name__}"
     finally:
         herramientas._hilo.aviso = None
 
@@ -311,6 +347,14 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     de_antes = _norma("\n".join(str(m.get("hecho", "")) for m in historial if m.get("rol") == "director"))
     pasos, resultados, formato, mensaje = [], [], "9:16", ""
     rechazadas = set()  # los trabajos (herramienta y argumentos) a los que ya dijo que no: no se le vuelve a preguntar
+    _DICHOS.intersection_update(claves.antes_de(["texto", "imagen", "musica", "video"]))
+
+    def avisar(avisos):
+        for texto in avisos:
+            if texto not in _DICHOS:
+                _DICHOS.add(texto)
+                al_decir(texto)
+    avisar(claves.antes_de(["texto"]))  # el Director escribe con la IA de texto: si no atiende, lo dice antes
 
     def permiso(pregunta: str, trabajo: tuple) -> bool:
         # La pregunta del código va PRIMERO y lo que escribió la IA detrás y corto: en modo voz se lee entera y la IA
@@ -346,7 +390,7 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         de_todos = del_usuario + de_antes + _norma("\n".join(a for p in pasos for a in _archivos(p["resultado"])))
         trabajo = (nombre, str(r["argumentos"]))
         args, respuesta = _usar(nombre, r["argumentos"], aviso, al_usar, del_usuario, de_todos,
-                                lambda pregunta: permiso(pregunta, trabajo))
+                                lambda pregunta: permiso(pregunta, trabajo), avisar)
         pasos.append({"herramienta": nombre, "argumentos": args, "resultado": respuesta, "mensaje": mensaje})
         resultados += herramientas.resultados(respuesta)
         formato = (args.get("formato") if isinstance(args.get("formato"), str) else None) or formato

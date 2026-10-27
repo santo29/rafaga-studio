@@ -7,7 +7,7 @@ from typing import Callable
 
 from . import claves, ia, memoria, seguro, video
 from .desde_prompt import relanzar_con_gasto
-from .idioma import actual, IDIOMAS, porcentaje, t
+from .idioma import actual, IDIOMAS, porcentaje, t, texto_de_error
 from .shorts import PROYECTOS
 
 MAX_ESCENAS = 14  # cada escena es una imagen de IA (de pago con Gemini): el gasto no lo decide la duración
@@ -84,7 +84,7 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
             except Exception as error:
                 if ultima is None:  # ni una imagen todavía: fondo de color para que el videoclip salga igual
                     ultima, de_donde = video.fondo(formato, carpeta / "fondo.png", i), t("un fondo de color")
-                causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
                 notas.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1,
                                causa=causa, origen=de_donde))
                 aviso(notas[-1], paso)
@@ -97,7 +97,7 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
                                                  carpeta / f"clip_ia_{i:02d}.mp4", pago)
                 except Exception as error:  # cupo de la nube agotado o servicio caído: el resto con zoom suave
                     cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
-                    causa = str(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                    causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
                     notas.append(t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom "
                                    "suave.", n=i + 1, causa=causa))
                     aviso(notas[-1], paso + 0.3 / n)

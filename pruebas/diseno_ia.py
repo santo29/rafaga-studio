@@ -429,7 +429,7 @@ with tempfile.TemporaryDirectory() as d:
         urls.append(url)
         raise RuntimeError("sin red")
 
-    def rotar(uso, tareas, *_):
+    def rotar(uso, tareas, *_, **__):  # que_fue: el modelo y el precio para la actividad de la IA
         for proveedor in ("pollinations", "gratis_sin_clave"):
             falla(tareas[proveedor], error=RuntimeError)
         raise RuntimeError("Ninguna opción pudo hacerlo.")

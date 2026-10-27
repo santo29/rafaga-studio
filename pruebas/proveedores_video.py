@@ -305,7 +305,7 @@ try:
     pedidas = []
     desde_prompt.escena_hablada = lambda clip, texto, formato, destino: destino
     ia.imagen = lambda p, w, h, d: pedidas.append(d.name) or dibujar(p, w, h, d)
-    ia.imagen_con_producto = lambda p, f, w, h, d, realista=True: pedidas.append(d.name) or dibujar(p, w, h, d)
+    ia.imagen_con_producto = lambda p, f, w, h, d, realista=True, **k: pedidas.append(d.name) or dibujar(p, w, h, d)
     corto = {"titulo": "t", "descripcion": "d", "hashtags": [], "estilo_visual": "cartoon",
              "escenas": [{"narracion": f"n{i}", "imagen": f"scene {i}"} for i in range(3)]}
     claves.elegir_por_defecto("video_voz", "kling")

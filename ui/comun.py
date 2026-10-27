@@ -221,11 +221,41 @@ class Tarea(QThread):
             self.fallo.emit(texto_de_error(e))
 
 
-def mensaje(padre, titulo, texto, icono=QMessageBox.Information):
-    """Ventana de mensaje en texto plano: un error o un título de YouTube no puede meter HTML ni enlaces."""
+def mensaje(padre, titulo, texto, icono=QMessageBox.Information, botones=()):
+    """Ventana de mensaje en texto plano: un error o un título de YouTube no puede meter HTML ni enlaces.
+    botones: [(texto, función)] además de «Aceptar» (p. ej. abrir los ajustes de sonido de Windows)."""
     caja = QMessageBox(icono, titulo, str(texto), QMessageBox.Ok, padre)
     caja.setTextFormat(Qt.PlainText)
+    for nombre, funcion in botones:
+        caja.addButton(nombre, QMessageBox.ActionRole).clicked.connect(funcion)
     return caja.exec()
+
+
+class AvisosLegibles(QObject):
+    """Filtro de la app: en un PC con la pantalla al 150 %, QMessageBox dejó un aviso en una sola línea cortada a mitad
+    de palabra. Al mostrarse cada aviso, si su texto no cabe, se parte en líneas y la ventana crece hasta que se lee."""
+
+    def eventFilter(self, objeto, evento):
+        if evento.type() == QEvent.Show and isinstance(objeto, QMessageBox):
+            QTimer.singleShot(0, lambda: que_quepa(objeto))  # después de que Qt calcule su tamaño
+        return False
+
+
+def que_quepa(caja: QMessageBox):
+    etiqueta = caja.findChild(QLabel, "qt_msgbox_label")
+    if etiqueta is None or not etiqueta.text():
+        return
+    medidas = etiqueta.fontMetrics()
+    ancho_texto = max(medidas.horizontalAdvance(linea) for linea in etiqueta.text().splitlines() or [""])
+    alto_necesario = etiqueta.heightForWidth(etiqueta.width()) if etiqueta.wordWrap() else etiqueta.height()
+    if (not etiqueta.wordWrap() and ancho_texto <= etiqueta.contentsRect().width()) or \
+            (etiqueta.wordWrap() and alto_necesario <= etiqueta.height()):
+        return  # se lee entero
+    etiqueta.setWordWrap(True)
+    etiqueta.setFixedWidth(min(max(etiqueta.width(), 380), 520))
+    caja.setMinimumSize(0, 0)
+    caja.setMaximumSize(16777215, 16777215)
+    caja.setFixedSize(caja.sizeHint().expandedTo(QSize(caja.width(), 0)))
 
 
 def mensaje_error(padre, titulo, texto):

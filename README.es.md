@@ -38,6 +38,19 @@ Ráfaga, subtítulos Karaoke Ráfaga, música de Lyria y la voz de ElevenLabs. E
 |---|---|
 | <img src="ejemplos/post-cafe.jpg" width="200" alt="Post de Café Brisa Alta"> | <img src="ejemplos/miniatura-leyenda.jpg" width="320" alt="Miniatura de La leyenda de Ráfaga"> |
 
+| Portada de álbum (1:1) | Flyer de evento (A4) | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Portada de álbum de un artista de dembow ficticio"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer de la fiesta Noche Neón"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo de Barbería El Rey"> |
+| «Alto Voltaje», de un artista de dembow ficticio · neón oscuro | Flyer de fiesta con fecha, hora y lugar · neón oscuro | Emblema con corona de «Barbería El Rey» · render 3D |
+
+| Miniatura de YouTube (16:9) | Estampado para camiseta | Anuncio de marca (4:5) |
+|---|---|---|
+| <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="Miniatura del capítulo 2 de La leyenda de Ráfaga"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Estampado de calavera neón"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Anuncio de Café Brisa Alta"> |
+| «La leyenda de Ráfaga», capítulo 2 · anime con brillo neón | Calavera neón para camiseta negra · neón oscuro | «Café Brisa Alta», con el mismo estilo que su post · render 3D |
+
+Estos seis diseños los maquetó Claude como Director en capas editables; el arte lo dibujó Gemini (Nano Banana en 2K,
+unos US$0,05 por imagen) y el estudio encajó los textos y montó cada pieza. Las marcas y las personas son ficticias.
+
 Los guiones y los diseños (en capas editables) los escribió Claude como Director. Las imágenes (FLUX), las voces, los subtítulos, el movimiento y el
 montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` y `python ejemplos/crear_disenos.py` (los pedidos, guiones y diseños están en
 `ejemplos/ejemplos.json` y `ejemplos/disenos.json`).
@@ -50,7 +63,7 @@ montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` 
 | ✨ Crear con IA | Guion con IA → imágenes → voz → animación → subtítulos tipo CapCut |
 | 🎨 Diseño | Espacio de trabajo tipo Illustrator (herramientas en columna, zoom, alinear, propiedades y capas; texto, formas, fotos, 2.100+ iconos, emojis y 14 fuentes, también góticas) y una IA que primero entiende tu pedido (pregunta si duda, también con faltas), dibuja ilustraciones en vez de fotos de banco y hace anuncios, posts, miniaturas, flyers, logos y estampados para camisetas **en capas editables**, sin inventar precios ni contactos. Modos de fusión y ajustes de imagen como en Photoshop, quitar fondo, «Editar con IA» y exportar en 4K; PNG, JPG, PDF y SVG |
 | 🐰 Dibujos animados | Tu serie de dibujos animados capítulo por capítulo: la IA crea personajes originales (con su apariencia fija, su lámina y su voz) y escribe cada capítulo siguiendo la historia; cada plano sale con imagen, movimiento y la voz de quien habla. Guion gráfico con cada plano, rehacer un solo plano y cuadros para retocar en OpenToonz, Pencil2D o Krita |
-| ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4. **Grábate** hablando encima del video con tu cámara (o solo tu voz, o importa un video de tu cara): disposiciones de un clic (círculo en una esquina, pantalla completa o dividida), la música baja sola mientras hablas y los subtítulos te oyen. La cámara y el micro se quedan en tu PC y solo se encienden cuando tú lo pides |
+| ✂️ Editor de video | Línea de tiempo tipo CapCut: cortes, velocidad, transiciones, textos, stickers, música, voz con IA y subtítulos automáticos; exporta MP4 hasta 4K. **Grábate** hablando encima del video con tu cámara (o solo tu voz, o importa un video de tu cara): disposiciones de un clic (círculo en una esquina, pantalla completa o dividida), la música baja sola mientras hablas y los subtítulos te oyen. La cámara y el micro se quedan en tu PC y solo se encienden cuando tú lo pides |
 | ⚡ Shorts mágicos | Pega un enlace; la IA elige los mejores momentos y los recorta en vertical con subtítulos |
 | 🚀 Anuncios | Foto del producto → varias versiones de anuncio (pruebas A/B) con tu producto real |
 | 🎵 Música | Letra y producción con IA en cualquier género; video musical con ondas y letra karaoke |

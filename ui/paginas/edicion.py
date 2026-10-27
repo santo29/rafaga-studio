@@ -292,9 +292,11 @@ class PaginaEdicion(QWidget):
         self.progreso.hide()
         self._ultimo_aviso = ""
         self.calidad = QComboBox()
-        self.calidad.setToolTip(t("Calidad al exportar: 720p pesa menos"))
+        self.calidad.setToolTip(t("Calidad al exportar: 4K es la más nítida, pero tarda más y pesa más; 720p pesa "
+                                  "menos"))
         self.calidad.addItem("1080p", "1080p")
         self.calidad.addItem("720p", "720p")
+        self.calidad.addItem("4K", "4K")  # corto: la barra ya va justa en 1280 px; que tarda más, en el tooltip
         self.exportar_btn, carpeta = boton(f"⬇  {t('Exportar')}", "principal"), boton("📁")
         carpeta.setToolTip(t("Abrir la carpeta de lo exportado"))
         self.exportar_btn.clicked.connect(self.exportar)

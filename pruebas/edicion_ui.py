@@ -515,12 +515,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert len(p._items()) == 1 and leidas.misses == 1 and leidas.hits >= 1, leidas
 
     # ---------- Exportar ----------
+    assert [p.calidad.itemData(i) for i in range(p.calidad.count())] == ["1080p", "720p", "4K"]
+    assert p.calidad.currentData() == "1080p" and "4K" in p.calidad.toolTip()
     p.calidad.setCurrentIndex(p.calidad.findData("720p"))
     p.exportar()
     esperar(lambda: not p.tareas)
+    p.calidad.setCurrentIndex(p.calidad.findData("4K"))
     p.exportar()
     esperar(lambda: not p.tareas)
-    assert exportados == ["720p", "720p"]
+    assert exportados == ["720p", "4K"]
     assert (d / "Videos" / "Mi viaje.mp4").is_file() and (d / "Videos" / "Mi viaje (2).mp4").is_file()
     p.abrir_carpeta()
     assert abiertas == [d / "Videos"]

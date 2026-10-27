@@ -175,8 +175,9 @@ def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:
                  subtitulos: bool = False, calidad: str = "1080p") -> str:
     """Editor de video: une fotos y videos (rutas, en ese orden) en un proyecto del editor, con música de fondo
     (ruta de un audio, opcional; se corta donde acaba el video) y subtítulos automáticos si se piden, y lo exporta a
-    MP4 (calidad 720p o 1080p). El proyecto queda guardado: se abre y se retoca a mano en la página «Editor de video»
-    de la app. Sirve para unir los videos que hayan hecho otras herramientas."""
+    MP4 (calidad 720p, 1080p o 4K: 3840×2160 en 16:9 y 2160×3840 en 9:16, más nítido pero varias veces más lento).
+    El proyecto queda guardado: se abre y se retoca a mano en la página «Editor de video» de la app. Sirve para unir
+    los videos que hayan hecho otras herramientas."""
     from . import edicion, render_edicion
     if not isinstance(medios, list) or not medios:
         raise ValueError(t("Pasa al menos una foto o un video."))

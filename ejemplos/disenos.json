@@ -51,5 +51,154 @@
          "fuente": "Montserrat", "negrita": true, "color": "#FFFFFF", "alineacion": "centro"}
       ]
     }
+  },
+  {
+    "id": "portada-alto-voltaje",
+    "titulo": "Portada de álbum: Alto Voltaje",
+    "pedido": "La portada del álbum «Alto Voltaje» de Nando Volt, un artista de dembow: oscura, con neón morado y cian",
+    "tipo": "post",
+    "estilo": "neon_oscuro",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "Alto Voltaje · portada de álbum",
+      "descripcion": "Portada del álbum Alto Voltaje de Nando Volt.",
+      "fondo_colores": ["#07051A"],
+      "fondo_prompt_imagen": "high-end 3D render of a fictional confident adult Caribbean man in his late twenties with a short fade haircut, a trimmed beard and dark sunglasses, wearing a glossy purple puffer jacket and a thick gold chain, arms crossed, waist-up, centered, a giant glowing cyan lightning bolt behind him, purple and cyan neon rim light, purple smoke rising from below, empty dark space above his head and at the bottom of the frame",
+      "capas": [
+        {"tipo": "texto", "texto": "NANDO VOLT", "x": 6, "y": 3.5, "ancho": 88, "alto": 17, "tamano": 12.5,
+         "fuente": "Anton", "negrita": true, "color": "#FFFFFF", "alineacion": "centro", "sombra": true},
+        {"tipo": "texto", "texto": "ALTO VOLTAJE", "x": 5, "y": 79, "ancho": 90, "alto": 17, "tamano": 13.5,
+         "fuente": "Anton", "negrita": true, "color": "#3DF2FF", "alineacion": "centro", "sombra": true}
+      ]
+    }
+  },
+  {
+    "id": "flyer-noche-neon",
+    "titulo": "Flyer: fiesta Noche Neón",
+    "pedido": "Un flyer para la fiesta Noche Neón: sábado 14 de noviembre, a las 10:00 p. m., en la Terraza Luna Alta, Santiago. Dembow, afro y reguetón",
+    "tipo": "flyer",
+    "estilo": "neon_oscuro",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "Noche Neón · flyer",
+      "descripcion": "Flyer de la fiesta Noche Neón en la Terraza Luna Alta.",
+      "fondo_colores": ["#0B0820"],
+      "fondo_prompt_imagen": "rooftop night party seen from the back of the crowd, silhouettes of adults dancing with raised hands, a glowing DJ booth in the middle distance, purple and cyan neon laser beams, city lights far away, haze, the top third is empty dark night sky and the bottom third is darker",
+      "capas": [
+        {"tipo": "forma", "forma": "rectangulo", "x": 6, "y": 68, "ancho": 88, "alto": 25, "color": "#0B0820",
+         "redondeo": 10, "opacidad": 78},
+        {"tipo": "texto", "texto": "NOCHE", "x": 6, "y": 4, "ancho": 88, "alto": 12, "tamano": 10,
+         "fuente": "Anton", "negrita": true, "color": "#FFFFFF", "alineacion": "centro", "sombra": true},
+        {"tipo": "texto", "texto": "NEÓN", "x": 6, "y": 15, "ancho": 88, "alto": 17, "tamano": 14.5,
+         "fuente": "Anton", "negrita": true, "color": "#3DF2FF", "alineacion": "centro", "sombra": true},
+        {"tipo": "texto", "texto": "DEMBOW · AFRO · REGUETÓN", "x": 6, "y": 33, "ancho": 88, "alto": 4.5, "tamano": 2.9,
+         "fuente": "Montserrat", "negrita": true, "color": "#FF5BD8", "alineacion": "centro", "sombra": true},
+        {"tipo": "icono", "icono": "calendar", "x": 12, "y": 71.5, "ancho": 6, "alto": 4.2, "color": "#3DF2FF"},
+        {"tipo": "texto", "texto": "Sábado 14 de noviembre", "x": 21, "y": 71.5, "ancho": 68, "alto": 4.2, "tamano": 3.2,
+         "fuente": "Poppins", "negrita": true, "color": "#FFFFFF", "alineacion": "izquierda"},
+        {"tipo": "icono", "icono": "clock", "x": 12, "y": 78.5, "ancho": 6, "alto": 4.2, "color": "#3DF2FF"},
+        {"tipo": "texto", "texto": "10:00 p. m.", "x": 21, "y": 78.5, "ancho": 68, "alto": 4.2, "tamano": 3.2,
+         "fuente": "Poppins", "negrita": true, "color": "#FFFFFF", "alineacion": "izquierda"},
+        {"tipo": "icono", "icono": "map-pin", "x": 12, "y": 85.5, "ancho": 6, "alto": 4.2, "color": "#3DF2FF"},
+        {"tipo": "texto", "texto": "Terraza Luna Alta, Santiago", "x": 21, "y": 85.5, "ancho": 68, "alto": 4.2,
+         "tamano": 3.2, "fuente": "Poppins", "negrita": true, "color": "#FFFFFF", "alineacion": "izquierda"}
+      ]
+    }
+  },
+  {
+    "id": "logo-barberia-el-rey",
+    "titulo": "Logo: Barbería El Rey",
+    "pedido": "El logo de mi barbería, Barbería El Rey: una corona dorada con unas tijeras, oscuro y elegante",
+    "tipo": "logo",
+    "estilo": "render3d",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "Barbería El Rey · logo",
+      "descripcion": "Logo de Barbería El Rey.",
+      "fondo_colores": ["#0A0814"],
+      "fondo_prompt_imagen": "",
+      "capas": [
+        {"tipo": "imagen", "x": 21, "y": 6, "ancho": 58, "alto": 58,
+         "prompt_imagen": "emblem of a glossy gold royal crown resting on a pair of crossed silver barber scissors and a straight razor, subtle purple neon rim light, symmetrical, front view, centered"},
+        {"tipo": "texto", "texto": "BARBERÍA", "x": 8, "y": 66, "ancho": 84, "alto": 6, "tamano": 4.6,
+         "fuente": "Montserrat", "negrita": true, "color": "#C9B6FF", "alineacion": "centro"},
+        {"tipo": "texto", "texto": "EL REY", "x": 8, "y": 72.5, "ancho": 84, "alto": 15, "tamano": 12,
+         "fuente": "Playfair Display", "negrita": true, "color": "#F5C542", "alineacion": "centro"},
+        {"tipo": "texto", "texto": "CORTE · BARBA · ESTILO", "x": 8, "y": 89, "ancho": 84, "alto": 4, "tamano": 2.6,
+         "fuente": "Montserrat", "negrita": false, "color": "#9A96AE", "alineacion": "centro"}
+      ]
+    }
+  },
+  {
+    "id": "miniatura-capitulo-2",
+    "titulo": "Miniatura: La leyenda de Ráfaga, capítulo 2",
+    "pedido": "La miniatura de YouTube del capítulo 2 de mi anime, La leyenda de Ráfaga",
+    "tipo": "miniatura",
+    "estilo": "neon_oscuro",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "La leyenda de Ráfaga · capítulo 2",
+      "descripcion": "Miniatura de YouTube del capítulo 2.",
+      "fondo_colores": ["#0B0B12"],
+      "fondo_prompt_imagen": "anime illustration, 90s cel animation style, bold ink lines, a young adult Afro-Caribbean swordsman with long locs tied back, a short beard and a dark blue haori with a white wind pattern, standing in the right third of the frame, holding a glowing curved sword ready to fight, a huge masked shadow warrior with burning purple eyes looming behind him, cyan and purple sparks, stormy night, low angle, the left half of the frame is empty dark stormy sky",
+      "capas": [
+        {"tipo": "texto", "texto": "LA LEYENDA", "x": 5, "y": 5, "ancho": 58, "alto": 25, "tamano": 18,
+         "fuente": "Anton", "negrita": true, "color": "#FFFFFF", "alineacion": "izquierda", "sombra": true},
+        {"tipo": "texto", "texto": "DE RÁFAGA", "x": 5, "y": 30, "ancho": 58, "alto": 25, "tamano": 18,
+         "fuente": "Anton", "negrita": true, "color": "#3DF2FF", "alineacion": "izquierda", "sombra": true},
+        {"tipo": "forma", "forma": "rectangulo", "x": 5, "y": 75, "ancho": 25, "alto": 12, "color": "#FF4D8D",
+         "redondeo": 40},
+        {"tipo": "texto", "texto": "CAPÍTULO 2", "x": 5, "y": 77.5, "ancho": 25, "alto": 7, "tamano": 4.8,
+         "fuente": "Montserrat", "negrita": true, "color": "#FFFFFF", "alineacion": "centro"}
+      ]
+    }
+  },
+  {
+    "id": "estampado-calavera-neon",
+    "titulo": "Estampado: calavera neón",
+    "pedido": "Un estampado para camiseta negra: una calavera neón con gorra y cadena de oro, y debajo la palabra RÁFAGA",
+    "tipo": "estampado",
+    "estilo": "neon_oscuro",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "Calavera neón · estampado",
+      "descripcion": "Estampado para camiseta negra.",
+      "fondo_colores": ["#000000"],
+      "fondo_prompt_imagen": "",
+      "capas": [
+        {"tipo": "imagen", "x": 11, "y": 3, "ancho": 78, "alto": 78,
+         "prompt_imagen": "a stylized grinning skull wearing a purple backwards baseball cap with a small lightning bolt on top, glowing cyan eye sockets, a thick gold chain below the jaw, purple and cyan neon outline glow, front view, centered"},
+        {"tipo": "texto", "texto": "RÁFAGA", "x": 10, "y": 82.5, "ancho": 80, "alto": 13, "tamano": 10.5,
+         "fuente": "Anton", "negrita": true, "color": "#3DF2FF", "alineacion": "centro"}
+      ]
+    }
+  },
+  {
+    "id": "anuncio-cafe-brisa-alta",
+    "titulo": "Anuncio: Café Brisa Alta",
+    "pedido": "Un anuncio para Instagram de mi marca de café, Café Brisa Alta: café de montaña tostado en pequeños lotes, con el lema «Despierta distinto» y el botón «Pídelo hoy»",
+    "tipo": "anuncio",
+    "estilo": "render3d",
+    "calidad": "2K",
+    "propuesta": {
+      "titulo": "Café Brisa Alta · anuncio",
+      "descripcion": "Anuncio de Café Brisa Alta: café de montaña tostado en pequeños lotes.",
+      "fondo_colores": ["#1B120D"],
+      "fondo_prompt_imagen": "",
+      "capas": [
+        {"tipo": "texto", "texto": "CAFÉ BRISA ALTA", "x": 8, "y": 4, "ancho": 84, "alto": 4.5, "tamano": 3.2,
+         "fuente": "Montserrat", "negrita": true, "color": "#F5E6D3", "alineacion": "centro"},
+        {"tipo": "imagen", "x": 10, "y": 9.5, "ancho": 80, "alto": 64,
+         "prompt_imagen": "a steaming cup of black coffee in a matte cream ceramic cup on a small pile of roasted coffee beans, a few coffee beans floating in the air around it, wisps of steam, warm golden rim light, premium product shot, centered"},
+        {"tipo": "texto", "texto": "Despierta distinto", "x": 6, "y": 74, "ancho": 88, "alto": 9.5, "tamano": 7.2,
+         "fuente": "Playfair Display", "negrita": true, "color": "#F5E6D3", "alineacion": "centro"},
+        {"tipo": "texto", "texto": "Café de montaña, tostado en pequeños lotes", "x": 8, "y": 83.5, "ancho": 84,
+         "alto": 4.5, "tamano": 2.9, "fuente": "Poppins", "color": "#D8C3A5", "alineacion": "centro"},
+        {"tipo": "forma", "forma": "rectangulo", "x": 30, "y": 89.5, "ancho": 40, "alto": 6.6, "color": "#FF9F1C",
+         "redondeo": 50},
+        {"tipo": "texto", "texto": "Pídelo hoy", "x": 30, "y": 90.4, "ancho": 40, "alto": 4.8, "tamano": 3.4,
+         "fuente": "Poppins", "negrita": true, "color": "#1B120D", "alineacion": "centro"}
+      ]
+    }
   }
 ]

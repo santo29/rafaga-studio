@@ -57,6 +57,20 @@ Ask for a video in one sentence. Get the script, the scenes, the voice, the subt
 |---|---|
 | <img src="ejemplos/post-cafe.jpg" width="170" alt="Brand post"> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="YouTube thumbnail"> |
 
+| Album cover (1:1) | Event flyer (A4) | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Album cover for a fictional dembow artist"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer for a fictional neon party"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo for a fictional barbershop"> |
+| “Alto Voltaje” by a fictional dembow artist · neon dark | Party flyer with date, time and venue · neon dark | Crown emblem for “Barbería El Rey” · 3D render |
+
+| YouTube thumbnail (16:9) | T-shirt print | Brand ad (4:5) |
+|---|---|---|
+| <img src="ejemplos/miniatura-capitulo-2.jpg" width="300" alt="YouTube thumbnail for chapter 2 of an anime"> | <img src="ejemplos/estampado-calavera-neon.jpg" width="240" alt="Neon skull T-shirt print"> | <img src="ejemplos/anuncio-cafe-brisa-alta.jpg" width="200" alt="Coffee brand ad"> |
+| “La leyenda de Ráfaga”, chapter 2 · anime with a neon glow | Neon skull for a black tee · neon dark | “Café Brisa Alta”, in the same look as its post · 3D render |
+
+The six designs above were laid out by Claude as Director in editable layers; the art was drawn by Gemini (Nano Banana
+at 2K, about US$0.05 per image) and the studio fitted the text and put each piece together. Brands and people are
+fictional.
+
 Every example is reproducible: the requests, scripts and layered designs are in
 [`ejemplos/ejemplos.json`](ejemplos/ejemplos.json) and [`ejemplos/disenos.json`](ejemplos/disenos.json).
 `python ejemplos/crear.py` rebuilds the videos and `python ejemplos/crear_disenos.py` the designs. The talking apple
@@ -70,7 +84,7 @@ uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal 
 | ✨ **Create with AI** | Prompt → script → images → voice → animation → subtitles. Optional talking characters with lip sync |
 | 🎨 **Design** | Illustrator-style workspace (tool column, zoom, align, properties and layers; 2,100+ icons, 14 fonts including gothic ones) and an AI that first understands your request (it asks when unsure, typos included), draws illustrations instead of stock photos and builds posts, thumbnails, flyers, logos and t-shirt prints **as editable layers**, without inventing prices or contacts. Photoshop-style blend modes and image adjustments, remove background, **Edit with AI** and 4K export |
 | 🐰 **Cartoons** | Your cartoon series, episode by episode: original characters with a fixed look, a model sheet and their own voice; a storyboard of every shot, redo a single shot, and export frames to OpenToonz, Pencil2D or Krita |
-| ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles. **Record yourself** talking over the video with your webcam (or just your voice, or import a face video): one-click layouts (corner circle, full screen, split screen), the music lowers by itself while you speak, and the subtitles hear you. Camera and mic stay on your PC and only turn on when you ask |
+| ✂️ **Video editor** | CapCut-style timeline: cuts, speed, transitions, effects synced to the beat, filters, text, stickers, auto subtitles; MP4 export up to 4K. **Record yourself** talking over the video with your webcam (or just your voice, or import a face video): one-click layouts (corner circle, full screen, split screen), the music lowers by itself while you speak, and the subtitles hear you. Camera and mic stay on your PC and only turn on when you ask |
 | ⚡ **Magic Shorts** | Paste a long video link; the AI picks the best moments and crops them vertically with subtitles |
 | 🚀 **Ads** | Product photo → several ad versions (A/B tests) that keep your real product |
 | 🎵 **Music** | Lyrics and production in any genre (dembow, reggaetón, bachata…) plus a music video with karaoke lyrics |

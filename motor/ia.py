@@ -384,6 +384,37 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
     c = claves.para(uso)
     if not c or not c.get("clave"):
         return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+    try:
+        return _texto_con(c, instrucciones, pedido, esquema)
+    except SinServicio as fallo:
+        # Sin saldo, sin cuota, clave caducada o el servicio caído (pasó: Gemini sin saldo prepago dejaba todo el estudio
+        # sin IA de texto aunque Groq, gratis, estaba conectado): se prueban las demás IA de texto conectadas y, al
+        # final, la gratis sin clave. Ese pedido no se cobró, así que no se paga dos veces.
+        todas = claves.cargar()
+        for otro in claves.PREFERENCIA[uso]:
+            if otro == c["proveedor"] or otro not in todas or "texto" not in claves.USOS.get(otro, []):
+                continue
+            try:
+                resultado = _texto_con(todas[otro], instrucciones, pedido, esquema)
+            except SinServicio:
+                continue
+            print(f"[Ráfaga] {fallo} Se usó {claves.nombre(otro)}.", flush=True)
+            return resultado
+        try:
+            return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+        except Exception:  # noqa: BLE001  ni la gratis: el motivo que se enseña es el de la IA elegida
+            raise fallo from None
+
+
+class SinServicio(RuntimeError):
+    """La IA de texto no atendió (401, 402, 403, 429 o 5xx): ese pedido no se cobró y se puede probar otra."""
+
+
+_SIN_SERVICIO = {401, 402, 403, 429}
+
+
+def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
+    """Un pedido JSON a la IA de texto `c` (Claude, o cualquiera compatible con OpenAI)."""
     nombre = claves.nombre(c["proveedor"])
     if c["proveedor"] == "anthropic":
         import anthropic
@@ -396,8 +427,9 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
             ) as s:
                 r = s.get_final_message()
         except anthropic.APIStatusError as e:  # sin esto se veía «Error code: 401 - {'error': {…}, 'request_id': …}»
-            raise RuntimeError(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre,
-                                 codigo=e.status_code, detalle=motivo(e.response))) from None
+            raise (SinServicio if e.status_code in _SIN_SERVICIO or e.status_code >= 500 else RuntimeError)(
+                t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre, codigo=e.status_code,
+                  detalle=motivo(e.response))) from None
         if r.stop_reason == "refusal":
             raise RuntimeError(t("Claude rechazó el pedido."))
         return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
@@ -415,8 +447,9 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
                                                 # Pollinations: que no salga en su feed público
                                                 extra_body={"private": True} if c["proveedor"] == "pollinations" else None)
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
-            raise RuntimeError(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre,
-                                 codigo=e.status_code, detalle=motivo(e.response))) from None
+            raise (SinServicio if e.status_code in _SIN_SERVICIO or e.status_code >= 500 else RuntimeError)(
+                t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=nombre, codigo=e.status_code,
+                  detalle=motivo(e.response))) from None
         try:
             valido = _validar(_json_de(r.choices[0].message.content or "", esquema), esquema)
         except ValueError:

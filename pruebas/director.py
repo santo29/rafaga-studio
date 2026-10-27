@@ -219,7 +219,19 @@ class Micro:
 
 import sounddevice  # noqa: E402
 
-_entrada = sounddevice.InputStream
+# Windows dice al momento si el micro está silenciado: avisa sin abrirlo. El micro de verdad de este PC no cuenta en
+# las pruebas (el del dueño estaba silenciado): aquí manda el falso
+_entrada, _silenciado = sounddevice.InputStream, voz.silenciado
+abiertos = []
+sounddevice.InputStream = lambda **k: abiertos.append(k)
+voz.silenciado = lambda: True
+try:
+    voz.escuchar(threading.Event())
+    raise AssertionError("con el micro silenciado en Windows debe avisar al momento")
+except voz.MicroSilenciado as e:
+    assert str(e) == voz.SILENCIADO() and "Configuración" in str(e) and not abiertos  # ni se abrió el micrófono
+voz.silenciado = lambda: None  # no se sabe (otro sistema): decide lo que llega, como antes
+assert _silenciado() in (True, False, None)  # el Core Audio real responde sin grabar (y nunca tumba la app)
 try:
     sounddevice.InputStream = lambda **k: Micro(frase + [silencio] * 100)
     niveles = []
@@ -499,9 +511,43 @@ try:
     d.altavoz.play()
     esperar(lambda: d.brillo.apagando, 5)
     d.altavoz.setSource(QUrl())
+    # Micro silenciado en Windows: se dice también en voz alta (si no, el asistente parecía mudo) y la ventana lleva a
+    # los ajustes de sonido; otro fallo del micro no ofrece ese botón
+    _mensaje, ventanas, leidos[:] = pagina_director.mensaje, [], []
+    pagina_director.mensaje = lambda padre, titulo, texto, icono=None, botones=(): ventanas.append((texto, botones))
+    try:
+        d._micro_fallo(voz.SILENCIADO())
+        d._micro_fallo("No encuentro un micrófono que funcione: conéctalo o actívalo en Windows (x).")
+    finally:
+        pagina_director.mensaje = _mensaje
+    assert [b[0] for b in ventanas[0][1]] == ["Abrir ajustes de sonido"] and ventanas[1][1] == []
+    esperar(lambda: len(leidos) == 2)
+    assert leidos[0] == voz.SILENCIADO() and d.micro.text().endswith("Hablar")
 finally:
     voz.preparar, voz.escuchar, voz.entender, voz.hablar = guardadas
 ventana.close()
+
+# Un aviso cuyo texto Qt dejó en una sola línea cortada (pasó con la pantalla al 150 %): al mostrarse se parte en
+# líneas y la ventana crece hasta que se lee entero
+from PySide6.QtWidgets import QLabel, QMessageBox  # noqa: E402
+
+from ui import comun  # noqa: E402
+
+caja = QMessageBox(QMessageBox.Warning, "Micro", voz.SILENCIADO(), QMessageBox.Ok)
+caja.show()
+app.processEvents()
+etiqueta = caja.findChild(QLabel, "qt_msgbox_label")
+etiqueta.setWordWrap(False)
+caja.setFixedSize(420, 120)  # lo que se vio: una línea y el resto fuera
+app.processEvents()
+comun.que_quepa(caja)
+app.processEvents()
+assert etiqueta.wordWrap() and etiqueta.height() >= etiqueta.heightForWidth(etiqueta.width()), etiqueta.height()
+assert caja.height() > 120 and etiqueta.geometry().right() <= caja.width()
+alto = caja.height()
+comun.que_quepa(caja)  # ya se lee: no cambia nada
+assert caja.height() == alto
+caja.close()
 
 # El MCP ofrece exactamente las mismas herramientas
 import asyncio  # noqa: E402

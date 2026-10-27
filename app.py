@@ -14,7 +14,7 @@ from motor import claves, guardia, idioma
 from motor.idioma import t
 from ui import iconos, legal
 from ui.brillo import Brillo
-from ui.comun import boton, ESTILO, EstiloApp, etiqueta, Reproductor
+from ui.comun import AvisosLegibles, boton, ESTILO, EstiloApp, etiqueta, Reproductor
 from ui.linea_tiempo import render
 from ui.paginas.anuncios import PaginaAnuncios
 from ui.paginas.cabina import PaginaCabina
@@ -271,6 +271,8 @@ if __name__ == "__main__":
     app.setStyle(EstiloApp())  # Fusion: el estilo nativo de Windows ignora el tema oscuro en las listas desplegables
     app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(ESTILO)
+    avisos_legibles = AvisosLegibles(app)  # con el zoom de Windows, ningún aviso sale cortado
+    app.installEventFilter(avisos_legibles)
     # Enlaces en violeta claro (unos 7,5:1 sobre el fondo): el azul de serie (#0000FF) apenas se leía sobre #0F0F13.
     # Vale para toda la app: documentos legales, chat del Director y cualquier setMarkdown
     paleta = app.palette()

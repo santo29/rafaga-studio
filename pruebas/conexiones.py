@@ -226,6 +226,26 @@ assert len(gemini_pedido) == 1 and claves.GEMINI_BARATO in gemini_pedido[0][1]
 assert gemini_pedido[0][2]["generationConfig"]["maxOutputTokens"] == 1
 guardado = claves.CONEXIONES.read_text(encoding="utf-8")
 assert all(i["clave"] not in guardado for i in (GEMINI, GROQ, ELEVEN, DEEPSEEK, ROUTER, CLAUDE, HF))  # nunca claves
+# ElevenLabs con una clave sin el permiso «User: Read» (pasó con la del dueño, buena y con saldo): no es «Clave no
+# válida». Su lista de modelos dice que la clave vale; las letras que quedan no se pueden ver
+SIN_PERMISO = "The API key you used is missing the permission user_read to execute this operation."
+assert claves.clasificar(401, SIN_PERMISO) == "permiso" and claves.clasificar(401, "Invalid API key") == "clave"
+assert "permiso" not in claves.NO_ATIENDE | claves.BLOQUEA and "edita esta clave" in claves.paso("elevenlabs", "permiso")
+
+
+def get_permiso(url, **k):
+    if "elevenlabs.io/v1/user/subscription" in url:
+        return respuesta(401, {"detail": {"status": "missing_permissions", "message": SIN_PERMISO}})
+    assert "elevenlabs.io/v1/models" in url, url
+    return respuesta(200, [])
+
+
+httpx.get = get_permiso
+try:
+    hecho = claves._comprobar_uno("elevenlabs", ELEVEN)
+finally:
+    httpx.get = sin_red
+assert hecho["estado"] == "clave_ok" and "User: Read" in hecho["detalle"] and not hecho["paso"], hecho
 # La comprobación de Gemini es un pedido de verdad: queda en la actividad, desde «Claves de IA» y sin costo (no cobró)
 sonda = actividad.ultimas(1)[0]
 assert (sonda["proveedor"], sonda["tarea"], sonda["resultado"], sonda["costo"]) == ("gemini", "Claves de IA",

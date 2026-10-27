@@ -20,7 +20,8 @@ from ui.paginas.guardia import _estilo_chip  # la misma pastilla de vidrio que l
 # (claves.SALDO_INVISIBLE: no se dice «Funciona» de lo que no se ha comprobado)
 ESTADOS = {"ok": (t("Funciona"), "#3DDC97"), "clave_ok": (t("La clave vale"), "#A9A9B6"),
            "sin_saldo": (t("Sin saldo"), "#FF4D8D"),
-           "clave": (t("Clave no válida"), "#FF4D8D"), "sin_cuota": (t("Sin cuota ahora"), "#FFB454"),
+           "clave": (t("Clave no válida"), "#FF4D8D"), "permiso": (t("Falta un permiso"), "#FFB454"),
+           "sin_cuota": (t("Sin cuota ahora"), "#FFB454"),
            "sin_conexion": (t("Sin conexión"), "#FFB454"), "error": (t("Falló al comprobar"), "#FFB454"),
            "comprobando": (t("Comprobando…"), "#A9A9B6"), "conectada": (t("Conectada"), "#A9A9B6")}
 MAX_ACTIVIDAD = 50  # las últimas llamadas a la IA que se ven (actividad.json guarda más)

@@ -620,7 +620,7 @@ def publico() -> list[dict]:
 # ---------- Comprobar conexiones: el estado real de cada servicio conectado, antes de que un trabajo falle ----------
 
 CONEXIONES = ARCHIVO.with_name("conexiones.json")  # el último estado de cada servicio (nunca su clave)
-ESTADOS = ("ok", "clave_ok", "sin_saldo", "sin_cuota", "clave", "sin_conexion", "error")
+ESTADOS = ("ok", "clave_ok", "sin_saldo", "sin_cuota", "clave", "permiso", "sin_conexion", "error")
 NO_ATIENDE = {"sin_saldo", "sin_cuota", "clave"}  # con estos, un trabajo que lo usa falla seguro: se avisa antes
 # De pago, y su comprobación gratis (la lista de modelos, la cuenta, las tareas) solo dice si la clave vale: responde
 # bien aunque no quede saldo (OpenAI da luego 429 insufficient_quota; Claude, 400 «credit balance is too low»). Con
@@ -649,6 +649,10 @@ def clasificar(codigo: int, detalle: str = "") -> str:
     if codigo == 402 or re.search(r"prepayment|credits? (?:are |is )?(?:depleted|exhausted)|credit balance|"
                                   r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits", texto):
         return "sin_saldo"
+    # La clave vale pero no tiene ese permiso (ElevenLabs deja crear claves con permisos sueltos: «missing the
+    # permission user_read»). Pasó: una clave buena, con saldo, salía como «Clave no válida»
+    if codigo in (401, 403) and re.search(r"missing[_ ](?:the )?permission", texto):
+        return "permiso"
     if codigo in (401, 403) or (codigo == 400 and re.search(r"api[_ ]key", texto)):
         return "clave"
     return "sin_cuota" if codigo == 429 else "error"
@@ -665,6 +669,9 @@ def paso(proveedor: str, estado: str) -> str:
     if estado == "clave":
         return t("La clave ya no vale: en «Claves de IA», pulsa «Conseguir clave ↗» de este servicio, crea una nueva y "
                  "conéctala.")
+    if estado == "permiso":
+        return t("En la web del servicio, edita esta clave y dale el permiso que dice el detalle (o acceso completo); "
+                 "luego pulsa «Comprobar conexiones».")
     if estado == "sin_conexion":
         return t("Revisa tu internet y pulsa «Comprobar conexiones» en «Claves de IA».")
     if estado == "error":
@@ -709,6 +716,13 @@ def _sonda(proveedor: str, info: dict):
         return r
     if proveedor == "elevenlabs":  # la suscripción, gratis: las letras usadas y las del plan
         r = httpx.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": clave}, timeout=20)
+        if r.status_code in (401, 403) and clasificar(r.status_code, r.text) == "permiso":
+            # Una clave sin «User: Read» vale igual para voces y música, pero no deja ver las letras que quedan: si su
+            # lista de modelos responde, la clave vale (como las de SALDO_INVISIBLE)
+            modelos = httpx.get("https://api.elevenlabs.io/v1/models", headers={"xi-api-key": clave}, timeout=20)
+            if modelos.status_code < 400:
+                return "clave_ok", t("Sin el permiso «User: Read» de esta clave no se ven las letras que te quedan.")
+            return modelos
         if r.status_code < 400:
             d = r.json()
             usadas, tope = d.get("character_count"), d.get("character_limit")
@@ -839,6 +853,7 @@ def frase(proveedor: str, estado: str) -> str:
     return {"sin_saldo": t("{servicio} no tiene saldo", servicio=n),
             "sin_cuota": t("{servicio} no tiene cuota ahora", servicio=n),
             "clave": t("La clave de {servicio} no vale", servicio=n),
+            "permiso": t("A la clave de {servicio} le falta un permiso", servicio=n),
             "sin_conexion": t("Sin conexión con {servicio}", servicio=n)}.get(estado, t("{servicio} falló", servicio=n))
 
 

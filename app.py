@@ -1,20 +1,22 @@
 """Ráfaga Studio: app de escritorio. Crea videos con IA y saca shorts de videos largos."""
+import math
 import os
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
-from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPalette, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QFont, QIcon, QImageReader, QKeySequence, QPalette, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame,
                                QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
                                QMessageBox,
                                QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
 
-from motor import claves, guardia, idioma
+from motor import claves, diseno_ia, guardia, idioma
 from motor.idioma import t
 from ui import iconos, legal
 from ui.brillo import Brillo
-from ui.comun import AvisosLegibles, boton, ESTILO, EstiloApp, etiqueta, Reproductor, SelectorModelo
+from ui.comun import (AvisosLegibles, boton, ESTILO, EstiloApp, etiqueta, NOMBRES_FORMATO, Reproductor,
+                      SelectorModelo, VisorImagen)
 from ui.linea_tiempo import render
 from ui.paginas.anuncios import PaginaAnuncios
 from ui.paginas.cabina import PaginaCabina
@@ -65,6 +67,7 @@ class Ventana(QMainWindow):
         self.paginas.setObjectName("contenido")
         self.grupo = QButtonGroup(self)
         Reproductor.al_editar = self._editar_video  # antes de crear las páginas: así sale su botón «✂️ Editar»
+        VisorImagen.al_disenar, VisorImagen.al_animar = self._disenar_imagen, self._animar_imagen
         self.crear, self.claves, self.diseno, self.edicion = PaginaCrear(), PaginaClaves(), PaginaDiseno(), PaginaEdicion()
         self.director = PaginaDirector(abrir_diseno=self._abrir_diseno, abrir_serie=self._abrir_serie)
         self.serie = PaginaSerie()
@@ -171,6 +174,38 @@ class Ventana(QMainWindow):
             self.diseno.abrir(carpeta)
             self.ir_a(self.orden.index(self.diseno))
 
+    def _disenar_imagen(self, ruta, titulo=""):
+        """«Editar en Diseño» del visor: un diseño guardado (lo que hizo el Director) se abre tal cual; una imagen
+        suelta (un ejemplo) entra en un diseño nuevo, con su título."""
+        if (Path(ruta).parent / "diseno.json").is_file():
+            return self._abrir_diseno(Path(ruta).parent)
+        if self.diseno._descartar_ok():
+            self.diseno.desde_imagen(ruta, titulo)
+            self.ir_a(self.orden.index(self.diseno))
+
+    def _animar_imagen(self, ruta):
+        """«Animar» del visor: Crear con IA con la imagen, «Solo animar la imagen» y el formato que más se le parece,
+        escrito y sin empezar (si anima una IA de pago, «Generar video» pregunta antes lo que cuesta). Un pedido que
+        el usuario ya escribió ahí no se pisa sin preguntar."""
+        crear, tam = self.crear, QImageReader(ruta).size()
+        sugerido, escrito = t("Que cobre vida con un movimiento suave y natural"), crear.prompt.toPlainText().strip()
+        if escrito and escrito != sugerido and QMessageBox.question(
+                self, t("Animar la imagen"), t("En Crear con IA ya hay un pedido escrito. ¿Cambiarlo por el de animar "
+                                               "esta imagen?")) != QMessageBox.Yes:
+            return
+        forma = tam.width() / tam.height() if not tam.isEmpty() else 1
+        proporciones = {f: int(f.split(":")[0]) / int(f.split(":")[1]) for f in NOMBRES_FORMATO}
+        elegido = min(proporciones, key=lambda f: abs(math.log(proporciones[f] / forma)))  # un cuadrado no se recorta
+        next(b for b in crear.formato.grupo.buttons() if b.property("formato") == elegido).setChecked(True)
+        crear.imagen.setText(ruta)
+        crear.modo.setCurrentIndex(1)
+        crear.prompt.setPlainText(sugerido)
+        self.ir_a(self.orden.index(crear))
+        if crear.modelo.valor() == "ninguno":  # «Sin animar» recordado no anima: Automático, que llegue listo
+            next(a for a in crear.modelo.menu().actions() if a.data() == "auto").trigger()
+        crear.prompt.setFocus()
+        crear.prompt.selectAll()  # escribir encima cambia el movimiento
+
     def _abrir_serie(self, nombre):
         """Abre la página de la serie con esa serie elegida (desde Inicio o el Director)."""
         self.serie.recargar(nombre)
@@ -263,11 +298,12 @@ class Ventana(QMainWindow):
         elif modo == "musica":
             campo, pagina = self.musica.idea, self.musica
             campo.setPlainText(texto)
-        else:  # «Imagen» o «Diseño»: al pedido de la IA de Diseño; «Imagen», como ilustración
+        else:  # «Imagen» o «Diseño»: al pedido de la IA de Diseño; «Imagen», como ilustración o, si pide una foto, foto
             campo, pagina = self.diseno.pedido, self.diseno
             campo.setText(texto)
             tipos = self.diseno.tipo_ia
-            tipos.setCurrentIndex(max(0, tipos.findData("ilustracion" if modo == "imagen" else "auto")))
+            imagen = "foto" if diseno_ia.pide_foto(texto) else "ilustracion"
+            tipos.setCurrentIndex(max(0, tipos.findData(imagen if modo == "imagen" else "auto")))
         self.ir_a(self.orden.index(pagina))
         campo.setFocus()
 

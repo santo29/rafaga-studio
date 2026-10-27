@@ -392,16 +392,18 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
                          "(gratis) en «Claves de IA» para más calidad.", problema=problema))
 
 
-def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto") -> dict:
+def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto", rapido: bool = False) -> dict:
     """Pide a la IA de texto una respuesta JSON que cumpla `esquema`. uso: «texto», o «diseno» para la IA que diseña
     (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona).
-    Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual."""
+    Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual.
+    rapido: para lo que no necesita que el modelo piense antes (cada paso del Director, entender un pedido); ver
+    _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad."""
     instrucciones = f"{instrucciones}\n\n{TEXTO_PLANO}"
     c = claves.para(uso)
     if not c or not c.get("clave"):
         return _limpio(_texto_gratis(instrucciones, pedido, esquema))
     try:
-        return _texto_con(c, instrucciones, pedido, esquema)
+        return _pedir(c, instrucciones, pedido, esquema, rapido)
     except SinServicio as fallo:
         primero = fallo
     # Sin saldo, sin cuota, clave caducada o el servicio caído (pasó: Gemini sin saldo prepago dejaba todo el estudio
@@ -415,11 +417,12 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
     _no_atendio(c, primero, cola[1])
     for i, otro in enumerate(resto, 1):
         try:
-            resultado = _texto_con(todas[otro], instrucciones, pedido, esquema)
+            resultado = _pedir(todas[otro], instrucciones, pedido, esquema, rapido)
         except SinServicio as fallo:
             _no_atendio(todas[otro], fallo, cola[i + 1])
             continue
-        print(f"[Ráfaga] {primero} Se usó {claves.nombre(otro)}.", flush=True)
+        print(f"[Ráfaga] {claves.nombre(c['proveedor'])}: {getattr(primero, 'corto', primero)} Se usó "
+              f"{claves.nombre(otro)}.", flush=True)
         return resultado
     try:
         return _limpio(_texto_gratis(instrucciones, pedido, esquema))
@@ -454,6 +457,45 @@ def _no_atendio(c: dict, fallo: "SinServicio", siguiente: str) -> None:
                      paso_a=siguiente)
 
 
+SALTO = 3600  # s: lo que se salta una IA sin saldo o con la clave mal antes de volver a probarla (pudo recargar)
+
+
+def _saltado(c: dict) -> SinServicio | None:
+    """El fallo, sin pedirle nada, de una IA que ya se sabe que no atiende: sin saldo o con la clave mal, comprobado
+    hace menos de SALTO (pasó: cada paso del Director esperaba 1-3 s el 402 de Gemini antes de ir a Groq).
+    Se le vuelve a pedir pasado SALTO, cuando «Comprobar conexiones» dice que ya atiende o al conectar otra clave
+    suya. Sin cuota no se salta: suele ser el límite por minuto y pasa enseguida. Tampoco un 403 que no habla de la
+    clave (p. ej. la moderación de OpenRouter): la clave sí vale."""
+    malo = claves._vigente(c["proveedor"], claves.BLOQUEA, SALTO)
+    if not malo:
+        return None
+    detalle = str(malo.get("detalle", ""))
+    if malo["estado"] == "clave" and detalle.startswith("403") and not re.search(r"key|token", detalle, re.I):
+        return None
+    problema = claves.frase(c["proveedor"], malo["estado"])
+    fallo = SinServicio(f"{problema}. {claves.paso(c['proveedor'], malo['estado'])}")
+    fallo.corto = t("No se le pidió: {problema} ({cuando}).", problema=problema, cuando=claves._cuando(malo))
+    return fallo
+
+
+def _pedir(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: bool = False) -> dict:
+    """_texto_con, salvo que ya se sepa que esa IA no atiende (_saltado): entonces falla sin esperar a su servicio."""
+    if fallo := _saltado(c):
+        raise fallo
+    return _texto_con(c, instrucciones, pedido, esquema, rapido)
+
+
+def _sin_razonar(proveedor: str, modelo: str) -> dict:
+    """Lo que apaga (o deja al mínimo) el razonamiento escondido de un modelo que piensa antes de responder, para lo
+    que no lo necesita: esos tokens son lo que más tarda y gastan el límite de tokens por minuto de la cuenta gratis de
+    Groq (al pasarlo, la respuesta espera). {} si no se sabe cómo: algo que el modelo no admite da 400."""
+    if proveedor != "groq":
+        return {}
+    if "qwen3" in modelo.lower():
+        return {"reasoning_effort": "none"}
+    return {"reasoning_effort": "low"} if "gpt-oss" in modelo.lower() else {}
+
+
 def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
     """El error de un servicio de texto que respondió `codigo`, en claro. SinServicio si no atendió (se prueba otra IA
     y lo apunta texto_json, que sabe cuál); si no, queda apuntado aquí. El estado del servicio se pone al día."""
@@ -470,9 +512,9 @@ def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
     return error
 
 
-def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
+def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: bool = False) -> dict:
     """Un pedido JSON a la IA de texto `c` (Claude, o cualquiera compatible con OpenAI). Cada respuesta queda en la
-    actividad de la IA con lo que costó (sus tokens)."""
+    actividad de la IA con lo que costó (sus tokens). rapido: sin razonamiento escondido (_sin_razonar)."""
     nombre, modelo = claves.nombre(c["proveedor"]), c.get("modelo_texto") or ""
     largo = (len(instrucciones) + len(pedido) + len(json.dumps(esquema))) / 3  # tokens, si el servicio no los dice
     if c["proveedor"] == "anthropic":
@@ -505,17 +547,25 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con JSON que cumpla este esquema:\n"
                                               f"{json.dumps(esquema)}"},
                 {"role": "user", "content": pedido}]
-    for _ in range(2):  # si la respuesta llega cortada o incompleta, se pide una vez más
+    sin_razonar = _sin_razonar(c["proveedor"], modelo) if rapido else {}
+    respuestas = 0
+    while respuestas < 2:  # si la respuesta llega cortada o incompleta, se pide una vez más
         try:
             r = cliente.chat.completions.create(model=c["modelo_texto"], response_format={"type": "json_object"},
                                                 messages=mensajes,
                                                 # Pollinations: que no salga en su feed público
-                                                extra_body={"private": True} if c["proveedor"] == "pollinations" else None)
+                                                extra_body={**({"private": True} if c["proveedor"] == "pollinations"
+                                                               else {}), **sin_razonar} or None)
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
+            # Un modelo que no deja apagarlo: otra vez, como siempre (no cuenta como intento: no respondió nada)
+            if sin_razonar and e.status_code == 400:
+                sin_razonar = {}
+                continue
             raise _error_texto(c, e.status_code, motivo(e.response)) from None
         except Exception as e:  # sin conexión, cortado…: también se apunta
             actividad.anotar("texto", c["proveedor"], modelo, error=e)
             raise
+        respuestas += 1
         contenido = r.choices[0].message.content or ""
         try:
             valido = _validar(_json_de(contenido, esquema), esquema)
@@ -529,6 +579,7 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict) -> dict:
         if valido is not None:
             claves.recordar(c["proveedor"], 200)
             return _limpio(valido)
+        sin_razonar = {}  # sin pensar pudo dejarlo a medias: la otra vez, con toda su calidad
     raise RuntimeError(t("La IA de texto ({proveedor}) respondió incompleto dos veces. Inténtalo de nuevo o "
                          "elige otra IA de texto en «Claves de IA».", proveedor=nombre))
 
@@ -611,14 +662,15 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
     pendientes = [i for i, x in enumerate(textos) if isinstance(x, str) and x.strip()]
     todas, elegida = claves.cargar(), claves.para("texto")
     # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos.
-    # Se salta la que ya se sabe que no atiende (sin saldo, sin cuota, clave caducada) si la otra puede
+    # Se salta la que ya se sabe que no atiende (sin saldo, sin cuota, clave caducada) si la otra puede; si ninguna,
+    # a la que no tiene saldo o tiene la clave mal ni se le pide (_pedir): queda en la actividad y en el aviso
     candidatas = [x for x in (todas.get("groq"), elegida) if x and x.get("clave")]
     c = next((x for x in candidatas if not claves._vigente(x["proveedor"])), candidatas[0] if candidatas else None)
     if pendientes and c and c.get("clave"):
         try:
             pedido = json.dumps({"idioma": IDIOMAS[idioma], "textos": [textos[i] for i in pendientes]},
                                 ensure_ascii=False)
-            nuevos = _texto_con(c, ORTOGRAFIA, pedido, _ESQUEMA_ORTOGRAFIA)["textos"]
+            nuevos = _pedir(c, ORTOGRAFIA, pedido, _ESQUEMA_ORTOGRAFIA)["textos"]
             if len(nuevos) == len(pendientes):
                 for i, nuevo in zip(pendientes, nuevos):
                     if _misma_frase(textos[i], nuevo):

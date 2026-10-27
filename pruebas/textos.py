@@ -121,13 +121,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert voz.para_decir("Listo… Mira el video.mp4.") == "Listo… Mira el video.mp4."  # sin ruta, nada cambia
 
         # ---------- El Director: el chat sin Markdown y sin cortar palabras ----------
-        ia.texto_json = lambda instrucciones, pedido, esquema: {
+        ia.texto_json = lambda instrucciones, pedido, esquema, **k: {
             "mensaje": "**¡Listo!** Hice tu video:\n* 45 segundos\n### Siguiente paso\nMíralo en `Crear` o en "
                        "[YouTube](https://youtu.be/abc).", "herramienta": "", "argumentos": "{}"}
         r = director.dirigir("hazme un video")
         assert r["mensaje"] == ("¡Listo! Hice tu video:\n• 45 segundos\nSiguiente paso\nMíralo en Crear o en YouTube: "
                                 "https://youtu.be/abc."), r["mensaje"]
-        ia.texto_json = lambda instrucciones, pedido, esquema: {"mensaje": "palabra " * 200, "herramienta": "",
+        ia.texto_json = lambda instrucciones, pedido, esquema, **k: {"mensaje": "palabra " * 200, "herramienta": "",
                                                                  "argumentos": "{}"}
         largo = director.dirigir("algo")["mensaje"]
         assert len(largo) <= 600 and largo.endswith("palabra…"), largo[-30:]
@@ -148,7 +148,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         assert memoria.cargar()["general"] == ["títulos cortos"]
         assert "«títulos cortos»" in director.costo("recordar_preferencia", {"departamento": "general",
                                                                              "preferencia": "**títulos cortos**"})
-        ia.texto_json = lambda instrucciones, pedido, esquema: {
+        ia.texto_json = lambda instrucciones, pedido, esquema, **k: {
             "explicacion": "**Tranquilo.**\n* Se bloqueó un enlace raro.\n* No tienes que hacer nada."}
         assert guardia.explicar({"tipo": "red", "detalle": "x"}) == \
             "Tranquilo.\n• Se bloqueó un enlace raro.\n• No tienes que hacer nada."
@@ -213,6 +213,7 @@ try:
     # todo el estudio se quedaba sin IA de texto aunque Groq (gratis) estaba conectado
     sin_saldo = {"error": {"message": "Your prepayment credits are depleted."}}
     pedidos = []
+    claves.CONEXIONES.unlink(missing_ok=True)  # el 401 de arriba quedó recordado: con él, a Groq ni se le pediría
 
     class OpenAIPorServicio:
         def __init__(self, api_key, base_url, **k):

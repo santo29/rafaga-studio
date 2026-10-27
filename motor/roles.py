@@ -14,8 +14,8 @@ DEPARTAMENTOS = {
                   "personaje, en primera persona; 9:16 para TikTok, Reels y Shorts, 16:9 para YouTube"},
     "diseno": {
         "nombre": t("Diseño gráfico"),
-        "hace": "posts, flyers, logos, miniaturas, tarjetas, presentaciones, ilustraciones y estampados en capas "
-                "editables",
+        "hace": "posts, flyers, logos, miniaturas, tarjetas, presentaciones, ilustraciones, fotos realistas y "
+                "estampados en capas editables",
         "herramientas": ["crear_diseno"],
         "reglas": "un mensaje claro por pieza; los textos exactos del usuario; precios y contactos solo si los dio; "
                   "su marca si la tiene; un estampado es el dibujo, sin textos de venta"},

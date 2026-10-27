@@ -351,7 +351,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert p.diseno["fondo"]["colores"] == ["#FF4D8D"]  # el diseño nuevo sale con el color de la marca
 
     # ---------- Diseñar con IA (simulada con el contrato A de motor/diseno_ia) ----------
-    assert list(pd.TIPOS_IA)[:3] == ["auto", "ilustracion", "estampado"] and p.tipo_ia.currentData() == "auto"
+    # La foto real, arriba: una foto que llena el lienzo (la mariposa en el jardín salía sticker vectorial)
+    assert list(pd.TIPOS_IA)[:4] == ["auto", "foto", "ilustracion", "estampado"] and p.tipo_ia.currentData() == "auto"
     assert list(pd.ESTILOS_IA) == ["auto", "vector", "sticker", "tatuaje", "poster", "grabado", "render3d",
                                    "neon_oscuro", "animado3d", "urbano", "foto"]
     # Calidad: sin Gemini para las imágenes, 2K y 4K no se pueden elegir y se dice por qué

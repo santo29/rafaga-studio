@@ -1,18 +1,19 @@
 """Piezas comunes de la interfaz: estilo, mensajes, botones, tareas en segundo plano y el reproductor."""
 import os
+import re
 import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import (QActionGroup, QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient,
-                           QPainter, QPen, QRadialGradient)
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import (QActionGroup, QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QImage, QKeySequence,
+                           QLinearGradient, QPainter, QPen, QPixmap, QRadialGradient)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar,
-                               QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+                               QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle,
+                               QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
 
 from motor import claves, desde_prompt, guardia, ia, seguro
 from motor.idioma import dinero, t, texto_de_error
@@ -255,8 +256,12 @@ def que_quepa(caja: QMessageBox):
     if (not etiqueta.wordWrap() and ancho_texto <= etiqueta.contentsRect().width()) or \
             (etiqueta.wordWrap() and alto_necesario <= etiqueta.height()):
         return  # se lee entero
+    etiqueta.setWordWrap(False)
+    entero = etiqueta.sizeHint().width()  # lo que Qt mide para el renglón entero, con el relleno
     etiqueta.setWordWrap(True)
-    etiqueta.setFixedWidth(min(max(etiqueta.width(), 380), 520))
+    # Un ancho mínimo y no uno fijo: Qt vuelve a medir el aviso (updateSize) con el ancho mínimo de la etiqueta y, si
+    # le cabía en la ventana, le quitaba el salto de línea y quedaba cortado otra vez (pasó al animar una imagen)
+    etiqueta.setMinimumWidth(min(max(etiqueta.width(), entero), 520))
     caja.setMinimumSize(0, 0)
     caja.setMaximumSize(16777215, 16777215)
     caja.setFixedSize(caja.sizeHint().expandedTo(QSize(caja.width(), 0)))
@@ -572,7 +577,6 @@ class SelectorModelo(QPushButton):
 
 def resumen_avisos(avisos: list[str], maximo: int = 5) -> str:
     """Avisos cortos y sin direcciones web largas, para que quepan en pantalla (el detalle está en proyecto.json)."""
-    import re
     lineas = [f"⚠️ {re.sub(r'https?://\S+', '…', a)[:220]}" for a in avisos[:maximo]]
     if len(avisos) > maximo:
         lineas.append(t("… y más avisos ({n}), todos en la carpeta del proyecto.", n=len(avisos) - maximo))
@@ -809,23 +813,93 @@ class PaginaTrabajo(QWidget):
         return True
 
 
+class VisorImagen(QDialog):
+    """Una imagen o un diseño en grande (un ejemplo, lo que hizo el Director), con lo que se hace con ella: descargarla,
+    editarla en Diseño, animarla y ver su carpeta. Antes solo tenía «Cerrar» y no había cómo bajarla."""
+    # Los pone app.py, como Reproductor.al_editar (las páginas no se conocen): al_disenar(ruta) la abre en Diseño y
+    # al_animar(ruta) la deja en Crear con IA. Sin ellos (p. ej. en una prueba), esos dos botones no salen
+    al_disenar = None
+    al_animar = None
+
+    def __init__(self, padre, ruta, titulo: str):
+        super().__init__(padre)
+        self.ruta = Path(ruta)
+        self.setWindowTitle(titulo)
+        self.setAttribute(Qt.WA_DeleteOnClose)  # al cerrarla se libera
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        imagen = QLabel()
+        # Con sus botones debajo, cabe en la pantalla (1280×720 al 150 %): a 720 px de alto la ventana se salía
+        pantalla = (padre.screen() if padre else QGuiApplication.primaryScreen()).availableGeometry()
+        caja = QSize(min(960, pantalla.width() - 80), min(720, pantalla.height() - 190))
+        imagen.setPixmap(QPixmap(str(ruta)).scaled(caja, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        imagen.setAlignment(Qt.AlignCenter)
+        lay.addWidget(imagen)
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        self.descargar = boton(f"⬇  {t('Descargar')}", "principal")
+        self.descargar.setToolTip(t("Guardar una copia en PNG o JPG donde quieras (Ctrl+S)"))
+        self.descargar.setShortcut(QKeySequence.Save)
+        self.descargar.setDefault(True)  # Intro descarga
+        self.descargar.clicked.connect(self._descargar)
+        self.disenar = boton(f"🎨  {t('Editar en Diseño')}")
+        # Un diseño guardado se abre con sus capas; una imagen suelta (un ejemplo) entra entera en uno nuevo
+        self.disenar.setToolTip(t("Cambiar sus textos, colores y capas en la página Diseño")
+                                if (self.ruta.parent / "diseno.json").is_file()
+                                else t("Ponerla en un diseño nuevo para añadirle textos y formas"))
+        self.disenar.clicked.connect(lambda: self._llevar(VisorImagen.al_disenar, titulo))
+        self.animar = boton(f"🎬  {t('Animar')}")
+        self.animar.setToolTip(t("Convertirla en un clip de video en Crear con IA (antes de empezar ves lo que cuesta)"))
+        self.animar.clicked.connect(lambda: self._llevar(VisorImagen.al_animar))
+        carpeta, cerrar = boton(f"📂  {t('Abrir carpeta')}"), boton(t("Cerrar"))
+        carpeta.clicked.connect(lambda: os.startfile(self.ruta.parent))
+        cerrar.clicked.connect(self.accept)
+        for b in (self.descargar, self.disenar, self.animar, carpeta):
+            fila.addWidget(b)
+        fila.addStretch()
+        fila.addWidget(cerrar)
+        lay.addLayout(fila)
+        self.disenar.setVisible(VisorImagen.al_disenar is not None)  # por la clase: si no, Python la ataría a self
+        self.animar.setVisible(VisorImagen.al_animar is not None)
+        # Un ejemplo vive entre los archivos del programa (ejemplos/, assets/): ahí no se manda a nadie a borrar
+        raiz, ruta = guardia.RAIZ.resolve(), self.ruta.resolve()
+        carpeta.setVisible(not ruta.is_relative_to(raiz) or ruta.is_relative_to(raiz / "datos"))
+
+    def _llevar(self, a_donde, *datos):
+        """A otra página de la app (que no empieza nada sola): se cierra para que se vea."""
+        self.accept()
+        a_donde(str(self.ruta), *datos)
+
+    def _descargar(self):
+        """Una copia donde elija, en PNG o JPG; por defecto, en Descargas y con el nombre del diseño."""
+        carpeta = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation) or \
+            QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
+        nombre = re.sub(r'[\\/:*?"<>|\s]+', " ", self.windowTitle()).strip() or self.ruta.stem
+        ruta, _ = QFileDialog.getSaveFileName(self, t("Descargar imagen"), str(Path(carpeta) / f"{nombre}.png"),
+                                              "PNG (*.png);;JPG (*.jpg *.jpeg)")
+        if not ruta:
+            return
+        destino = Path(ruta)
+        if destino.suffix.lower() not in (".png", ".jpg", ".jpeg"):  # sin extensión o con otra: PNG
+            destino = destino.with_name(f"{destino.name}.png")
+        imagen = QImage(str(self.ruta))
+        if destino.suffix.lower() != ".png" and imagen.hasAlphaChannel():  # el JPG no tiene transparencia: salía negra
+            opaca = QImage(imagen.size(), QImage.Format_RGB32)
+            opaca.fill(Qt.white)
+            pintor = QPainter(opaca)
+            pintor.drawImage(0, 0, imagen)
+            pintor.end()
+            imagen = opaca
+        if not imagen.save(str(destino), None, 95):  # la calidad solo cuenta en JPG
+            return mensaje_error(self, t("No se pudo descargar"), t("No se pudo guardar la imagen en {ruta}.",
+                                                                    ruta=destino))
+        mensaje(self, t("Imagen descargada"), t("Guardada en {ruta}", ruta=destino))
+
+
 def ver_imagen(padre, ruta, titulo: str):
-    """Una imagen (p. ej. un diseño de ejemplo) en grande, en una ventana con el estilo de la app."""
-    from PySide6.QtGui import QPixmap
-    from PySide6.QtWidgets import QDialog
-    ventana = QDialog(padre)
-    ventana.setWindowTitle(titulo)
-    lay = QVBoxLayout(ventana)
-    lay.setContentsMargins(16, 16, 16, 16)
-    imagen = QLabel()
-    imagen.setPixmap(QPixmap(str(ruta)).scaled(QSize(960, 720), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-    imagen.setAlignment(Qt.AlignCenter)
-    lay.addWidget(imagen)
-    cerrar = boton(t("Cerrar"))
-    cerrar.clicked.connect(ventana.accept)
-    lay.addWidget(cerrar, 0, Qt.AlignRight)
-    ventana.setAttribute(Qt.WA_DeleteOnClose)  # al cerrarla se libera
-    ventana.open()  # sin bloquear: la app sigue viva detrás
+    """Una imagen en grande, en el visor de la app (VisorImagen), sin bloquear: la app sigue viva detrás."""
+    ventana = VisorImagen(padre, ruta, titulo)
+    ventana.open()
     return ventana
 
 

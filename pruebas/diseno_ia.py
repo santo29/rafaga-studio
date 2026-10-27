@@ -18,9 +18,10 @@ respuesta, pedidos, fotos, calidades = {}, [], [], []
 imagen_real = ia.imagen
 
 
-def texto_json(instrucciones, pedido, esquema, uso="texto"):
+def texto_json(instrucciones, pedido, esquema, uso="texto", rapido=False):
     assert esquema is diseno_ia.ESQUEMA and "PORCENTAJE" in instrucciones
     assert uso == "diseno"  # la «IA que diseña» de Claves de IA, no la de los guiones
+    assert rapido == ("Pieza: foto." in pedido)  # los diseños piensan antes; una foto es solo su prompt
     pedidos.append(pedido)
     return copy.deepcopy(respuesta)
 
@@ -119,7 +120,7 @@ assert corta is not None and [c["tipo"] for c in corta["capas"]] == ["texto", "i
 assert "PORCENTAJE" in diseno_ia.INSTRUCCIONES and "nunca píxeles" in diseno_ia.INSTRUCCIONES
 assert all(t in diseno.TAMANOS for t, _ in diseno_ia.TIPOS.values())
 assert set(diseno_ia.TIPOS) == {"anuncio", "post", "historia", "miniatura", "flyer", "logo", "tarjeta",
-                                "marca_personal", "presentacion", "ilustracion", "estampado"}
+                                "marca_personal", "presentacion", "ilustracion", "foto", "estampado"}
 # Diseño gráfico y no fotos: ni «nivel Canva» ni «fotográfico»; la regla común de faltas y la de no inventar datos
 assert set(diseno_ia.ESTILOS) == {"auto", "vector", "sticker", "tatuaje", "poster", "grabado", "render3d",
                                   "neon_oscuro", "animado3d", "urbano", "foto"}
@@ -580,8 +581,9 @@ with tempfile.TemporaryDirectory() as d:
     llamadas = []
 
     def entiende(contesta):
-        def falsa(instrucciones, pedido, esquema, uso="texto"):
+        def falsa(instrucciones, pedido, esquema, uso="texto", rapido=False):
             assert esquema is diseno_ia.ESQUEMA_ENTENDER and diseno_ia.FALTAS in instrucciones and uso == "diseno"
+            assert rapido is True  # entender no necesita que el modelo piense antes (ia._sin_razonar)
             llamadas.append(pedido)
             if isinstance(contesta, Exception):
                 raise contesta
@@ -622,6 +624,40 @@ with tempfile.TemporaryDirectory() as d:
         assert diseno_ia.entender("calavera gótica", "estampado")["tipo"] == "estampado"
         ia.texto_json = entiende(["no", "es", "un", "objeto"])
         assert diseno_ia.entender("x")["seguro"] is True
+        # Una foto de algo real: la IA pequeña lo toma por un dibujo suelto (pasó: «una mariposa» salió un sticker
+        # vectorial), pero si el pedido dice foto, real o realista sale foto. Los dibujos, stickers y logos, dibujos
+        ia.texto_json = entiende({"entendido": "", "seguro": True, "pregunta": "", "opciones": [],
+                                  "tipo": "ilustracion", "estilo": "vector"})
+        for pedido, tipo, estilo in (("una mariposa real en un jardín", "foto", "foto"),
+                                     ("Foto realista de un perro en la playa", "foto", "foto"),
+                                     ("a realistic photo of a red apple", "foto", "foto"),
+                                     ("uma borboleta de verdade num jardim", "foto", "foto"),
+                                     ("una imagen de una mariposa", "ilustracion", "vector"),
+                                     ("dibujo de una mariposa real", "ilustracion", "vector"),
+                                     ("un sticker de una mariposa realista", "ilustracion", "vector"),
+                                     # Una escena con un lugar, sin decir foto: la mariposa con su jardín (se perdía)
+                                     ("una mariposa en un jardín", "foto", "foto"),
+                                     ("un paisaje de montañas al amanecer", "foto", "foto"),
+                                     ("a butterfly in a garden", "foto", "foto"),
+                                     ("un dibujo de una mariposa en un jardín", "ilustracion", "vector"),
+                                     # Arte o nombres propios, no fotos
+                                     ("una imagen surrealista de un reloj derritiéndose", "ilustracion", "vector"),
+                                     ("un cuadro hiperrealista de una manzana", "ilustracion", "vector"),
+                                     ("el tamaño real de una ballena", "ilustracion", "vector"),
+                                     ("flyer para el Palacio Real", "ilustracion", "vector"),
+                                     ("un post del Real Madrid", "ilustracion", "vector"),
+                                     ("una foto hiperrealista de una manzana", "foto", "foto")):
+            e = diseno_ia.entender(pedido)
+            assert (e["tipo"], e["estilo"]) == (tipo, estilo), (pedido, e)
+        assert diseno_ia.entender("una mariposa real", "ilustracion")["tipo"] == "ilustracion"  # la eligió el usuario
+        ia.texto_json = entiende({"entendido": "", "seguro": True, "pregunta": "", "opciones": [], "tipo": "post",
+                                  "estilo": "vector"})
+        assert diseno_ia.entender("post para la Barbería El Real")["tipo"] == "post"  # otra pieza: la de la IA
+        ia.texto_json = entiende({"entendido": "", "seguro": True, "pregunta": "", "opciones": [], "tipo": "foto",
+                                  "estilo": "vector"})
+        assert diseno_ia.entender("un colibrí en una flor")["estilo"] == "foto"  # una foto nunca es vectorial
+        ia.texto_json = entiende(RuntimeError("sin IA de texto"))  # sin IA de texto, también
+        assert diseno_ia.entender("una mariposa real en un jardín")["tipo"] == "foto"
     finally:
         ia.texto_json = guardado
     for pedido in ("", "   ", None):
@@ -629,6 +665,56 @@ with tempfile.TemporaryDirectory() as d:
     for tipo in ("video", "", None, "AUTO", ["post"]):
         falla(diseno_ia.entender, "pizza", tipo)
     assert fotos == []  # entender nunca gasta imágenes
+
+    # ---------- La foto real llena el lienzo: nada de un motivo suelto sobre un fondo liso ----------
+    def esquinas(r):
+        vista = QImage(r["archivo"])
+        return {vista.pixelColor(x, y).name() for x in (2, vista.width() - 3) for y in (2, vista.height() - 3)}
+
+    # Aunque la IA la ponga en una capa centrada sobre un color (como el sticker de la mariposa), sale a sangre
+    r = crear([capa(tipo="imagen", x=10, y=10, ancho=80, alto=80, prompt_imagen="a monarch butterfly on a flower")],
+              tipo="foto", pedido="una mariposa real en un jardín", fondo_colores=["#F3FFF9"])
+    d = r["diseno"]
+    assert d["fondo"]["tipo"] == "imagen" and not [c for c in d["capas"] if c["tipo"] == "imagen"], d
+    assert fotos == [(fotos[0][0], 1080, 1080)] and fotos[0][0].startswith("a monarch butterfly on a flower")
+    assert "jardín" in fotos[0][0]  # la capa solo decía el motivo: el lugar pedido también llega a la foto
+    assert "professional photography" in fotos[0][0] and "isolated" not in fotos[0][0]  # foto, no un recorte
+    assert esquinas(r) == {"#00aa00"}  # las cuatro esquinas son la foto, no el #F3FFF9 de detrás
+    # Por el Director (crear_diseno): aunque pida «ilustracion», «auto» o «foto» con estilo «vector» (la mariposa del
+    # dueño se llamó «Mariposa Vectorial»), una foto real se fotografía y no sale dibujo a sangre
+    from motor import herramientas
+    del_diseno = ia.texto_json
+
+    def entiende_y_disena(instrucciones, pedido, esquema, uso="texto", rapido=False):
+        if esquema is diseno_ia.ESQUEMA_ENTENDER:  # como la IA pequeña: un dibujo vectorial suelto
+            return {"entendido": "una mariposa real en un jardín", "seguro": True, "pregunta": "", "opciones": [],
+                    "tipo": "ilustracion", "estilo": "vector"}
+        return del_diseno(instrucciones, pedido, esquema, uso, rapido)
+    ia.texto_json = entiende_y_disena
+    try:
+        for tipo in ("ilustracion", "auto", "foto"):
+            crear([capa(tipo="imagen", x=10, y=10, ancho=80, alto=80, prompt_imagen="a monarch butterfly")],
+                  tipo="foto", pedido="x")  # deja lista la respuesta de diseñar
+            fotos.clear()
+            r = json.loads(herramientas.crear_diseno("una mariposa real en un jardín", tipo, False, estilo="vector"))
+            assert len(fotos) == 1 and "professional photography" in fotos[0][0], (tipo, fotos)
+            assert "vector" not in fotos[0][0] and "jardín" in fotos[0][0], (tipo, fotos)
+            assert r["diseno"]["fondo"]["tipo"] == "imagen" and r["entendido"], (tipo, r)
+    finally:
+        ia.texto_json = del_diseno
+    # La IA la manda como foto de fondo (lo que pide su pista) y sin capas: una foto sola también es un diseño
+    r = crear([], tipo="foto", pedido="foto realista de un perro en la playa",
+              fondo_prompt_imagen="a golden retriever running on a beach at sunset")
+    assert r["diseno"]["capas"] == [] and esquinas(r) == {"#00aa00"} and len(fotos) == 1
+    assert "foto (Foto realista)" in diseno_ia.INSTRUCCIONES_ENTENDER  # la IA que entiende el pedido la conoce
+    # Si la foto no sale, no queda un diseño vacío: el motivo, en claro, y ni su carpeta
+    antes = set(diseno.CARPETA.glob("*"))
+    try:
+        crear([], tipo="foto", pedido="una mariposa real", fondo_prompt_imagen="FALLA a butterfly")
+        raise AssertionError("debió fallar sin la foto")
+    except RuntimeError as e:
+        error = str(e)
+    assert "La foto de fondo no salió (servicio caído)" in error and set(diseno.CARPETA.glob("*")) == antes, error
 
     # ---------- Fuentes góticas: solo las que hay instaladas ----------
     fuentes_reales = recursos.fuentes

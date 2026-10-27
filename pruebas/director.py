@@ -127,9 +127,11 @@ def guion(*pasos):
     """Una IA falsa que responde estos pasos en orden y guarda lo que le preguntaron."""
     vistos = []
 
-    def pensar(instrucciones, pedido, esquema):
-        assert esquema is director.ESQUEMA and "crear_video(" in instrucciones and "Español" in instrucciones
-        vistos.append(pedido)
+    def pensar(instrucciones, pedido, esquema, rapido=False):
+        assert esquema is director.ESQUEMA and "- crear_video" in instrucciones and "Español" in instrucciones
+        assert rapido is True  # elegir el paso no necesita que el modelo piense antes (ia._sin_razonar)
+        if not vistos or vistos[-1] != pedido:  # el mismo paso, repetido con el catálogo entero, responde lo mismo
+            vistos.append(pedido)
         return dict(pasos[len(vistos) - 1])
     return pensar, vistos
 
@@ -182,9 +184,30 @@ try:
         raise AssertionError("un pedido vacío no debe gastar nada")
     except ValueError:
         pass
+    # Tras el primer paso, el catálogo corto (enteras solo las usadas y su departamento): el entero son ~2.500 tokens
+    # por paso y, en la cuenta gratis de Groq, la respuesta final esperaba el límite por minuto. Si elige una que no
+    # vio entera, ese paso se repite con el catálogo entero
+    corto = director.catalogo({"crear_serie", "crear_episodio", "listar_series"})
+    assert "- crear_episodio(" in corto and "- crear_video: Crea un video completo desde un pedido" in corto
+    assert "- crear_video(" not in corto and len(corto) < len(catalogo) * 0.6
+    herramientas.TODAS["otra_falsa"] = lambda texto="": json.dumps({"resultados": []})
+    pasos_vistos = []
+
+    def elige(instrucciones, pedido, esquema, rapido=False):
+        pasos_vistos.append(("- crear_video(" in instrucciones, "- falsa(" in instrucciones, pedido))
+        n = len({p for *_, p in pasos_vistos})
+        return [{"mensaje": "", "herramienta": "falsa", "argumentos": '{"texto": "a"}'},
+                {"mensaje": "", "herramienta": "otra_falsa", "argumentos": "{}"},
+                {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"}][n - 1]
+    ia.texto_json = elige
+    assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    assert [(entero, ve_falsa) for entero, ve_falsa, _ in pasos_vistos] == [
+        (True, True), (False, True), (True, True), (False, True)], pasos_vistos
+    assert pasos_vistos[1][2] == pasos_vistos[2][2]  # el mismo paso, repetido con el catálogo entero
 finally:
     ia.texto_json = _pensar
     del herramientas.TODAS["falsa"]
+    herramientas.TODAS.pop("otra_falsa", None)
 
 # ---------- Voz: solo escucha mientras está activa y se para cuando terminas ----------
 silencio, hablando = 0.002, 0.2
@@ -566,6 +589,45 @@ alto = caja.height()
 comun.que_quepa(caja)  # ya se lee: no cambia nada
 assert caja.height() == alto
 caja.close()
+# En una pantalla de 1280 px (la del dueño) y con la hoja de estilo de la app (la etiqueta con un mínimo de 360 px),
+# Qt no partía un aviso de unos 380 px y, al partirlo aquí, lo volvía a juntar en un renglón cortado (la pregunta de
+# «Animar»). Aparte: la pantalla de offscreen se elige al arrancar
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+with tempfile.TemporaryDirectory() as d:
+    (Path(d) / "pantalla.json").write_text(json.dumps({"screens": [{"name": "p", "x": 0, "y": 0, "width": 1280,
+                                                                    "height": 720, "logicalDpi": 96, "dpr": 1}]}))
+    codigo = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from ui import comun
+app = QApplication([])
+app.setStyleSheet(comun.ESTILO)
+app.installEventFilter(comun.AvisosLegibles(app))
+def caja(texto):
+    c = QMessageBox(QMessageBox.Question, "T", texto, QMessageBox.Yes | QMessageBox.No)
+    c.show()
+    for _ in range(5):
+        app.processEvents()
+    return c, c.findChild(QLabel, "qt_msgbox_label")
+c, e = caja("x")
+medida = e.fontMetrics()
+c.close()
+texto = ""
+while medida.horizontalAdvance(texto + "a") < 380:
+    texto += "ab "[len(texto) % 3]
+c, e = caja(texto)
+assert medida.horizontalAdvance(texto) <= e.contentsRect().width() or (
+    e.wordWrap() and e.heightForWidth(e.width()) <= e.height()), (e.size(), e.wordWrap())
+assert e.geometry().right() <= c.width()
+"""
+    # el archivo, relativo: Qt parte la plataforma por «:» y la de «C:\…» no la encontraba
+    hecho = subprocess.run([sys.executable, "-s", "-E", "-c", codigo, str(Path(__file__).resolve().parent.parent)],
+                           cwd=d, capture_output=True, text=True, timeout=120,
+                           env={**os.environ, "QT_QPA_PLATFORM": "offscreen:configfile=pantalla.json"})
+    assert hecho.returncode == 0, hecho.stderr[-1500:]
 
 # El MCP ofrece exactamente las mismas herramientas
 import asyncio  # noqa: E402
@@ -691,7 +753,7 @@ finally:
 # crear_cancion: sin género lo elige la IA según la idea, y la letra va en el idioma de la idea
 _para, _gemini, _proyectos, pedidos_musica, producidos = claves.para, musica._gemini, musica.PROYECTOS, [], []
 claves.para = lambda uso: {"proveedor": "gemini", "clave": "falsa", "modelo_musica": "m"}
-ia.texto_json = lambda instrucciones, pedido, esquema: pedidos_musica.append((instrucciones, pedido)) or {
+ia.texto_json = lambda instrucciones, pedido, esquema, **k: pedidos_musica.append((instrucciones, pedido)) or {
     "titulo": "T", "estilo": "sad bachata, female vocals", "letra": "[Chorus] ay", "descripcion": "d", "hashtags": []}
 musica._gemini = lambda c, estilo, letra, segundos: producidos.append(estilo) or b"ID3"
 try:
@@ -766,7 +828,7 @@ try:
     # Si la IA falla a mitad, lo ya hecho no se pierde
     llamadas = []
 
-    def falla_a_la_segunda(instrucciones, pedido, esquema):
+    def falla_a_la_segunda(instrucciones, pedido, esquema, **k):
         llamadas.append(1)
         if len(llamadas) > 1:
             raise RuntimeError("se cayó el servicio")
@@ -774,7 +836,7 @@ try:
     ia.texto_json = falla_a_la_segunda
     r = director.dirigir("shorts de https://youtu.be/abc")
     assert r["resultados"] and "No pude seguir" in r["mensaje"] and "se cayó" in r["mensaje"]
-    ia.texto_json = lambda *a: (_ for _ in ()).throw(RuntimeError("sin IA"))
+    ia.texto_json = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("sin IA"))
     try:
         director.dirigir("algo")
         raise AssertionError("sin pasos hechos, el error debe llegar al usuario")

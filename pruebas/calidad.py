@@ -58,7 +58,7 @@ CORRIGE = {"FUSEL ESTE AROMA": "HUELE ESTE AROMA", "Deseño": "Deseo", "Rafa no 
 usadas = []
 
 
-def corrector(c, instrucciones, pedido, esquema):
+def corrector(c, instrucciones, pedido, esquema, rapido=False):
     usadas.append(c["proveedor"])
     assert instrucciones == ia.ORTOGRAFIA and esquema is ia._ESQUEMA_ORTOGRAFIA
     return {"textos": [CORRIGE.get(x, x) for x in json.loads(pedido)["textos"]]}

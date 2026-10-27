@@ -175,5 +175,17 @@
          "fuente": "Poppins", "negrita": true, "color": "#1B120D", "alineacion": "centro"}
       ]
     }
+  },
+  {
+    "id": "promo-barberia-el-rey",
+    "titulo": "Post: la promo de los martes de Barbería El Rey",
+    "pedido": "Post para Instagram de la Barbería El Rey (Santo Domingo): promo de los martes, corte + barba por RD$500. Estilo urbano dominicano, elegante, negro y dorado, con una corona.",
+    "tipo": "post"
+  },
+  {
+    "id": "personajes-rafa-y-la-ciudad",
+    "titulo": "Personajes: Rafa y la ciudad",
+    "pedido": "Los personajes de una serie de dibujos animados, «Rafa y la ciudad»: Rafa, un motoconchista soñador de Santo Domingo; Yari, una estudiante de diseño muy lista; y Don Tito, el colmadero del barrio que todo lo sabe",
+    "tipo": "personajes"
   }
 ]

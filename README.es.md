@@ -61,6 +61,25 @@ Los guiones y los diseños (en capas editables) los escribió Claude como Direct
 montaje los hizo el software. Se vuelven a crear con `python ejemplos/crear.py` y `python ejemplos/crear_disenos.py` (los pedidos, guiones y diseños están en
 `ejemplos/ejemplos.json` y `ejemplos/disenos.json`).
 
+**Tal como salieron en una prueba real de cada herramienta:**
+
+| Movimiento con IA, «Solo animar la imagen» (9:16) | Capítulo de dibujos animados (9:16) |
+|---|---|
+| <img src="ejemplos/baile-merengue.gif" width="170" alt="Una pareja ficticia hecha con IA bailando merengue en una calle con palmeras"> | <img src="ejemplos/rafa-y-la-ciudad.gif" width="170" alt="Rafa y la ciudad, dibujos animados hechos con Ráfaga Studio"> |
+| [ver video](ejemplos/baile-merengue.mp4) · ella gira y la falda vuela | [ver video](ejemplos/rafa-y-la-ciudad.mp4) · dibujos fijos con zoom suave, cada personaje con su voz |
+
+| Post de Instagram (1:1) | Los personajes |
+|---|---|
+| <img src="ejemplos/promo-barberia-el-rey.jpg" width="240" alt="Post de la promo de los martes de una barbería ficticia"> | <img src="ejemplos/personajes-rafa-y-la-ciudad.jpg" width="360" alt="Rafa, Yari y Don Tito, los personajes de la serie"> |
+| La promo de los martes de «Barbería El Rey», pedida en una frase | Rafa, Yari y Don Tito: las láminas que el estudio usa de referencia en cada plano |
+
+Del capítulo se quitaron dos de sus seis planos: uno tenía una falta en el guion y el otro se quedó sin dibujo cuando se
+acabó el saldo gratis de Pollinations. El baile empezó como una imagen de otro video hecho en el estudio y lo animó
+Wan 2.2 en tu propia nube Modal (unos US$0,30-0,60 de su crédito gratis del mes); los bailarines son ficticios, hechos
+con IA. Los personajes de la serie los escribió Claude como Director; el guion lo hizo Groq, los dibujos Pollinations y
+las voces Edge, todo gratis. El post lo maquetó Gemini (unos céntimos) sobre una foto gratis de Pollinations. Las
+marcas y las personas son ficticias.
+
 ## Qué hace
 
 | Pantalla | Qué hace |

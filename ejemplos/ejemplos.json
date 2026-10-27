@@ -117,5 +117,17 @@
     "titulo": "Tu PC. Tu estudio. (anuncio de Ráfaga Studio)",
     "pedido": "El anuncio de Ráfaga Studio: un estudio creativo con IA que vive en tu PC, con el lema «Tu PC. Tu estudio.»",
     "formato": "16:9"
+  },
+  {
+    "id": "baile-merengue",
+    "titulo": "Merengue en la calle (movimiento real con IA)",
+    "pedido": "Haz la foto vertical de una pareja dominicana ficticia bailando merengue en una calle con palmeras y después anímala con IA de video, solo animar la imagen (clip corto, sin voz): ella gira bajo el brazo de él con movimiento natural de cadera, la falda se mueve y las palmeras se mecen con la brisa",
+    "formato": "9:16"
+  },
+  {
+    "id": "rafa-y-la-ciudad",
+    "titulo": "Rafa y la ciudad, capítulo 1 (dibujos animados)",
+    "pedido": "Una serie de dibujos animados para toda la familia, «Rafa y la ciudad»: Rafa, un motoconchista soñador de Santo Domingo, su amiga Yari, una estudiante de diseño muy lista, y Don Tito, el colmadero del barrio que todo lo sabe. En el primer capítulo, Rafa tiene que llevar un bizcocho de cumpleaños en su motor por la Zona Colonial sin que se le dañe",
+    "formato": "9:16"
   }
 ]

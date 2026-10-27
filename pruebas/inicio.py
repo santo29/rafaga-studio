@@ -76,8 +76,11 @@ reales = [e["id"] for e in pagina_director.ejemplos()] + [d["id"] for d in pagin
 for quitado in ("lugares-rd", "anuncio-cafe", "presentacion-rafaga", "post-cafe"):
     assert quitado not in reales and not list(REALES.glob(f"{quitado}.*")), quitado
 assert {"manzana-habla", "leyenda-rafaga", "leyenda-ia", "mascota-rafa"} <= set(reales), reales
+# Lo que salió bien en la prueba real de cada herramienta también es ejemplo: el baile animado, el capítulo de dibujos
+# animados con sus personajes y el post de la barbería
+assert {"baile-merengue", "rafa-y-la-ciudad", "personajes-rafa-y-la-ciudad", "promo-barberia-el-rey"} <= set(reales)
 # Nítidas en grande (una tarjeta del carrusel mide 1148 px al 150 %): la foto, a la resolución del video; el GIF, 400 px
-for ident in ("manzana-habla", "leyenda-rafaga", "leyenda-ia"):
+for ident in ("manzana-habla", "leyenda-rafaga", "leyenda-ia", "baile-merengue", "rafa-y-la-ciudad"):
     tam = QImageReader(str(REALES / f"{ident}.jpg")).size()
     assert max(tam.width(), tam.height()) >= 1280, (ident, tam)
     assert QImageReader(str(REALES / f"{ident}.gif")).size().width() >= 400, ident

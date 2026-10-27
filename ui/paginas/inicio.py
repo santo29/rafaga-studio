@@ -78,7 +78,7 @@ ESTILO_INICIO += f"#acceso, #novedad {{ {REFLEJO} }}"
 
 # Las herramientas, en el orden del menú: (icono, color, nombre, frase, página del menú a la que lleva, sin traducir
 # como PAGINA del Director; ejemplos para su vista, el primero que exista; si trae algo nuevo). Sus vistas no repiten
-# las primeras piezas del carrusel (la manzana de Crear video es su único video hecho con ella); Shorts mágicos no tiene
+# las primeras piezas del carrusel (Crear video enseña la manzana, su video con voz); Shorts mágicos no tiene
 # aún un short vertical de muestra: lleva su dibujo
 ACCESOS = [
     ("bot", "#B79CFF", t("Director IA"), t("Pídelo con tus palabras y la IA hace todo el trabajo"), "Director IA",
@@ -88,7 +88,7 @@ ACCESOS = [
     ("palette", "#7CFFB2", t("Diseño"), t("Miniaturas, posts, flyers y logos con tu marca"),
      "Diseño", ("estampado-calavera-neon", "flyer-noche-neon"), False),
     ("rabbit", "#FF8A5C", t("Dibujos animados"), t("Crea tus personajes y capítulos de caricatura"),
-     "Dibujos animados", ("miniatura-leyenda", "leyenda-rafaga"), False),
+     "Dibujos animados", ("rafa-y-la-ciudad", "miniatura-leyenda", "leyenda-rafaga"), False),
     ("scissors", "#5CA8FF", t("Editor de video"), t("Corta, une, subtitula, grábate hablando encima y exporta en 4K"),
      "Editor de video", ("presentacion-app",), True),
     ("zap", "#FFB454", t("Shorts mágicos"), t("Los mejores momentos de un video largo, listos para subir"),
@@ -120,6 +120,8 @@ DESTACADOS = [
      t("Una frase bastó: guion, escenas, su propia voz y los labios sincronizados")),
     ("leyenda-ia", t("Movimiento con IA"), t("La leyenda de Ráfaga"),
      t("El viento, el mar y la espada se mueven de verdad")),
+    ("baile-merengue", t("Movimiento con IA"), t("Merengue en la calle"),
+     t("Ella gira, la falda vuela y las palmeras se mecen: movimiento real hecho con IA")),
     ("anuncio-rafaga", t("Anuncio"), t("Tu PC. Tu estudio."), t("El anuncio de Ráfaga Studio, hecho con Ráfaga Studio")),
     ("leyenda-rafaga", t("Tráiler de anime"), t("Un anime con personajes propios"),
      t("Un guerrero caribeño, siete traidores y una isla en plena tormenta")),

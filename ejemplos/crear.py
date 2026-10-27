@@ -23,7 +23,11 @@ nubes.ORDEN["imagen"] = [p for p in nubes.ORDEN["imagen"] if p != "gratis_sin_cl
 
 pedidos, pendientes = sys.argv[1:], False
 for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
-    if (pedidos and e["id"] not in pedidos) or "guion" not in e:  # sin guion (anuncio-rafaga): se montó a mano
+    # Sin guion no se rehace aquí: el anuncio se montó a mano, y el baile y «Rafa y la ciudad» son copias de lo que
+    # hicieron Crear video en su modo «Solo animar la imagen» y Dibujos animados en una prueba real (del capítulo se
+    # quitaron el plano 2, con una falta en su guion, y el 6, que se quedó sin su dibujo). Sus GIF llevan además un
+    # quitarruido y menos colores: con la receta de abajo pesaban 5 MB, porque ahí cambian todos los píxeles
+    if (pedidos and e["id"] not in pedidos) or "guion" not in e:
         continue
     if e.get("animado") and e["id"] not in pedidos:  # de pago: solo si se pide por su nombre
         print(f"{e['id']}: usa Gemini (de pago, ~US$1 por escena). Para rehacerlo: python ejemplos/crear.py {e['id']}")

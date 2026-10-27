@@ -72,10 +72,29 @@ The six designs above were laid out by Claude as Director in editable layers; th
 at 2K, about US$0.05 per image) and the studio fitted the text and put each piece together. Brands and people are
 fictional.
 
-Every example is reproducible: the requests, scripts and layered designs are in
+Every example above is reproducible: the requests, scripts and layered designs are in
 [`ejemplos/ejemplos.json`](ejemplos/ejemplos.json) and [`ejemplos/disenos.json`](ejemplos/disenos.json).
 `python ejemplos/crear.py` rebuilds the videos and `python ejemplos/crear_disenos.py` the designs. The talking apple
 uses Gemini (paid, ~US$1 per scene) and the AI-motion anime uses your own Modal cloud.
+
+**Straight from a real test of every tool:**
+
+| AI motion, “Just animate the image” (9:16) | Cartoon episode (9:16) |
+|---|---|
+| <img src="ejemplos/baile-merengue.gif" width="170" alt="Two fictional AI-made dancers dancing merengue in a street with palm trees"> | <img src="ejemplos/rafa-y-la-ciudad.gif" width="170" alt="Rafa y la ciudad, a cartoon made with Ráfaga Studio"> |
+| [watch](ejemplos/baile-merengue.mp4) · she spins and her skirt flies | [watch](ejemplos/rafa-y-la-ciudad.mp4) · still drawings with a slow zoom, each character in their own voice |
+
+| Instagram post (1:1) | Cartoon cast |
+|---|---|
+| <img src="ejemplos/promo-barberia-el-rey.jpg" width="240" alt="Tuesday deal post for a fictional barbershop"> | <img src="ejemplos/personajes-rafa-y-la-ciudad.jpg" width="360" alt="Rafa, Yari and Don Tito, the cast of the cartoon"> |
+| Tuesday deal for “Barbería El Rey”, asked for in one sentence | Rafa, Yari and Don Tito: the reference sheets the studio uses for every shot |
+
+These four are kept as they came out (two of the episode's six shots were left out: one had a typo in its script and
+the other was left without its drawing when the free Pollinations balance ran out). The dance started as a still from
+another video made in the studio and was brought to life by Wan 2.2 on your own Modal cloud (about US$0.30-0.60 of its
+free monthly credit); the dancers are fictional, made with AI. Claude as Director wrote the cartoon's characters, Groq
+its script, Pollinations drew it and Edge gave it voices, all free. Gemini laid out the post (a few cents) on a free
+Pollinations photo. Brands and people are fictional.
 
 ## 🧰 What's inside
 

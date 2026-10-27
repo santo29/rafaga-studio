@@ -5,16 +5,16 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter, QPen,
-                           QRadialGradient)
+from PySide6.QtGui import (QActionGroup, QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient,
+                           QPainter, QPen, QRadialGradient)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QProxyStyle,
-                               QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory, QTextEdit,
-                               QVBoxLayout, QWidget)
+                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar,
+                               QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyleFactory,
+                               QTextEdit, QVBoxLayout, QWidget)
 
-from motor import desde_prompt, guardia, ia, seguro
+from motor import claves, desde_prompt, guardia, ia, seguro
 from motor.idioma import dinero, t, texto_de_error
 from ui.iconos import COLOR, icono, poner, separar
 
@@ -208,6 +208,7 @@ class Tarea(QThread):
     progreso = Signal(str, float)
     listo = Signal(dict)
     fallo = Signal(str)
+    modelo_video = None  # el del selector «Modelo de video», solo para este trabajo (claves.por_trabajo, en su hilo)
 
     def __init__(self, funcion, **datos):
         super().__init__()
@@ -215,7 +216,8 @@ class Tarea(QThread):
 
     def run(self):
         try:
-            self.listo.emit(self.funcion(**self.datos, aviso=lambda t, f: self.progreso.emit(t, f)))
+            with claves.por_trabajo(self.modelo_video):
+                self.listo.emit(self.funcion(**self.datos, aviso=lambda t, f: self.progreso.emit(t, f)))
         except Exception as e:  # el error se muestra al usuario, no debe tumbar la app (el detalle, en la consola)
             traceback.print_exc()
             self.fallo.emit(texto_de_error(e))
@@ -492,6 +494,80 @@ class SelectorVoz(QComboBox):
         super().showPopup()
 
 
+# La pastilla del selector de modelo: una cápsula de vidrio (#secundario) con la flecha de los desplegables de la app
+PASTILLA = f"""
+QPushButton {{ border-radius: 19px; padding: 8px 36px 8px 14px; }}
+QPushButton::menu-indicator {{ image: url("{_ASSETS}/flecha-abajo.svg"); width: 12px; height: 12px;
+                               subcontrol-origin: padding; subcontrol-position: center right; right: 14px; }}
+"""
+
+
+class SelectorModelo(QPushButton):
+    """«Modelo de video», como en CapCut: una pastilla junto al pedido con el modelo que hará el video de ESTE trabajo.
+    Primero Automático (lo de «Claves de IA», gratis primero), Sin animar y solo lo conectado, cada uno con su precio
+    y, si su servicio no atiende, su último estado comprobado. Lo elegido se recuerda por página en ajustes.json (nunca
+    cambia «Claves de IA»); si ese modelo ya no está conectado, vuelve a Automático."""
+    cambio = Signal(str)
+    ir_a_claves = None  # app.py: «Conectar más modelos…» abre «Claves de IA»
+
+    def __init__(self, pagina: str):
+        super().__init__()
+        self.clave = f"modelo_video_{pagina}"
+        self.setObjectName("secundario")
+        self.setStyleSheet(PASTILLA)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)  # como boton(): el anillo del foco, solo con el teclado
+        self.setIconSize(QSize(18, 18))
+        self.setAccessibleName(t("Modelo de video"))
+        self.setMenu(QMenu(self))
+        self.menu().aboutToShow.connect(self.recargar)
+        self.grupo = QActionGroup(self)
+        self.grupo.triggered.connect(self._elegido)
+        self.recargar()
+
+    def valor(self) -> str:
+        return self._valor
+
+    def recargar(self):
+        """Lo que hay ahora (una clave conectada o quitada, el cupo de Modal, un «sin saldo»): al abrir la lista y al
+        volver a la página."""
+        from ui.paginas.claves import ESTADOS  # aquí: esa página importa este módulo
+        self.modelos = claves.modelos_video()
+        guardado = claves.ajustes().get(self.clave, "auto")
+        self._valor = guardado if guardado in [m["id"] for m in self.modelos] else "auto"
+        menu = self.menu()
+        menu.clear()
+        for m in self.modelos:
+            accion = menu.addAction(m["nombre"] + (f"  ·  {ESTADOS[m['estado']][0]}" if m["estado"] in ESTADOS else ""))
+            accion.setCheckable(True)
+            accion.setChecked(m["id"] == self._valor)
+            accion.setData(m["id"])
+            self.grupo.addAction(accion)
+        if SelectorModelo.ir_a_claves:
+            menu.addSeparator()
+            menu.addAction(t("Conectar más modelos…")).triggered.connect(lambda: SelectorModelo.ir_a_claves())
+        self._pintar()
+
+    def _pintar(self):
+        from ui.paginas.claves import ESTADOS
+        m = next(m for m in self.modelos if m["id"] == self._valor)
+        estado = ESTADOS[m["estado"]][0] if m["estado"] in ESTADOS else ""
+        # En la pastilla, lo corto («Kling 3.0»); entero, en la lista y al pasar el ratón
+        poner(self, f"🎬  {m['nombre'].split(' · ')[0].split(' (')[0]}" + (f" · {estado}" if estado else ""))
+        self.setToolTip(t("Modelo de video de este trabajo: {modelo}", modelo=m["nombre"])
+                        + (f" · {estado}" if estado else ""))
+
+    def _elegido(self, accion):
+        self._valor = accion.data()
+        claves.elegir_por_defecto(self.clave, self._valor)
+        self._pintar()  # la lista se rehace al abrirla otra vez: no dentro de la señal de una de sus acciones
+        self.cambio.emit(self._valor)
+
+    def showEvent(self, e):
+        self.recargar()
+        super().showEvent(e)
+
+
 def resumen_avisos(avisos: list[str], maximo: int = 5) -> str:
     """Avisos cortos y sin direcciones web largas, para que quepan en pantalla (el detalle está en proyecto.json)."""
     import re
@@ -689,28 +765,31 @@ class PaginaTrabajo(QWidget):
             return False
         return QMessageBox.question(self, titulo, texto) == QMessageBox.Yes
 
-    def lanzar(self, boton_iniciar, funcion, **datos) -> bool:
+    def lanzar(self, boton_iniciar, funcion, *, modelo_video=None, **datos) -> bool:
         """False si ya hay un trabajo en marcha (soltar un hilo que corre tumba la app cuando termina) o si el usuario
-        no aceptó lo que cuesta."""
+        no aceptó lo que cuesta. modelo_video: el del selector «Modelo de video», solo para este trabajo (también en
+        lo que se comprueba y se pregunta antes)."""
         if self.tarea and self.tarea.isRunning():
             mensaje(self, t("Estoy trabajando"), t("Espera a que termine el trabajo actual."))
             return False
         # Con lo último comprobado de cada servicio (Claves de IA): lo de pago que no puede salir ni empieza (ni se
         # pregunta su costo) y lo que pasará a otro servicio se dice antes
-        from motor import claves, director
+        from motor import director
         usos = director.usos(nombre, datos) if (nombre := self._herramienta(funcion)) else []
-        if no_se_puede := claves.impide(usos):
-            mensaje_error(self, t("No se puede empezar"), no_se_puede)
-            return False
-        if not self._pagar_video(funcion, datos):
-            return False
-        avisos = claves.antes_de(usos)
+        with claves.por_trabajo(modelo_video):
+            if no_se_puede := claves.impide(usos):
+                mensaje_error(self, t("No se puede empezar"), no_se_puede)
+                return False
+            if not self._pagar_video(funcion, datos):
+                return False
+            avisos = claves.antes_de(usos)
         self.antes.setText("\n".join(f"⚠️ {a}" for a in avisos))
         self.antes.setVisible(bool(avisos))
         boton_iniciar.setEnabled(False)
         self.progreso.show()
         self.progreso.setValue(0)
         self.tarea = Tarea(funcion, **datos)
+        self.tarea.modelo_video = modelo_video
         self._texto, self._inicio = "", time.monotonic()
         self.tarea.progreso.connect(self._avanzar)
         for fin in (self.tarea.listo, self.tarea.fallo):  # lo primero: el reloj no pisa lo que se escriba al acabar

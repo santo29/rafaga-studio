@@ -3,6 +3,7 @@
 
 Las rutas pasan por `ruta()`: el MCP la cambia para que las relativas sean de la carpeta del agente.
 El progreso (`aviso`) va por hilo: el Director lo pone para ver cómo avanza cada herramienta en la app."""
+import inspect
 import json
 import re
 import threading
@@ -28,9 +29,18 @@ def _json(datos) -> str:
     return json.dumps(datos, ensure_ascii=False)
 
 
+# El modelo de video de UN trabajo (el selector «Modelo de video» de la app): va al final de la ayuda de cada
+# herramienta que anima escenas. Empieza por su nombre: el Director no lo ve (lo pone el código, ver director._usar)
+AYUDA_MODELO = """modelo_video (opcional): con qué IA se animan las escenas, solo en este trabajo (no cambia
+«Claves de IA»): auto (lo elegido en «Claves de IA», gratis primero), ninguno (sin animar: fotos con movimiento),
+huggingface (gratis, cupo diario), modal (la nube del usuario, gratis con su crédito), pollinations, kling o seedance
+(de pago: la app pregunta antes el costo) o gemini (Gemini Omni, de pago: solo escenas que hablan, con animado true en
+crear_video). Solo valen los conectados: ver "modelos_video" en listar_opciones."""
+
+
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
-                animado: bool = False) -> str:
+                animado: bool = False, modelo_video: str = "auto") -> str:
     """Crea un video completo desde un pedido: la IA escribe la narración y hace imágenes, voz, subtítulos y montaje.
     animado: true = cada escena es un video de IA con su propia voz: los personajes hablan con los labios
     sincronizados (una fruta que habla, un anuncio con actor…). Lo hace la IA que el usuario eligió para las escenas
@@ -50,13 +60,18 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
     las del medio y se conserva la última."""
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
+    modelo_video = claves.validar_modelo_video(modelo_video)  # antes de gastar nada
     if imagen and solo_animar:
-        return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
+        if modelo_video == "ninguno":
+            raise ValueError(t("«Sin animar» no anima nada: para animar solo la imagen, elige otro modelo de video."))
+        with claves.por_trabajo(modelo_video):
+            return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
     if voz not in desde_prompt.voces().values():  # antes de gastar en imágenes: la narración fallaría al final
         raise ValueError(t("Voz desconocida ({voz!r:.40}); valen {voces}.", voz=voz,
                            voces=", ".join(desde_prompt.voces().values())))
-    return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
-                                      animado=animado))
+    with claves.por_trabajo(modelo_video):
+        return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
+                                          animado=animado))
 
 
 crear_video.__doc__ = crear_video.__doc__.replace("{voces}", ", ".join(desde_prompt.VOCES.values()))
@@ -81,12 +96,13 @@ def investigar_nichos(tema: str = "", pais: str = "Latinoamérica",
 
 def crear_anuncios(foto: str, producto: str, detalles: str = "", publico: str = "", oferta: str = "",
                    estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
-                   variantes: int = 3, segundos: int = 25) -> str:
+                   variantes: int = 3, segundos: int = 25, modelo_video: str = "auto") -> str:
     """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto.
     estilo: uno de {estilos}."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
-    return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,
-                                variantes=variantes, segundos=segundos, aviso=_aviso()))
+    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+        return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,
+                                    variantes=variantes, segundos=segundos, aviso=_aviso()))
 
 
 crear_anuncios.__doc__ = crear_anuncios.__doc__.replace("{estilos}", "; ".join(anuncios.ESTILOS))
@@ -102,13 +118,14 @@ crear_cancion.__doc__ = crear_cancion.__doc__.replace("{generos}", "; ".join(mus
 
 
 def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", letra: str = "", genero: str = "",
-                        titulo: str = "") -> str:
+                        titulo: str = "", modelo_video: str = "auto") -> str:
     """Hace el video musical de una canción (ruta del audio): escenas que van con la música, ondas que se mueven
     con el sonido y la letra estilo karaoke. Pasa la letra si la tienes: el karaoke muestra la letra escrita, con los
     tiempos de lo que se oye. titulo: el de la canción (vacío: el de su proyecto o el de sus etiquetas).
     Para sincronizar, la canción se sube a la IA de transcripción conectada (Groq u OpenAI); sin ellas se hace en el PC."""
-    return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra, genero=genero,
-                                     formato=formato, idea=idea, aviso=_aviso()))
+    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+        return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra, genero=genero,
+                                         formato=formato, idea=idea, aviso=_aviso()))
 
 
 def producir_cancion(pista: str, voz: str, estilo: str = "Dembow / urbano (seco y al frente)",
@@ -235,7 +252,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "Cartoon 2D", personajes: 
 
 
 def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: int = 0,
-                   guion: dict | None = None) -> str:
+                   guion: dict | None = None, modelo_video: str = "auto") -> str:
     """Dibujos animados (serie animada): escribe y hace en video el capítulo siguiente de una serie (su título o
     nombre, ver listar_series), con los mismos personajes y siguiendo la historia. idea: qué pasa en este capítulo
     (vacío: la IA sigue la historia). planos: de 3 a 40 (unos 5 s cada uno). numero: para rehacer un capítulo que
@@ -244,7 +261,8 @@ def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: 
     guion (opcional): si tú lo escribes, no se usa la IA de texto de la app. Forma: {"titulo", "resumen",
     "planos": [{"descripcion": lo que se ve en inglés (lugar, acción, cámara; sin texto), "personajes": [nombres
     que salen], "habla": nombre de quien habla o "Narrador", "texto": lo que dice, 1-2 frases}]}."""
-    return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
+    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+        return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
 
 
 def programar_publicacion(archivo: str, titulo: str, descripcion: str, fecha_hora: str, red: str = "youtube") -> str:
@@ -292,8 +310,14 @@ def listar_opciones() -> str:
                   "estilos_cabina": list(cabina.PRESETS),
                   "proveedores": [{k: v for k, v in c.items() if k not in ("clave", "base")}
                                   for c in claves.publico() if c["proveedor"] in claves.USOS],
-                  "por_defecto": claves.ajustes()})
+                  "por_defecto": claves.ajustes(),
+                  # lo que vale en modelo_video ahora (lo conectado), con su precio y su estado si no atiende
+                  "modelos_video": claves.modelos_video()})
 
+
+for _f in (crear_video, crear_anuncios, crear_video_musical, crear_episodio):  # las que animan escenas
+    # Sin sangría las dos partes: desde Python 3.13 la ayuda ya llega sin ella, y así cada párrafo empieza por su nombre
+    _f.__doc__ = f"{inspect.cleandoc(_f.__doc__)}\n\n{AYUDA_MODELO}"
 
 TODAS = {f.__name__: f for f in (crear_video, sacar_shorts, investigar_nichos, crear_anuncios, crear_cancion,
                                  crear_video_musical, producir_cancion, separar_voz_y_pista, crear_diseno,

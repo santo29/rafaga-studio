@@ -475,7 +475,7 @@ try:
                                "hashtags": [], "estilo_visual": "photo",
                                "escenas": [{"narracion": "n", "imagen": "the product on a table"}] * 3}]}
         anuncios.montar, anuncios.PROYECTOS, ia.texto_json = montar_falso, tmp / "anuncios", lambda *a, **k: plan
-        video.cierre = lambda montado, texto, formato, destino: montado
+        video.cierre = lambda montado, texto, formato, destino, **k: montado
         p = anuncios.crear(str(foto), "Café", "d", "gente", "", "UGC", variantes=1)
         assert p["avisos"][-1:] == [f"Anuncio 1: {NOTA}"], p["avisos"]
     finally:
@@ -545,6 +545,8 @@ def post_musica(url, **k):
     return respuesta(200, b"ID3audio", "POST", url)
 
 
+# La ortografía se repasa con su propia llamada de texto: aquí no cuenta (ni debe pisar el estado «sin saldo»)
+ortografia_real, ia.ortografia = ia.ortografia, lambda textos, *a, **k: list(textos)
 ia.texto_json, httpx.post = (lambda *a, **k: dict(CANCION)), post_musica
 try:
     p = musica.crear("un dembow de viernes", "Dembow moderno")
@@ -577,7 +579,7 @@ try:
     e = falla(musica.crear, "otra más", "Dembow moderno", error=RuntimeError)
     assert "Sin conexión con api.elevenlabs.io" in str(e) and "getaddrinfo" not in str(e), e
 finally:
-    ia.texto_json, httpx.post = real_texto, sin_red
+    ia.texto_json, httpx.post, ia.ortografia = real_texto, sin_red, ortografia_real
 print("Música sin saldo: bien.")
 
 # ---------- Video que habla (Omni) sin saldo: dicho claro, con su costo, sin cobrar y sin pedir las demás escenas ----

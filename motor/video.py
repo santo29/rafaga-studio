@@ -69,6 +69,28 @@ def duracion(archivo: Path) -> float:
     return medir(archivo)[0]
 
 
+def titulo_cancion(archivo: Path) -> str:
+    """El título de verdad de una canción, no «cancion» (el nombre del archivo): el del proyecto del estudio que la
+    hizo (también desde la voz o la pista separadas, unas carpetas más abajo), la 1.ª línea de su letra.txt o la
+    etiqueta «title» del archivo. Si no hay, el nombre del archivo sin guiones bajos."""
+    import json
+    archivo = Path(archivo)
+    for carpeta in list(archivo.parents)[:5]:
+        try:
+            titulo = json.loads((carpeta / "proyecto.json").read_text(encoding="utf-8")).get("titulo")
+        except (OSError, ValueError, AttributeError):
+            titulo = None
+        if not titulo and (carpeta / "letra.txt").is_file():
+            titulo = (carpeta / "letra.txt").read_text(encoding="utf-8").split("\n", 1)[0]
+        if isinstance(titulo, str) and titulo.strip():
+            return " ".join(titulo.split())[:80]
+    try:
+        etiqueta = re.search(r"(?m)^\s+title\s*:\s*(.+?)\s*$", _leer_ffmpeg("-i", archivo))
+    except OSError:
+        etiqueta = None
+    return etiqueta[1][:80] if etiqueta else archivo.stem.replace("_", " ").strip()
+
+
 def filtro_formato(formato: str, modo: str) -> str:
     """Encaja el video en el formato. modo 'recortar' llena la pantalla; 'difuminar' muestra todo con fondo borroso."""
     w, h = FORMATOS[formato]
@@ -280,10 +302,13 @@ def con_cancion(visual: Path, cancion: Path, formato: str, palabras: list[dict],
     return destino
 
 
-def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: float = 3.0) -> Path:
-    """Cierre de anuncio: en los últimos segundos oscurece el fondo y entra la oferta en grande, con un salto."""
+def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: float = 3.0,
+           producto: Path | None = None) -> Path:
+    """Cierre de anuncio: cuando acaba la narración, el último fotograma se queda unos segundos, oscurecido, y entra
+    la oferta en grande, con un salto, sobre la foto real del producto si se da. Va DESPUÉS de la voz: encima de los
+    últimos segundos, el subtítulo de la narración salía gris debajo de la oferta (texto doble)."""
     w, h = FORMATOS[formato]
-    inicio = max(duracion(video_in) - segundos, 0)
+    inicio = duracion(video_in)
     tam = int(min(w, h) * 0.11)
     lineas = ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {w}", f"PlayResY: {h}", "WrapStyle: 0", "",
               "[V4+ Styles]",
@@ -299,9 +324,16 @@ def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: fl
               + "\\N".join(_texto_ass(linea) for linea in texto.upper().split("\n"))]
     ass = destino.with_suffix(".ass")
     ass.write_text("\n".join(lineas) + "\n", encoding="utf-8")
-    ffmpeg("-i", video_in.resolve(), "-vf",
-           f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.5:t=fill:enable='gte(t,{inicio:.2f})',ass={ass.name}",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "copy",
+    desde = f"enable='gte(t,{inicio:.2f})'"
+    grafo = (f"[0:v]tpad=stop_mode=clone:stop_duration={segundos},"
+             f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.55:t=fill:{desde}[fondo]")
+    if producto:  # la foto, bajo la oferta (que va arriba), hasta el 62 % del ancho y el 42 % del alto
+        grafo += (f";[1:v]scale={int(w * 0.62)}:{int(h * 0.42)}:force_original_aspect_ratio=decrease[foto];"
+                  f"[fondo][foto]overlay=(W-w)/2:(H-h)*0.6:{desde}[con_foto]")
+    ffmpeg("-i", video_in.resolve(), *(["-i", producto.resolve()] if producto else []), "-filter_complex",
+           f"{grafo};[{'con_foto' if producto else 'fondo'}]ass={ass.name}[v];[0:a]apad=pad_dur={segundos}[a]",
+           "-map", "[v]", "-map", "[a]",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino
 

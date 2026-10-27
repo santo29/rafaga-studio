@@ -5,8 +5,10 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import ia, memoria, seguro, video
-from .desde_prompt import FALTAS, idioma_de, montar, relanzar_con_gasto
+import httpx
+
+from . import ia, memoria, nubes, seguro, video
+from .desde_prompt import FALTAS, PALABRAS_POR_SEGUNDO, idioma_codigo, idioma_de, montar, relanzar_con_gasto
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -75,7 +77,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
     plan = ia.texto_json(INSTRUCCIONES, (
         f"Producto: {producto}\nDetalles: {detalles}\nPúblico: {publico}\nOferta y llamada a la acción: {oferta}\n"
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
-        f"(~{int(segundos * 2.5)} palabras, {max(3, round(segundos / 5))} escenas).\nVariantes: {variantes}"
+        f"(~{int(segundos * PALABRAS_POR_SEGUNDO)} palabras, {max(3, round(segundos / 5))} escenas)."
+        f"\nVariantes: {variantes}"
         + idioma_de(voz)
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")
         + memoria.para("anuncios")), ESQUEMA)
@@ -87,23 +90,58 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
         for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
             e["narracion"] = e["narracion"][:400]
     resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
+    # La ortografía, antes de narrar y de quemar nada («FUSEL ESTE AROMA», el ángulo «Deseño», «#CaféBrise»)
+    ia.repasar([x for v in plan["variantes"] for x in (v, *v["escenas"])],
+               ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion"), idioma_codigo(voz), notas)
     if not web:
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
+
+    def con_producto(p, w, h, d):
+        """La escena del producto lleva siempre la foto real: con edición, pegada sobre una escena o, si no sale
+        ninguna imagen, la foto sola (antes se repetía la escena anterior, sin el producto). Si falla la edición,
+        imagen_con_producto ya pega la foto y lo dice una vez en notas_k."""
+        try:
+            return ia.imagen_con_producto(p, foto_local, w, h, d, avisos=notas_k)
+        except (httpx.HTTPStatusError, ia.SinServicio) as error:  # la edición con referencia no atendió (sin saldo,
+            edicion = error  # sin cuota): no se cobró, y la foto se pega sobre una escena, con su aviso
+        except Exception as error:  # noqa: BLE001  sin IA de imágenes que responda, o una edición que pudo cobrarse
+            return foto_sola(error, d)  # sin llegar (no se paga otra imagen): la foto sola
+        try:
+            hecha = ia.pegar_producto(p, foto_local, w, h, d)
+        except Exception as error:  # noqa: BLE001
+            return foto_sola(error, d)
+        nota(edicion, d, t("la foto del producto pegada en la escena"))
+        return hecha
+
+    def nota(error, d, origen):
+        causa = nubes._causa(error, "").replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+        notas_k.append(t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.",
+                         n=int(d.stem.rsplit("_", 1)[1]) + 1, causa=causa, origen=origen))
+
+    def foto_sola(error, d):
+        nota(error, d, t("la foto de respaldo"))
+        return foto_local
+
     for k, v in enumerate(plan["variantes"], 1):
         desde = 0.15 + 0.83 * (k - 1) / total
         aviso(t("Anuncio {n} de {total}: «{angulo}»", n=k, total=total, angulo=v["angulo"]), desde)
         # respaldo: si falla una imagen y no hay ninguna anterior, se usa la foto del producto (nunca se cae el trabajo)
-        # La foto solo va en las escenas que la piden («the product»; el estilo no cuenta): en un servicio, o en una
-        # escena sin el producto, pegarla taparía la escena.
-        notas_k = []
+        # La foto va en las escenas que la piden («the product»): en las demás, pegarla taparía la escena. Si la IA no
+        # la pidió en ninguna (pasó con Groq: ningún anuncio enseñaba el producto), va en la del medio, la de la
+        # solución; y siempre en el cierre.
+        notas_k, escenas = [], v["escenas"]
+        fotos = {i for i, e in enumerate(escenas) if "the product" in e["imagen"].lower()}
+        if not fotos and escenas:
+            medio = escenas[len(escenas) // 2]
+            medio["imagen"] = f"the product as the hero of the shot, sharp and well lit, {medio['imagen']}"
+            fotos = {len(escenas) // 2}
         try:
             montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
                              hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados, pago=pago,
-                             crear_imagen=lambda p, w, h, d: ia.imagen_con_producto(p, foto_local, w, h, d,
-                                                                                     avisos=notas_k)
-                             if "the product" in p.removesuffix(v["estilo_visual"]).lower() else ia.imagen(p, w, h, d))
-            archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4") \
-                if (oferta or producto).strip() else montado
+                             crear_imagen=lambda p, w, h, d, fotos=fotos: (
+                                 con_producto if int(d.stem.rsplit("_", 1)[1]) in fotos else ia.imagen)(p, w, h, d))
+            archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4",
+                                   producto=foto_local) if (oferta or producto).strip() else montado
         except Exception as error:  # lo ya pagado (también en las variantes anteriores) no se pierde de vista
             relanzar_con_gasto(error, notas + notas_k, carpeta)
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]

@@ -238,7 +238,8 @@ def separar_cancion(cancion: str, aviso: Callable[[str, float], None] = lambda t
     partes = separar(original, carpeta, aviso)
     # Los títulos van en español y se traducen al mostrarlos (ui/comun.Reproductor): si se cambia el idioma de la
     # app, un proyecto viejo también sale en el nuevo (sus traducciones están en idiomas/*.json)
-    proyecto = {"tipo": "separacion", "formato": "audio", "carpeta": str(carpeta), "titulo": Path(cancion).stem,
+    proyecto = {"tipo": "separacion", "formato": "audio", "carpeta": str(carpeta),
+                "titulo": video.titulo_cancion(Path(cancion)),  # el de la canción, no «cancion» (su archivo)
                 "resultados": [{"archivo": str(partes["voz"]), "titulo": "Voz (a capela)",
                                 "descripcion": partes["donde"], "hashtags": []},
                                {"archivo": str(partes["pista"]), "titulo": "Pista (instrumental)",

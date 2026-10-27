@@ -101,12 +101,14 @@ def crear_cancion(idea: str, genero: str = "", con_voz: bool = True, segundos: i
 crear_cancion.__doc__ = crear_cancion.__doc__.replace("{generos}", "; ".join(musica.GENEROS))
 
 
-def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", letra: str = "", genero: str = "") -> str:
+def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", letra: str = "", genero: str = "",
+                        titulo: str = "") -> str:
     """Hace el video musical de una canción (ruta del audio): escenas que van con la música, ondas que se mueven
-    con el sonido y la letra estilo karaoke. Pasa la letra si la tienes: mejora la sincronización.
+    con el sonido y la letra estilo karaoke. Pasa la letra si la tienes: el karaoke muestra la letra escrita, con los
+    tiempos de lo que se oye. titulo: el de la canción (vacío: el de su proyecto o el de sus etiquetas).
     Para sincronizar, la canción se sube a la IA de transcripción conectada (Groq u OpenAI); sin ellas se hace en el PC."""
-    return _json(video_musical.crear(ruta(cancion), letra=letra, genero=genero, formato=formato, idea=idea,
-                                     aviso=_aviso()))
+    return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra, genero=genero,
+                                     formato=formato, idea=idea, aviso=_aviso()))
 
 
 def producir_cancion(pista: str, voz: str, estilo: str = "Dembow / urbano (seco y al frente)",
@@ -171,6 +173,28 @@ def crear_diseno(pedido: str, tipo: str = "auto", usar_marca: bool = True, propu
                                                calidad=calidad, estilo=estilo)})
 
 
+VOLUMEN_FONDO = 0.3  # la música de fondo, a -10 dB: al 100 % tapaba la voz del video y la suma llegaba a 0 dBFS
+
+
+def musica_de_fondo(fondo: dict, largo: float) -> list[dict]:
+    """La música de fondo de editar_video: baja (VOLUMEN_FONDO), cortada donde acaba el video y, si es más corta que
+    él, repetida con un fundido en cada vuelta (acababa 3,6 s antes y quedaba un silencio de golpe). Termina siempre
+    con un fundido de salida."""
+    trozo = fondo["hasta"] - fondo["desde"]
+    vueltas, inicio = [], 0.0
+    while inicio < largo - 0.5 and trozo > 1 and len(vueltas) < 40:  # tope: el editor admite 50 audios
+        vuelta = {**fondo, "inicio": inicio, "volumen": VOLUMEN_FONDO, "entrada": 1.0 if vueltas else 0.0,
+                  "salida": 1.0}
+        vuelta["hasta"] = min(fondo["hasta"], fondo["desde"] + largo - inicio)
+        vueltas.append(vuelta)
+        inicio += trozo
+    vueltas = vueltas or [{**fondo, "volumen": VOLUMEN_FONDO, "hasta": min(fondo["hasta"], fondo["desde"] + largo)}]
+    vueltas[-1]["salida"] = min(2.0, (vueltas[-1]["hasta"] - vueltas[-1]["desde"]) / 2)
+    for i, v in enumerate(vueltas[1:], 1):  # cada vuelta con su propio id: el editor los distingue por él
+        v["id"] = f"{fondo.get('id', 'musica')}-{i}"
+    return vueltas
+
+
 def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:16", musica: str = "",
                  subtitulos: bool = False, calidad: str = "1080p") -> str:
     """Editor de video: une fotos y videos (rutas, en ese orden) en un proyecto del editor, con música de fondo
@@ -186,8 +210,7 @@ def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:
         p = edicion.anadir_medio(p, ruta(str(m)))
     if musica:
         p = edicion.anadir_medio(p, ruta(musica), audio=True)
-        fondo = p["audios"][-1]
-        fondo["hasta"] = min(fondo["hasta"], fondo["desde"] + edicion.tiempos(p)[-1][1])
+        p["audios"] = musica_de_fondo(p["audios"][-1], edicion.tiempos(p)[-1][1])
         p = edicion.validar(p)
     carpeta = edicion.nueva_carpeta(p["nombre"])
     if subtitulos:

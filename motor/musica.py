@@ -56,7 +56,8 @@ INSTRUCCIONES = """Eres compositor y productor musical de éxitos. Escribe canci
   dominicana real y coros de calle de llamada y respuesta. Nada de contenido de odio ni nombres de artistas reales.
 - Letra en el idioma de la idea o en el que pida el usuario.
 - estilo: descripción de producción en inglés (instrumentos, BPM, ambiente, voz) basada en el estilo dado.
-- titulo, descripcion y hashtags para publicar la canción.
+- titulo, descripcion y hashtags para publicar la canción. hashtags: el del género pedido y otros del tema; nunca
+  de otro género.
 - """ + ia.FALTAS
 
 
@@ -194,12 +195,19 @@ def crear(idea: str, genero: str, con_voz: bool = True, segundos: int = 150,
         raise RuntimeError(t("{error}\n\nTu letra no se perdió: está en {archivo}",
                              error=texto_de_error(e), archivo=archivo_letra)) from e
 
-    # En el texto para publicar, la letra sin las marcas de sección para el modelo ([Intro], [Chorus]…, en inglés)
-    para_publicar = re.sub(r"\n{3,}", "\n\n", re.sub(r"(?m)^[ \t]*\[[^\]\n]+\][ \t]*$", "", letra)).strip()
-    proyecto = {"tipo": "musica", "formato": "audio", "carpeta": str(carpeta), "titulo": cancion["titulo"],
+    # En el texto para publicar, la letra sin las marcas para el modelo de música: ni [Intro], [Chorus]… ni las
+    # acotaciones en inglés («(Shout: ¡Wepa!)», «(Fade out with tambora…)»), y con la ortografía repasada línea a línea
+    publicar = {"titulo": cancion["titulo"], "descripcion": cancion["descripcion"], "hashtags": cancion["hashtags"],
+                "lineas": ia.sin_acotaciones(letra).split("\n")}
+    if genero in GENEROS:  # el hashtag del género, primero: la IA ponía otros que no son («#MúsicaRomántica»)
+        propio = "#" + "".join(p[:1].upper() + p[1:] for p in re.findall(r"\w+", re.split(r"[(/]", genero)[0]))
+        publicar["hashtags"] = [propio] + [h for h in publicar["hashtags"] if ia.hashtag(h).lower() != propio.lower()]
+    ia.repasar([publicar], ("titulo", "descripcion", "hashtags", "lineas"), notas=avisos)
+    para_publicar = "\n".join(publicar["lineas"]).strip()
+    proyecto = {"tipo": "musica", "formato": "audio", "carpeta": str(carpeta), "titulo": publicar["titulo"],
                 "genero": genero, "avisos": avisos, "resultados": [{
-                    "archivo": str(audio), "titulo": cancion["titulo"], "hashtags": cancion["hashtags"],
-                    "descripcion": cancion["descripcion"] + (f"\n\n{para_publicar}" if para_publicar else "")}]}
+                    "archivo": str(audio), "titulo": publicar["titulo"], "hashtags": publicar["hashtags"],
+                    "descripcion": publicar["descripcion"] + (f"\n\n{para_publicar}" if para_publicar else "")}]}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
     aviso(t("¡Listo!"), 1.0)
     return proyecto

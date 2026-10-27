@@ -1,6 +1,8 @@
 [
   {
     "id": "manzana-habla",
+    "foto_en": 7.5,
+    "foco": 0.8,
     "titulo": "La manzana que habla (video animado con voz)",
     "pedido": "Una manzana que habla y le cuenta a la gente por qué comer fruta da energía. Tono alegre, estilo Pixar.",
     "formato": "9:16",
@@ -32,6 +34,7 @@
   },
   {
     "id": "leyenda-rafaga",
+    "foto_en": 3.5,
     "titulo": "La leyenda de Ráfaga (tráiler anime)",
     "pedido": "El tráiler de una serie anime original: un guerrero caribeño que busca a los siete que lo traicionaron",
     "formato": "16:9",
@@ -73,6 +76,7 @@
   },
   {
     "id": "leyenda-ia",
+    "foto_en": 4.5,
     "titulo": "La leyenda de Ráfaga (con movimiento de IA)",
     "pedido": "Dos escenas del anime con movimiento real: el viento, el mar y la espada",
     "formato": "16:9",

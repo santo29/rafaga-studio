@@ -401,8 +401,14 @@ def seccion(rotulo: str, titulo: str, *extras) -> QWidget:
     textos.addWidget(Rotulo(rotulo))
     textos.addWidget(etiqueta(titulo, "seccion"))
     fila.addLayout(textos, 1)
-    for w in extras:
-        fila.addWidget(w, 0, Qt.AlignBottom)
+    if extras:  # juntos y centrados entre sí (una casilla es más baja que un botón), y el grupo, abajo
+        derecha = QWidget()
+        botones = QHBoxLayout(derecha)
+        botones.setContentsMargins(0, 0, 0, 0)
+        botones.setSpacing(12)
+        for w in extras:
+            botones.addWidget(w, 0, Qt.AlignVCenter)
+        fila.addWidget(derecha, 0, Qt.AlignBottom)
     return caja
 
 

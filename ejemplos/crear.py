@@ -2,7 +2,8 @@
 
 Los guiones de ejemplos.json los escribió el Director (Claude). Las imágenes (la IA de imágenes conectada; sin claves,
 FLUX gratis en Hugging Face), la voz, los subtítulos, el movimiento y el montaje los hace el motor, igual que con
-cualquier pedido. Aquí queda una copia ligera (720p) de cada video, su miniatura y un GIF corto para el README."""
+cualquier pedido. Aquí queda una copia ligera (720p) de cada video, su foto fija y un GIF corto para las vistas
+que se mueven."""
 import json
 import os
 import shutil
@@ -58,10 +59,14 @@ for e in json.loads((CARPETA / "ejemplos.json").read_text(encoding="utf-8")):
     escala = "scale=-2:1280" if e["formato"] in ("9:16", "4:5") else "scale=1280:-2"
     video.ffmpeg("-i", final, "-vf", escala, "-c:v", "libx264", "-preset", "slow", "-crf", "27", "-pix_fmt", "yuv420p",
                  "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", CARPETA / f"{e['id']}.mp4")
-    video.ffmpeg("-ss", "2.5", "-i", final, "-frames:v", "1", "-vf", "scale=360:-2", "-q:v", "4",
+    # La foto fija, a la resolución del MP4 y en un segundo sin subtítulos («foto_en»): en Inicio se ve en grande (una
+    # tarjeta del carrusel mide 1148 px al 150 %) y una de 360 px salía borrosa, con la frase a medias encima
+    video.ffmpeg("-ss", str(e.get("foto_en", 2.5)), "-i", final, "-frames:v", "1", "-vf", escala, "-q:v", "2",
                  CARPETA / f"{e['id']}.jpg")
+    # El GIF de las vistas que se mueven (el mosaico y las herramientas): 400 px, con el tramado ordenado, que pesa
+    # la mitad que el de serie con la misma calidad a ese tamaño
     video.ffmpeg("-t", "6", "-i", final, "-filter_complex",
-                 "fps=8,scale=240:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse",
-                 CARPETA / f"{e['id']}.gif")
+                 "fps=8,scale=400:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];"
+                 "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", CARPETA / f"{e['id']}.gif")
     print(f"Listo: ejemplos/{e['id']}.mp4")
 sys.exit(1 if pendientes else 0)

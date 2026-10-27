@@ -249,6 +249,10 @@ class Ventana(QMainWindow):
     def _pedir(self, modo, texto):
         """La idea escrita arriba en Inicio, en la página que la hace: escrita y sin empezar (empezar puede gastar cuota
         o dinero, y eso lo decide el usuario allí)."""
+        if modo in ("director", "imagen", "diseno"):
+            # Sus campos son de una línea: un salto de línea llegaba tal cual (se veía pegado). Pasan a espacios, y como
+            # mucho las 2000 letras que admite el pedido de Diseño
+            texto = " ".join(texto.split())[:2000]
         if modo == "director":
             return self._usar_pedido(texto)
         if modo == "video":

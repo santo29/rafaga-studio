@@ -6,7 +6,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QDateTime, QEvent, QLocale, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QRadialGradient
+from PySide6.QtGui import QColor, QPainter, QRadialGradient, QTextCursor
 from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPlainTextEdit,
                                QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
@@ -54,6 +54,11 @@ ESTILO_INICIO = """
                             selection-background-color: rgba(124, 92, 255, 0.50); }
 #destino { background: rgba(124, 92, 255, 0.15); border: 1px solid rgba(150, 125, 255, 0.32); border-radius: 14px; }
 #destino QLabel { color: #D3C8FF; font-size: 13px; }
+#idea_chip { color: #DCDCE6; font-size: 13px; padding: 5px 12px; border-radius: 14px; text-align: left;
+             background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
+             border-top-color: rgba(255, 255, 255, 0.22); }
+#idea_chip:hover { background: rgba(124, 92, 255, 0.22); border-color: rgba(205, 190, 255, 0.60); color: #FFFFFF; }
+#idea_chip:focus { border: 1px solid #3DF5FF; }
 #pildora { color: #FFFFFF; font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 12px;
            background: rgba(15, 15, 19, 0.55); border: 1px solid rgba(255, 255, 255, 0.24); }
 #destacado_titulo { font-size: 30px; font-weight: 800; color: #FFFFFF; }
@@ -72,24 +77,37 @@ ESTILO_INICIO = """
 ESTILO_INICIO += f"#acceso, #novedad {{ {REFLEJO} }}"
 
 # Las herramientas, en el orden del menú: (icono, color, nombre, frase, página del menú a la que lleva, sin traducir
-# como PAGINA del Director; ejemplos para su vista, el primero que exista; si trae algo nuevo)
+# como PAGINA del Director; ejemplos para su vista, el primero que exista; si trae algo nuevo). Sus vistas no repiten
+# las primeras piezas del carrusel (la manzana de Crear video es su único video hecho con ella); Shorts mágicos no tiene
+# aún un short vertical de muestra: lleva su dibujo
 ACCESOS = [
     ("bot", "#B79CFF", t("Director IA"), t("Pídelo con tus palabras y la IA hace todo el trabajo"), "Director IA",
-     ("leyenda-ia",), False),
+     ("mascota-rafa",), False),
     ("sparkles", "#FF4D8D", t("Crear video"), t("De una idea a un video con guion, voz e imágenes, ahora también con "
                                                 "Kling y Seedance"), "Crear con IA", ("manzana-habla",), True),
-    ("palette", "#7CFFB2", t("Diseño"), t("Miniaturas, posts, flyers y logos con tu marca, y ahora exporta en 4K"),
-     "Diseño", ("estampado-calavera-neon", "flyer-noche-neon", "post-cafe", "miniatura-leyenda"), True),
+    ("palette", "#7CFFB2", t("Diseño"), t("Miniaturas, posts, flyers y logos con tu marca"),
+     "Diseño", ("estampado-calavera-neon", "flyer-noche-neon"), False),
     ("rabbit", "#FF8A5C", t("Dibujos animados"), t("Crea tus personajes y capítulos de caricatura"),
-     "Dibujos animados", ("leyenda-rafaga",), False),
-    ("scissors", "#5CA8FF", t("Editor de video"), t("Corta, une, subtitula y ahora grábate hablando encima del video"),
+     "Dibujos animados", ("miniatura-leyenda", "leyenda-rafaga"), False),
+    ("scissors", "#5CA8FF", t("Editor de video"), t("Corta, une, subtitula, grábate hablando encima y exporta en 4K"),
      "Editor de video", ("presentacion-app",), True),
     ("zap", "#FFB454", t("Shorts mágicos"), t("Los mejores momentos de un video largo, listos para subir"),
-     "Shorts mágicos", ("miniatura-capitulo-2", "miniatura-leyenda"), False),
+     "Shorts mágicos", (), False),
     ("megaphone", "#00E5FF", t("Anuncios"), t("Anuncios para tu negocio en un par de minutos"), "Anuncios",
-     ("anuncio-cafe-brisa-alta", "post-cafe", "anuncio-rafaga"), False),
+     ("anuncio-cafe-brisa-alta", "anuncio-rafaga"), False),
     ("music", "#F472B6", t("Música"), t("Canciones y videos musicales con IA"), "Música", ("portada-alto-voltaje",),
      False),
+]
+# Ideas de ejemplo dentro de la caja, como las opciones de la de Pollo AI: (nombre corto, opción del selector, la idea
+# que dejan escrita). No empiezan nada: solo rellenan la caja
+IDEAS = [
+    (t("Tráiler de anime"), "video",
+     t("El tráiler de una serie anime: un guerrero caribeño que busca a los siete que lo traicionaron")),
+    (t("Anuncio de café"), "diseno",
+     t("Un anuncio para Instagram de mi café de montaña, con la taza humeante y el botón «Pídelo hoy»")),
+    (t("Canción de dembow"), "musica", t("Una canción de dembow alegre sobre salir con los amigos el viernes")),
+    (t("Serie animada"), "director",
+     t("Una serie animada de tres capítulos sobre una niña y su perro en Santo Domingo")),
 ]
 # El selector de la caja de arriba: (clave, nombre, icono, página del menú donde se escribe la idea, sin traducir)
 MODOS = [("video", t("Video"), "clapperboard", "Crear con IA"), ("imagen", t("Imagen"), "image", "Diseño"),
@@ -306,11 +324,45 @@ class _Idea(QPlainTextEdit):
         super().keyPressEvent(e)
 
 
+class _Ideas(QWidget):
+    """Las ideas de ejemplo de la caja, en fila: las que no caben se esconden (a 1280 px, o en francés, no caben
+    todas y la caja no puede crecer más que la página)."""
+    HUECO = 8
+
+    def __init__(self, botones: list):
+        super().__init__()
+        self.botones = botones
+        for b in botones:
+            b.setParent(self)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def sizeHint(self):
+        anchos = [b.sizeHint().width() for b in self.botones]
+        return QSize(sum(anchos) + self.HUECO * max(0, len(anchos) - 1),
+                     max((b.sizeHint().height() for b in self.botones), default=0))
+
+    def minimumSizeHint(self):
+        return QSize(0, self.sizeHint().height())
+
+    def resizeEvent(self, e):
+        x, cabe = 0, True
+        for b in self.botones:
+            tam = b.sizeHint()
+            cabe = cabe and x + tam.width() <= self.width()  # en orden: si una no cabe, tampoco las de detrás
+            b.setVisible(cabe)
+            if cabe:
+                b.setGeometry(x, (self.height() - tam.height()) // 2, tam.width(), tam.height())
+                x += tam.width() + self.HUECO
+        super().resizeEvent(e)
+
+
 class Destacados(QWidget):
     """«Lo que puedes crear»: un carrusel grande que pasa solo de una pieza a la siguiente (cada PASO ms, deslizándose),
     con la siguiente asomando a la derecha, flechas y puntos. Se para con el ratón encima, con el foco del teclado
     dentro, con la página oculta o la ventana sin foco, y con «Animar vistas previas» apagada (menos movimiento:
-    entonces tampoco se desliza, salta). La elegida reproduce su MP4 mudo; las demás, quietas y un poco más oscuras."""
+    entonces tampoco se desliza, salta). La elegida reproduce su MP4 mudo cuando termina de deslizarse; las demás,
+    quietas y un poco más oscuras. De los videos se ve solo lo de arriba (sin sus subtítulos quemados: el título de la
+    tarjeta va encima) y los diseños van enteros a la derecha, porque traen su propia tipografía."""
     PASO = 6000
     HUECO = 16
 
@@ -382,6 +434,13 @@ class Destacados(QWidget):
         self.reloj.start()  # el primer paso cuenta desde que se ve, no desde que se armó la página
         super().showEvent(e)
 
+    def hideEvent(self, e):
+        self.reloj.stop()  # oculto (otra página del menú), su reloj no sigue andando
+        super().hideEvent(e)
+
+    def deslizando(self) -> bool:
+        return self.pista.animacion.state() == QPropertyAnimation.Running
+
     def quieto(self) -> bool:
         """Si el carrusel no debe pasar solo ahora."""
         foco = QApplication.focusWidget()
@@ -397,6 +456,9 @@ class Destacados(QWidget):
         """A la pieza n (da la vuelta al final), deslizándose salvo con «Animar vistas previas» apagada."""
         if not self.piezas:
             return
+        antes = self.piezas[self.actual]
+        if n % len(self.piezas) != self.actual and antes.jugador:
+            antes.jugador.pause()  # deja de mandar cuadros mientras se desliza; la vigilancia la cierra después
         self.actual = n % len(self.piezas)
         x = self.actual * (self.ancho + self.HUECO)
         if animado and pagina_director.accion_animar().isChecked():
@@ -408,17 +470,28 @@ class Destacados(QWidget):
         self._marcar()
 
     def _colocar(self):
-        """Sin deslizarse, en la pieza elegida (si no se está deslizando ya hacia ella)."""
-        if self.pista.animacion.state() != QPropertyAnimation.Running:
+        """Sin deslizarse, en la pieza elegida (si no se está deslizando ya hacia ella); quieta ya, puede abrir su
+        video."""
+        if not self.deslizando():
             self.pista.horizontalScrollBar().setValue(self.actual * (self.ancho + self.HUECO))
+            if self.piezas:
+                elegida = self.piezas[self.actual]
+                elegida.vivo = "video"
+                if elegida.jugador:  # se volvió a ella antes de que la vigilancia la cerrara: sigue donde iba
+                    elegida.jugador.play()
 
     def _marcar(self):
+        """La elegida, encendida y con su punto largo. Su MP4 se abre al terminar de deslizarse (_colocar): abrirlo
+        cuesta 100-200 ms del hilo de la ventana y, a mitad del deslizamiento, daba un tirón."""
+        quieta = not self.deslizando()
         for n, (b, punto) in enumerate(zip(self.piezas, self.puntos)):
             elegida = n == self.actual
-            b.vivo, b.apagada = ("video" if elegida else None), not elegida
+            b.vivo = "video" if elegida and quieta else None
+            if b.apagada == elegida:
+                b.apagada = not elegida
+                b.update()
             punto.setChecked(elegida)
             punto.setFixedWidth(26 if elegida else 8)
-            b.update()
 
     def eventFilter(self, b, e):
         if b in self.piezas:
@@ -473,7 +546,8 @@ class PaginaInicio(QWidget):
             # un ejemplo de la galería o, si no lo es (el video de presentación, hecho con el editor), su foto suelta
             ejemplo = next((hechos[i][0] if i in hechos else {"id": i} for i in ids
                             if i in hechos or (pagina_director.EJEMPLOS / f"{i}.jpg").is_file()), None)
-            herramientas.addWidget(self._herramienta(nombre_icono, color, nombre, frase, ejemplo, nuevo,
+            herramientas.addWidget(self._herramienta(nombre_icono, color, nombre, frase, ejemplo,
+                                                     bool(ejemplo) and ejemplo["id"] in hechos, nuevo,
                                                      lambda _, p=pagina: self.ir(p)), n // 4, n % 4)
         lay.addWidget(self._bloque(seccion(t("Herramientas"), t("Todo tu estudio creativo en un solo lugar")),
                                    herramientas))
@@ -490,8 +564,11 @@ class PaginaInicio(QWidget):
         lay.addWidget(self.galeria)
         lay.addStretch()
         lay.addWidget(etiqueta(f"{legal.marca()}  ·  {t('Tus proyectos se guardan en tu PC.')}", "sub"))
-        # Una sola cuenta de decodificadores para toda la página: como mucho MAX_VIVAS se mueven a la vez
-        pagina_director.vigilar(self, self.destacados.piezas + self.vistas + self.galeria.tarjetas)
+        # Una sola cuenta de decodificadores para toda la página: como mucho MAX_VIVAS se mueven a la vez. Mientras el
+        # carrusel se desliza no se abre ni se cierra ninguno (cada uno cuesta su rato del hilo de la ventana)
+        self.piezas = self.destacados.piezas + self.vistas + self.galeria.tarjetas
+        self.vigia = pagina_director.vigilar(self, self.piezas, espera=self.destacados.deslizando)
+        QTimer.singleShot(300, pagina_director.calentar)
 
     @staticmethod
     def _bloque(*partes) -> QWidget:
@@ -516,15 +593,16 @@ class PaginaInicio(QWidget):
     def resizeEvent(self, e):
         margen = max(32, (self.width() - ANCHO_MAX) // 2)  # en pantallas anchas, centrado
         if self.lay.contentsMargins().left() != margen:
-            self.lay.setContentsMargins(margen, 24, margen, 28)
+            self.lay.setContentsMargins(margen, 12, margen, 28)
         super().resizeEvent(e)
 
     # ---------- Arriba: ¿Qué creamos hoy? ----------
 
     def _portada(self) -> QWidget:
+        """Compacta: a 1280×720 tiene que asomar casi media tarjeta del carrusel sin bajar la página."""
         portada = _Portada()
         lay = QVBoxLayout(portada)
-        lay.setContentsMargins(0, 6, 0, 10)
+        lay.setContentsMargins(0, 6, 0, 4)
         lay.setSpacing(10)
         # La novedad, como el aviso de arriba de Pollo AI: lleva a Ráfaga Guardia
         novedad = QPushButton()
@@ -549,7 +627,6 @@ class PaginaInicio(QWidget):
             fila.addWidget(w)
         novedad.clicked.connect(lambda: self.ir("Ráfaga Guardia"))
         lay.addWidget(novedad, 0, Qt.AlignHCenter)
-        lay.addSpacing(6)
         self.saludo = etiqueta(_saludo(), "lema")
         titulo = etiqueta(t("¿Qué creamos hoy?"), "portada")
         lema = etiqueta(t("Video, imágenes, diseño y música con IA, en tu PC. Escribe tu idea y elige dónde crearla."),
@@ -557,7 +634,6 @@ class PaginaInicio(QWidget):
         for w in (self.saludo, titulo, lema):
             w.setAlignment(Qt.AlignHCenter)
             lay.addWidget(w)
-        lay.addSpacing(8)
         self.modos = Segmentos()
         self.modos.layout().insertStretch(0)  # centrado (su luz se pinta debajo de la elegida igual)
         for n, (_, nombre, _, _) in enumerate(MODOS):
@@ -568,12 +644,12 @@ class PaginaInicio(QWidget):
         caja.setObjectName("idea_caja")
         caja.setMaximumWidth(880)
         dentro = QVBoxLayout(caja)
-        dentro.setContentsMargins(24, 18, 18, 16)
-        dentro.setSpacing(10)
+        dentro.setContentsMargins(24, 16, 18, 14)
+        dentro.setSpacing(8)
         self.idea = _Idea()
         self.idea.setPlaceholderText(t("Describe tu idea…"))
         self.idea.setAccessibleName(t("Describe tu idea"))
-        self.idea.setFixedHeight(64)
+        self.idea.setFixedHeight(52)
         self.idea.enviar.connect(self._crear)
         dentro.addWidget(self.idea)
         abajo = QHBoxLayout()
@@ -587,11 +663,27 @@ class PaginaInicio(QWidget):
         en_destino.addWidget(self.destino_icono)
         en_destino.addWidget(self.destino)
         abajo.addWidget(destino)
-        aviso = etiqueta(t("Se escribe allí y tú decides cuándo empezar"), "sub")
-        aviso.setStyleSheet("font-size: 13px;")
-        abajo.addWidget(aviso, 1)
+        # Las ideas de ejemplo llenan la caja como las opciones de la de Pollo AI; «se escribe allí y tú decides»
+        # pasa al botón (su ayuda y su descripción)
+        chips = []
+        for nombre, modo, idea in IDEAS:
+            chip = QPushButton(nombre)
+            chip.setObjectName("idea_chip")
+            chip.setIcon(icono(next(m[2] for m in MODOS if m[0] == modo), "#C9B8FF"))
+            chip.setIconSize(QSize(14, 14))
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setFocusPolicy(Qt.TabFocus)
+            chip.setToolTip(idea)
+            chip.setAccessibleName(t("Idea: {nombre}", nombre=nombre))
+            chip.setAccessibleDescription(idea)
+            chip.clicked.connect(lambda _=False, modo=modo, idea=idea: self._poner_idea(modo, idea))
+            chips.append(chip)
+        self.ideas = _Ideas(chips)
+        abajo.addWidget(self.ideas, 1)
         self.crear = boton(f"✨  {t('Crear')}", "principal")
-        self.crear.setToolTip(t("Lleva tu idea a su página (Intro)"))
+        aviso = t("Se escribe allí y tú decides cuándo empezar")
+        self.crear.setToolTip(f"{t('Lleva tu idea a su página (Intro)')}\n{aviso}")
+        self.crear.setAccessibleDescription(aviso)
         self.crear.clicked.connect(self._crear)
         abajo.addWidget(self.crear)
         dentro.addLayout(abajo)
@@ -607,6 +699,14 @@ class PaginaInicio(QWidget):
         _, _, nombre_icono, pagina = MODOS[self.modos.grupo.checkedId()]
         self.destino_icono.setPixmap(icono(nombre_icono, "#D3C8FF").pixmap(15, 15))
         self.destino.setText(t("Se abre en {pagina}", pagina=t(pagina)))
+
+    def _poner_idea(self, modo: str, idea: str):
+        """Una idea de ejemplo: la deja escrita en la caja, con su opción elegida, para cambiarla y pulsar «Crear»."""
+        self.modos.grupo.button(next(n for n, m in enumerate(MODOS) if m[0] == modo)).setChecked(True)
+        self._modo()
+        self.idea.setPlainText(idea)
+        self.idea.moveCursor(QTextCursor.End)
+        self.idea.setFocus()
 
     def _crear(self):
         """Lleva lo escrito a la página de la opción elegida, escrito y sin empezar: un trabajo puede gastar cuota o
@@ -652,17 +752,21 @@ class PaginaInicio(QWidget):
         lay.addLayout(botones)
         return b
 
-    def _herramienta(self, nombre_icono, color, nombre, frase, ejemplo, nuevo, al_pulsar) -> QPushButton:
+    def _herramienta(self, nombre_icono, color, nombre, frase, ejemplo, de_galeria, nuevo, al_pulsar) -> QPushButton:
         """Una herramienta: arriba, algo hecho con ella (se mueve con el ratón encima); su icono, su nombre, «NUEVO» si
-        trae algo nuevo y una frase."""
+        trae algo nuevo y una frase. Una foto suelta que no es de la galería (de_galeria False: la del editor) se
+        queda quieta: su GIF es el montaje de fotos con la galería vieja."""
         b = _tarjeta_boton(nombre, frase)
         lay = QVBoxLayout(b)
         lay.setContentsMargins(8, 8, 8, 14)
         lay.setSpacing(8)
-        vista = pagina_director.Pieza(ejemplo, leyenda=False, vacio=(nombre_icono, color))
+        vista = pagina_director.Vista(ejemplo, vacio=(nombre_icono, color))
+        vista.setAccessibleName(nombre)
         vista.RADIO = 12
         vista.dueno, vista.alto_por_ancho = b, 9 / 16
-        vista.setFocusPolicy(Qt.NoFocus)
+        if not de_galeria:  # quieta y entera: es una foto suelta, no un video
+            vista.gif = vista.video = None
+            vista.es_video, vista.alto_util = False, 1.0
         politica = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         politica.setHeightForWidth(True)
         vista.setSizePolicy(politica)
@@ -695,7 +799,14 @@ class PaginaInicio(QWidget):
 
     def showEvent(self, e):
         self.recargar()  # al volver a Inicio sale lo recién hecho y las claves recién conectadas
+        self.vigia.start()
         super().showEvent(e)
+
+    def hideEvent(self, e):
+        """En otra página del menú: su vigilancia no recorre las piezas cada 400 ms y ningún video se queda abierto."""
+        self.vigia.stop()
+        pagina_director.quietas(self.piezas)
+        super().hideEvent(e)
 
     def recargar(self):
         """Vuelve a leer lo reciente y qué IA está conectada."""

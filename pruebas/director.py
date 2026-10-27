@@ -365,8 +365,9 @@ ejemplos = pagina_director.ejemplos()
 assert all((pagina_director.EJEMPLOS / f"{e['id']}.mp4").is_file() for e in ejemplos)
 disenos_ej = pagina_director.disenos()
 assert all(pagina_director.foto(e).is_file() for e in disenos_ej)
-# Los videos hechos pegando fotos (sin movimiento) y la portada de presentación ya no son ejemplos
-assert not {"lugares-rd", "anuncio-cafe", "presentacion-rafaga"} & {e["id"] for e in ejemplos + disenos_ej}
+# Los videos hechos pegando fotos (sin movimiento), la portada de presentación y el post del café (casi igual que su
+# anuncio) ya no son ejemplos
+assert not {"lugares-rd", "anuncio-cafe", "presentacion-rafaga", "post-cafe"} & {e["id"] for e in ejemplos + disenos_ej}
 if disenos_ej:  # los diseños de ejemplo se abren en grande, sin bloquear la app
     from PySide6.QtWidgets import QLabel  # noqa: E402
 
@@ -386,9 +387,26 @@ if ejemplos:
     assert [b.e["id"] for b in tarjetas][:2] == [ejemplos[0]["id"], disenos_ej[0]["id"]]
     for b in tarjetas:
         assert bool(b.gif) == (pagina_director.EJEMPLOS / f"{b.e['id']}.gif").is_file(), b.e["id"]
+        # lo vertical, como mucho 3:4 (a 9:16 era una tira); de los videos, sin la franja de sus subtítulos
+        assert b.width() >= round(b.height() * 0.75) - 1, b.e["id"]
+        assert b.alto_util == (pagina_director.RECORTE_SUBTITULOS if b.es_video else 1), b.e["id"]
+    # Las flechas ‹ ›, en la cabecera con la casilla y «Ver todo» (centradas con ellos), no en una línea propia
+    from PySide6.QtWidgets import QPushButton  # noqa: E402
+    botones = {b.accessibleName() or b.text(): b for b in pagina.galeria.findChildren(QPushButton)}
+    centro = botones["Ver todo"].geometry().center().y()
+    for nombre in ("Ver anteriores", "Ver siguientes"):
+        flecha = botones[nombre]
+        assert flecha.parentWidget() is botones["Ver todo"].parentWidget(), nombre
+        assert abs(flecha.geometry().center().y() - centro) <= 1, nombre
     tarjetas[0].findChild(QMenu).actions()[0].trigger()
     assert pagina.pedido.text() == ejemplos[0]["pedido"] and not pagina.ocupado()
     pagina.pedido.clear()
+    # Oculta, su vigilancia se para y nada se mueve; al volver, sigue
+    assert pagina.vigia.isActive()
+    pagina.hide()
+    assert not pagina.vigia.isActive() and not [b for b in tarjetas if pagina_director.corriendo(b)]
+    pagina.show()
+    assert pagina.vigia.isActive()
 
 _dirigir = director.dirigir
 try:
@@ -521,8 +539,8 @@ try:
     finally:
         pagina_director.mensaje = _mensaje
     assert [b[0] for b in ventanas[0][1]] == ["Abrir ajustes de sonido"] and ventanas[1][1] == []
-    esperar(lambda: len(leidos) == 2)
-    assert leidos[0] == voz.SILENCIADO() and d.micro.text().endswith("Hablar")
+    esperar(lambda: len(leidos) == 2)  # cada aviso se lee en su hilo: con el PC cargado el orden puede cambiar
+    assert voz.SILENCIADO() in leidos and d.micro.text().endswith("Hablar")
 finally:
     voz.preparar, voz.escuchar, voz.entender, voz.hablar = guardadas
 ventana.close()

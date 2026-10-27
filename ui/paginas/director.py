@@ -6,13 +6,13 @@ import html
 import json
 import threading
 import traceback
-from itertools import zip_longest
+from itertools import count, zip_longest
 from pathlib import Path
 
-from PySide6.QtCore import (QEasingCurve, QObject, QPropertyAnimation, QRectF, QSize, Qt, QThread, QThreadPool, QTimer,
-                            QUrl, Signal, Slot)
+from PySide6.QtCore import (QEasingCurve, QObject, QPropertyAnimation, QRect, QRectF, QSize, Qt, QThread, QThreadPool,
+                            QTimer, QUrl, Signal, Slot)
 from PySide6.QtGui import (QAction, QBrush, QColor, QDesktopServices, QFont, QImage, QImageReader, QKeySequence,
-                           QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QShortcut)
+                           QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QRadialGradient, QShortcut)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea,
@@ -28,7 +28,12 @@ EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
 # Piezas que se mueven a la vez en una página (GIF o el MP4 de la elegida del carrusel): cada una es un decodificador.
 # ponytail: medido en un portátil de 4 hilos (3 GIF pequeños cuestan poco); en PCs potentes o con GPU se puede subir a 6
 MAX_VIVAS = 3
-LADO = 720  # las fotos se leen a lo más de este lado: un diseño de 1080×1350 entero ocupa 6 MB de memoria
+# Las fotos se leen a lo más de este lado: una tarjeta del carrusel mide 1148 px al 150 % y con 720 se veían blandas.
+# Todas las de los ejemplos juntas ocupan unos 40 MB
+LADO = 1280
+# En el carrusel y las herramientas, de un video se ve solo lo de arriba: sus subtítulos quemados van del 72 al 80 % del
+# alto y quedaban debajo del título y los botones de la tarjeta (texto sobre texto)
+RECORTE_SUBTITULOS = 0.68
 _animar = None  # la casilla «Animar vistas previas», compartida por toda la app (ver accion_animar)
 # Qué página usa cada herramienta (su nombre en el menú): la app la ilumina mientras el Director trabaja en ella
 PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "crear_anuncios": "Anuncios",
@@ -109,18 +114,23 @@ _FOTOS: dict[str, QImage] = {}  # cada foto se lee una vez: la usan varias galer
 _PROPORCIONES: dict[str, float] = {}
 
 
+def _leer(clave: str) -> QImage:
+    lector = QImageReader(clave)
+    lector.setAutoTransform(True)
+    tam = lector.size()
+    if tam.isValid() and max(tam.width(), tam.height()) > LADO:
+        lector.setScaledSize(tam.scaled(LADO, LADO, Qt.KeepAspectRatio))
+    return lector.read()
+
+
 def _imagen(ruta) -> QImage:
-    """La foto, leída al pintarla por primera vez (así Inicio abre rápido) y reducida a LADO. Rota o sin archivo, una
-    QImage nula: sale el dibujo de relleno."""
+    """La foto, leída una vez y reducida a LADO. Se lee en un hilo del pool (ver _hacer_capas), así Inicio abre rápido
+    y nada se traba al aparecer una pieza. Rota o sin archivo, una QImage nula: sale el dibujo de relleno."""
     clave = str(ruta)
-    if clave not in _FOTOS:
-        lector = QImageReader(clave)
-        lector.setAutoTransform(True)
-        tam = lector.size()
-        if tam.isValid() and max(tam.width(), tam.height()) > LADO:
-            lector.setScaledSize(tam.scaled(LADO, LADO, Qt.KeepAspectRatio))
-        _FOTOS[clave] = lector.read()
-    return _FOTOS[clave]
+    imagen = _FOTOS.get(clave)
+    if imagen is None:  # desde varios hilos a la vez: la primera que llega se queda
+        imagen = _FOTOS.setdefault(clave, _leer(clave))
+    return imagen
 
 
 def _proporcion(ruta) -> float:
@@ -132,90 +142,203 @@ def _proporcion(ruta) -> float:
     return _PROPORCIONES[clave]
 
 
-def _cubrir(p: QPainter, destino: QRectF, imagen: QImage):
-    """La imagen recortada para llenar destino sin deformarse; si sobra alto, se corta más abajo que arriba (las caras
-    suelen ir arriba)."""
-    escala = max(destino.width() / imagen.width(), destino.height() / imagen.height())
-    w, h = destino.width() / escala, destino.height() / escala
-    p.drawImage(destino, imagen, QRectF((imagen.width() - w) / 2, (imagen.height() - h) * 0.4, w, h))
+def _preparar(fuente: QImage, ancho: int, alto: int, alto_util: float = 1.0, radio: float = 0, dpr: float = 1,
+              foco: float = 0.4, sombra: bool = False) -> QImage:
+    """La imagen recortada para llenar ancho×alto (píxeles de pantalla) sin deformarse, ya a su tamaño y con las
+    esquinas redondas: pintarla luego es copiarla, sin escalar ni recortar, y así el carrusel se desliza sin tirones.
+    Con alto_util < 1 solo cuenta lo de arriba (deja fuera los subtítulos quemados de los videos). Si sobra alto, se
+    corta según foco: 0 deja lo de arriba, 1 lo de abajo (0,4 por defecto: las caras suelen ir arriba). Con sombra,
+    lleva ya el degradado oscuro de abajo (el de las tarjetas del carrusel): pintarlo en cada cuadro costaba otro
+    milisegundo del hilo de la ventana. Vale en cualquier hilo."""
+    if fuente.isNull() or ancho < 1 or alto < 1:
+        return QImage()
+    util = max(1.0, fuente.height() * alto_util)
+    escala = max(ancho / fuente.width(), alto / util)
+    w, h = min(fuente.width(), ancho / escala), min(util, alto / escala)
+    recorte = QRect(round((fuente.width() - w) / 2), round((util - h) * foco), max(1, round(w)), max(1, round(h)))
+    lista = fuente.copy(recorte).scaled(ancho, alto, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+    salida = QImage(ancho, alto, QImage.Format_ARGB32_Premultiplied)
+    salida.fill(Qt.transparent)
+    p = QPainter(salida)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(lista))  # la foto como relleno de la forma redonda: los bordes salen suavizados
+    p.drawRoundedRect(QRectF(0, 0, ancho, alto), radio, radio)
+    if sombra:
+        _sombra(p, QRectF(0, 0, ancho, alto), 110 * dpr)
+    p.end()
+    salida.setDevicePixelRatio(dpr)
+    return salida
+
+
+def _sombra(p: QPainter, r: QRectF, minimo: float, forma: QPainterPath | None = None):
+    """El degradado oscuro de abajo, sobre el que van los textos. Sin forma, solo donde ya hay imagen (sus esquinas
+    redondas siguen transparentes)."""
+    alto = min(r.height(), max(minimo, r.height() * 0.62))
+    sombra = QLinearGradient(0, r.bottom() - alto, 0, r.bottom())
+    sombra.setColorAt(0, QColor(8, 8, 12, 0))
+    sombra.setColorAt(0.5, QColor(8, 8, 12, 165))  # oscuro de verdad: los textos van encima
+    sombra.setColorAt(1, QColor(8, 8, 12, 246))
+    if forma is not None:
+        p.fillPath(forma, sombra)
+    else:
+        p.setCompositionMode(QPainter.CompositionMode_SourceAtop)
+        p.fillRect(QRectF(r.left(), r.bottom() - alto, r.width(), alto), sombra)
+
+
+def _fondo(fija: QImage, ancho: int, alto: int, radio: float, caja: QRectF, dpr: float) -> QImage:
+    """Lo de debajo de la foto que va entera (el carrusel, en píxeles de pantalla): la misma foto muy desenfocada,
+    oscurecida, con la luz violeta y rosa de la marca detrás y una sombra suave. Así se lee como el vidrio de la app y
+    no como una mancha marrón. Vale en cualquier hilo."""
+    salida = QImage(ancho, alto, QImage.Format_ARGB32_Premultiplied)
+    salida.fill(Qt.transparent)
+    p = QPainter(salida)
+    p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+    forma = QPainterPath()
+    forma.addRoundedRect(QRectF(0.5, 0.5, ancho - 1, alto - 1), radio, radio)
+    p.setClipPath(forma)
+    p.fillRect(salida.rect(), QColor("#17171D"))
+    if not fija.isNull():  # reducirla a 24 px y volver a agrandarla con suavizado: un desenfoque casi gratis
+        borrosa = fija.scaledToWidth(24, Qt.SmoothTransformation).scaledToWidth(240, Qt.SmoothTransformation)
+        p.drawImage(0, 0, _preparar(borrosa, ancho, alto))
+    p.fillRect(salida.rect(), QColor(14, 11, 24, 205))
+    luz = QRadialGradient(caja.center(), max(caja.width(), caja.height()) * 0.95)
+    luz.setColorAt(0, QColor(124, 92, 255, 110))
+    luz.setColorAt(0.55, QColor(255, 77, 141, 42))
+    luz.setColorAt(1, QColor(124, 92, 255, 0))
+    p.fillRect(salida.rect(), luz)
+    for n in range(1, 7):  # sombra suave bajo la foto: QSS no tiene box-shadow
+        sombra = QPainterPath()
+        k = n * dpr
+        sombra.addRoundedRect(caja.adjusted(-2 * k, -k + 2 * dpr, 2 * k, 3 * k), (12 + n) * dpr, (12 + n) * dpr)
+        p.fillPath(sombra, QColor(0, 0, 0, 16))
+    p.end()
+    salida.setDevicePixelRatio(dpr)
+    return salida
+
+
+def _hacer_capas(numero, clave, ruta, ancho, alto, caja, alto_util, radio, radio_caja, dpr, foco, sombra):
+    """En un hilo del pool: la foto lista para su sitio y, si va entera, su fondo. Leer y escalar una foto de 1080 px
+    tarda 20-40 ms: en el hilo de la ventana trababa el carrusel cada vez que aparecía una pieza."""
+    try:
+        fija = _imagen(ruta)
+        if caja is None:
+            fondo, lista = QImage(), _preparar(fija, ancho, alto, alto_util, radio, dpr, foco, sombra)
+        else:
+            fondo = _fondo(fija, ancho, alto, radio, QRectF(caja), dpr)
+            lista = _preparar(fija, caja.width(), caja.height(), alto_util, radio_caja, dpr, foco)
+    except Exception:  # una foto rara: sale el dibujo de relleno, no tumba nada
+        traceback.print_exc()
+        fondo, lista = QImage(), QImage()
+    _el_puente().capas.emit(numero, clave, fondo, lista)
 
 
 class _Puente(QObject):
-    """Trae al hilo de la ventana los cuadros de MP4 convertidos en otro hilo."""
-    cuadro = Signal(object, int, QImage)  # (id de la pieza: no cabe en un int de 32 bits; su vuelta; el cuadro)
+    """Trae al hilo de la ventana lo que se prepara en los hilos del pool: los cuadros de los MP4 y las capas de cada
+    pieza. Las piezas van por su número (nunca se repite, a diferencia de id()): una ya borrada no recibe nada."""
+    cuadro = Signal(object, int, QImage)  # (número de la pieza, su vuelta, el cuadro listo)
+    capas = Signal(object, object, QImage, QImage)  # (número de la pieza, para qué tamaño, su fondo, su foto lista)
 
     @Slot(object, int, QImage)
-    def recibir(self, clave, vuelta, imagen):
-        b = _CON_VIDEO.get(clave)
+    def recibir(self, numero, vuelta, imagen):
+        b = _CON_VIDEO.get(numero)
         if b is not None and b.vuelta == vuelta:  # de una reproducción anterior (parada o reiniciada): no vale
             b.convirtiendo = False
             if not imagen.isNull():
                 b.cuadro = imagen
-                b.update()
+                b.update(b.destino().toAlignedRect())  # solo su foto: el resto de la tarjeta no cambia
+
+    @Slot(object, object, QImage, QImage)
+    def recibir_capas(self, numero, clave, fondo, lista):
+        b = _PIEZAS.get(numero)
+        if b is not None and b._pedida == clave:
+            b._pedida = None
+            b._capas = (clave, fondo, lista)
+            b.update()
 
 
 _puente = None
-_CON_VIDEO = {}  # id(pieza) → la pieza, mientras reproduce su MP4
+_CON_VIDEO = {}  # número de la pieza → la pieza, mientras reproduce su MP4
+_PIEZAS = {}  # número de la pieza → la pieza, mientras vive (se quita al borrarla)
+_NUMEROS = count()
 
 
 def _el_puente() -> _Puente:
     global _puente
     if _puente is None:
-        _puente = _Puente(QApplication.instance())  # vive con la app: un cuadro tardío nunca llega a un objeto borrado
-        _puente.cuadro.connect(_puente.recibir)  # emitido desde el hilo del pool: llega en cola al de la ventana
-        atexit.register(lambda: QThreadPool.globalInstance().waitForDone(2000))  # ningún cuadro a medias al salir
+        _puente = _Puente(QApplication.instance())  # vive con la app: lo que llega tarde nunca va a un objeto borrado
+        _puente.cuadro.connect(_puente.recibir)  # emitidas desde los hilos del pool: llegan en cola al de la ventana
+        _puente.capas.connect(_puente.recibir_capas)
+        atexit.register(lambda: QThreadPool.globalInstance().waitForDone(2000))  # nada a medias al salir
     return _puente
 
 
-def _convertir(cuadro, clave, vuelta, ancho):
-    """En un hilo del pool: pasar un cuadro de 720p a imagen tarda unos 18 ms y, en el hilo de la ventana, trababa el
-    carrusel (medido: a 30 cuadros por segundo ocupaba más de la mitad del hilo)."""
+def _convertir(cuadro, numero, vuelta, destino: QRect, alto_util, radio, dpr, foco, sombra):
+    """En un hilo del pool: pasar un cuadro de 720p a imagen y dejarlo a su tamaño tarda 15-25 ms; en el hilo de la
+    ventana trababa el carrusel (medido: a 30 cuadros por segundo ocupaba más de la mitad del hilo)."""
     try:
-        imagen = cuadro.toImage()
-        if imagen.width() > ancho > 0:
-            imagen = imagen.scaledToWidth(ancho, Qt.SmoothTransformation)
+        imagen = _preparar(cuadro.toImage(), destino.width(), destino.height(), alto_util, radio, dpr, foco, sombra)
     except Exception:  # un cuadro raro se salta; no tumba nada
         imagen = QImage()
-    _el_puente().cuadro.emit(clave, vuelta, imagen)
+    _el_puente().cuadro.emit(numero, vuelta, imagen)
 
 
 def _llega(b, cuadro):
-    """Un cuadro nuevo del MP4: si el anterior aún se convierte, este se salta (mejor que acumularlos)."""
+    """Un cuadro nuevo del MP4: si el anterior aún se prepara, este se salta (mejor que acumularlos)."""
     if b.convirtiendo or not cuadro.isValid():
         return
     b.convirtiendo = True
-    ancho, clave, vuelta = round(b.width() * b.devicePixelRatioF()), id(b), b.vuelta
-    QThreadPool.globalInstance().start(lambda: _convertir(cuadro, clave, vuelta, ancho))
+    datos = (b.numero, b.vuelta, b.destino_d(), b.alto_util, b.radio_destino(), b.devicePixelRatioF(), b.foco,
+             b.sombra())
+    QThreadPool.globalInstance().start(lambda: _convertir(cuadro, *datos))
 
 
-class Pieza(QAbstractButton):
-    """Un ejemplo pintado a sangre en una tarjeta de esquinas redondas: su foto (o su GIF, o su MP4 mudo si es la
-    elegida del carrusel) recortada a la tarjeta, el canto de luz del vidrio y, sobre un degradado oscuro, su título.
-    La misma pieza para todas las galerías: el carrusel y las herramientas de Inicio, su mosaico, el de «Ver todo» y la
-    fila del Director. leyenda: True (el degradado siempre; los textos los pone quien la usa), "encima" (su título solo
-    con el ratón o el foco) o False. Sin foto, un degradado con el icono de «vacio»."""
+class _Lienzo:
+    """Lo que tienen en común Pieza (se pulsa) y Vista (solo se ve, dentro del botón de una herramienta): un ejemplo
+    pintado a sangre en una tarjeta de esquinas redondas. Su foto (o su GIF, o su MP4 mudo si es la elegida del
+    carrusel) recortada a la tarjeta, el canto de luz del vidrio y, sobre un degradado oscuro, su título. leyenda:
+    True (el degradado siempre; los textos los pone quien la usa), "encima" (su título solo con el ratón o el foco) o
+    False. Sin foto, un degradado con el icono de «vacio».
+
+    Se pinta en tres capas: el fondo y la foto (con su degradado, si lo lleva siempre) se preparan en un hilo del pool
+    a su tamaño exacto (ver _hacer_capas) y al pintar solo se copian; encima va lo que cambia con el ratón, el foco o
+    el carrusel (el título al pasar el ratón, el canto y «apagada»)."""
     RADIO = 16
+    INSIGNIA_DERECHA = False  # la pastilla («NUEVO»), arriba a la izquierda o a la derecha
 
-    def __init__(self, e: dict | None, leyenda="encima", vacio=("sparkles", "#B79CFF")):
-        super().__init__()
+    def _empezar(self, e: dict | None, leyenda, vacio):
         self.e, self.leyenda, self.vacio = e or {}, leyenda, vacio
         self.ruta = foto(self.e) if e else None
         self.proporcion = _proporcion(self.ruta) if self.ruta else 16 / 9
         gif, mp4 = (EJEMPLOS / f"{self.e['id']}.gif", video(self.e)) if e else (None, None)
         self.gif = gif if gif and gif.is_file() else None
         self.video = mp4 if mp4 and mp4.is_file() else None
+        self.es_video = self.video is not None  # aunque su MP4 falle luego: su sitio en la tarjeta no cambia
+        # De un video se ve solo lo de arriba, sin la franja de sus subtítulos quemados (ver RECORTE_SUBTITULOS): en
+        # las galerías, el título de la tarjeta y la leyenda van encima. El video entero se ve al abrirlo
+        self.alto_util = RECORTE_SUBTITULOS if self.es_video else 1.0
+        try:  # a qué altura está lo importante si hay que recortar alto (la cara de la manzana va abajo)
+            self.foco = min(1.0, max(0.0, float(self.e.get("foco", 0.4))))
+        except (TypeError, ValueError):
+            self.foco = 0.4
         self.vivo = "gif"  # lo que puede hacer ahora: "gif", "video" (la elegida del carrusel) o None (quieta)
         self.dueno = None  # el botón que la lleva dentro (una herramienta): su ratón también la mueve
-        self.contener = False  # en el carrusel, lo vertical o cuadrado va entero, a la derecha, sobre su foto borrosa
+        self.contener = False  # en el carrusel, lo vertical o cuadrado y los diseños van enteros, a la derecha
         self.apagada = False  # en el carrusel, las que no son la elegida, un poco más oscuras
         self.alto_por_ancho = None  # si se da, su alto sigue a su ancho (las vistas de las herramientas)
         self.insignia = ""  # una pastilla en la esquina («NUEVO»); pintada: con un layout dentro, Qt no usaría
         # heightForWidth de la pieza sino el del layout
-        self.peli = self.jugador = self.sumidero = self.cuadro = self._borrosa = None
+        self.peli = self.jugador = self.sumidero = self.cuadro = None
         self.vuelta, self.convirtiendo = 0, False
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFocusPolicy(Qt.TabFocus)  # como boton(): el anillo del foco, solo con el teclado
-        self.setAccessibleName(str(self.e.get("titulo", "")))
+        self.numero = next(_NUMEROS)
+        _PIEZAS[self.numero] = self
+        self.destroyed.connect(lambda *_, n=self.numero: (_PIEZAS.pop(n, None), _CON_VIDEO.pop(n, None)))
+        self._capas, self._pedida = None, None  # (para qué tamaño, fondo, foto lista) y lo pedido al pool
+        # Al cambiar de tamaño se espera a que pare (arrastrar el borde de la ventana pediría decenas de capas)
+        self._reloj_capas = QTimer(self)
+        self._reloj_capas.setSingleShot(True)
+        self._reloj_capas.setInterval(60)
+        self._reloj_capas.timeout.connect(self.preparar)
 
     def fuente(self) -> Path | None:
         """Lo que se movería ahora (el MP4 o el GIF), o None si se queda quieta."""
@@ -243,66 +366,100 @@ class Pieza(QAbstractButton):
         self.update()
         super().leaveEvent(e)
 
-    def keyPressEvent(self, e):
-        if e.key() in (Qt.Key_Return, Qt.Key_Enter):  # como un enlace: Intro también la abre (Espacio ya lo hace)
-            return self.click()
-        super().keyPressEvent(e)
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._capas is None:
+            self.preparar()  # la primera vez, enseguida
+        else:
+            self._reloj_capas.start()
 
     def caja(self) -> QRectF | None:
-        """Dónde va la foto entera cuando se contiene (carrusel); None si va a sangre."""
-        if not (self.contener and self.proporcion < 1.3):
+        """Dónde va la foto entera (carrusel); None si va a sangre. Los diseños van siempre enteros: traen su propia
+        tipografía y el título de la tarjeta caería encima de la suya. Un video, solo si es vertical o cuadrado."""
+        if not (self.contener and (self.proporcion < 1.3 or not self.es_video)):
             return None
+        visible = self.proporcion / self.alto_util  # lo que se ve de un video recortado es menos alto
         margen = round(self.height() * 0.06)
         alto = self.height() - 2 * margen
-        ancho = min(alto * self.proporcion, self.width() * 0.5)
-        alto = ancho / self.proporcion
+        # a la izquierda quedan como mínimo 380 px para el título y los dos botones (a 1280 px se cortaba «Usar este
+        # pedido» al lado de una miniatura de 16:9)
+        ancho = max(1, min(alto * visible, self.width() * 0.5, self.width() - 2 * margen - 380))
+        alto = ancho / visible
         return QRectF(self.width() - margen - ancho, (self.height() - alto) / 2, ancho, alto)
 
-    def _borrosa_de(self, fija: QImage) -> QImage:
-        """La foto desenfocada para el fondo (reducirla a 24 px y estirarla con suavizado sale casi gratis)."""
-        if self._borrosa is None:
-            self._borrosa = fija.scaledToWidth(24, Qt.SmoothTransformation).scaled(
-                480, round(480 / max(self.proporcion, 0.1)), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-        return self._borrosa
+    def destino_d(self) -> QRect:
+        """Dónde va la foto (o el cuadro que se mueve), en píxeles de pantalla."""
+        dpr, caja = self.devicePixelRatioF(), self.caja()
+        if caja is None:
+            return QRect(0, 0, round(self.width() * dpr), round(self.height() * dpr))
+        return QRect(round(caja.x() * dpr), round(caja.y() * dpr), round(caja.width() * dpr),
+                     round(caja.height() * dpr))
+
+    def destino(self) -> QRectF:
+        dpr, d = self.devicePixelRatioF(), self.destino_d()
+        return QRectF(d.x() / dpr, d.y() / dpr, d.width() / dpr, d.height() / dpr)
+
+    def sombra(self) -> bool:
+        """Si su foto lleva ya el degradado de abajo (las del carrusel a sangre: sus textos van encima)."""
+        return self.leyenda is True and self.caja() is None
+
+    def radio_destino(self) -> float:
+        return (12 if self.caja() is not None else self.RADIO) * self.devicePixelRatioF()
+
+    def _clave(self):
+        return (self.destino_d().getRect(), self.width(), self.height(), self.devicePixelRatioF(), self.alto_util,
+                self.foco)
+
+    def preparar(self):
+        """Pide al pool su foto y su fondo al tamaño de ahora, si no los tiene ya o pedidos (ver _hacer_capas)."""
+        clave = self._clave()
+        if self.ruta is None or self.width() < 2 or clave == self._pedida or (self._capas and self._capas[0] == clave):
+            return
+        self._pedida = clave
+        _el_puente()
+        dpr, d = self.devicePixelRatioF(), self.destino_d()
+        datos = (self.numero, clave, self.ruta, round(self.width() * dpr), round(self.height() * dpr),
+                 None if self.caja() is None else d, self.alto_util, self.RADIO * dpr, self.radio_destino(), dpr,
+                 self.foco, self.sombra())
+        QThreadPool.globalInstance().start(lambda: _hacer_capas(*datos))
+
+    def soltar(self):
+        """Suelta su foto preparada (la del carrusel ocupa unos 3 MB al 150 %): se vuelve a preparar al verse."""
+        self._capas, self._pedida = None, None
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform | QPainter.TextAntialiasing)
+        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
         r = QRectF(self.rect())
         forma = QPainterPath()
         forma.addRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), self.RADIO, self.RADIO)
-        p.setClipPath(forma)
-        p.fillRect(r, QColor("#17171D"))
-        fija = _imagen(self.ruta) if self.ruta else QImage()
-        imagen = self.cuadro if self.cuadro is not None else fija
-        caja = self.caja()
-        if imagen.isNull():
-            self._pintar_vacio(p, r)
-        elif caja is not None:
-            _cubrir(p, r, self._borrosa_de(fija if not fija.isNull() else imagen))
-            p.fillRect(r, QColor(14, 11, 24, 150))
-            for n in range(1, 7):  # sombra suave bajo la foto: QSS no tiene box-shadow
-                sombra = QPainterPath()
-                sombra.addRoundedRect(caja.adjusted(-n * 2, -n + 2, n * 2, n * 3), 14 + n, 14 + n)
-                p.fillPath(sombra, QColor(0, 0, 0, 16))
+        capas = self._capas
+        if capas is None or capas[0] != self._clave():
+            self.preparar() if capas is None else self._reloj_capas.start()
+        caja, destino = self.caja(), self.destino()
+        imagen = self.cuadro if self.cuadro is not None else capas[2] if capas is not None else None
+        hay_imagen = imagen is not None and not imagen.isNull()
+        if capas is not None and not capas[1].isNull():
+            p.drawImage(r, capas[1])  # el fondo (si va entera): a su tamaño, o estirado un momento si cambió
+        elif caja is not None or not hay_imagen:  # a sangre, la foto lo tapa entero
+            p.fillPath(forma, QColor("#17171D"))
+        if hay_imagen:
+            p.drawImage(destino, imagen)
+        elif self.ruta is None or (capas is not None and self.cuadro is None):
+            self._pintar_vacio(p, r, forma)  # sin foto o rota (mientras se prepara, solo el vidrio oscuro)
+        if caja is not None:  # el canto fino de la foto entera
             marco = QPainterPath()
-            marco.addRoundedRect(caja, 12, 12)
-            p.save()
-            p.setClipPath(marco, Qt.IntersectClip)
-            _cubrir(p, caja, imagen)
-            p.restore()
+            marco.addRoundedRect(destino, 12, 12)
             p.setPen(QPen(QColor(255, 255, 255, 46), 1))
             p.drawPath(marco)
-        else:
-            _cubrir(p, r, imagen)
         encima = self.encima() or self.hasFocus()
-        if self.leyenda is True or (self.leyenda == "encima" and encima):
-            self._pintar_leyenda(p, r)
+        # Con la foto entera no hay degradado (su fondo ya es oscuro y oscurecía la foto); a sangre, va en la foto
+        if (self.sombra() and not hay_imagen) or (self.leyenda == "encima" and encima):
+            self._pintar_leyenda(p, r, forma)
         if self.apagada:
-            p.fillRect(r, QColor(10, 10, 14, 105))
+            p.fillPath(forma, QColor(10, 10, 14, 105))
         if self.insignia:
             self._pintar_insignia(p)
-        p.setClipping(False)
         canto = QLinearGradient(0, 0, 0, r.height())  # el reflejo de arriba del vidrio, más claro que los lados
         if self.hasFocus():
             canto.setColorAt(0, QColor("#3DF5FF"))
@@ -314,16 +471,20 @@ class Pieza(QAbstractButton):
             canto.setColorAt(0, QColor(255, 255, 255, 64))
             canto.setColorAt(1, QColor(255, 255, 255, 16))
         p.setPen(QPen(QBrush(canto), 2 if self.hasFocus() else 1))
+        p.setBrush(Qt.NoBrush)
         p.drawPath(forma)
 
-    def _pintar_vacio(self, p, r):
+    def _pintar_vacio(self, p, r, forma):
+        """Sin foto: la luz del color de la herramienta sobre el vidrio oscuro y su icono en el centro."""
         nombre, color = self.vacio
-        luz = QLinearGradient(r.topLeft(), r.bottomRight())
+        luz = QRadialGradient(r.center().x(), r.top() + r.height() * 0.45, max(r.width(), r.height()) * 0.7)
         c = QColor(color)
-        c.setAlpha(80)
+        c.setAlpha(95)
         luz.setColorAt(0, c)
+        c.setAlpha(28)
+        luz.setColorAt(0.55, c)
         luz.setColorAt(1, QColor(23, 23, 29, 0))
-        p.fillRect(r, luz)
+        p.fillPath(forma, luz)
         lado = round(min(64, r.height() * 0.4))
         p.drawPixmap(round(r.center().x() - lado / 2), round(r.center().y() - lado / 2),
                      icono(nombre, color).pixmap(lado, lado))
@@ -336,7 +497,8 @@ class Pieza(QAbstractButton):
         letra.setWeight(QFont.ExtraBold)
         letra.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
         p.setFont(letra)
-        caja = QRectF(10, 10, p.fontMetrics().horizontalAdvance(self.insignia) + 18, 20)
+        ancho = p.fontMetrics().horizontalAdvance(self.insignia) + 18
+        caja = QRectF(self.width() - 10 - ancho if self.INSIGNIA_DERECHA else 10, 10, ancho, 20)
         fondo = QLinearGradient(caja.topLeft(), caja.topRight())
         fondo.setColorAt(0, QColor(124, 92, 255, 235))
         fondo.setColorAt(1, QColor(214, 52, 112, 235))
@@ -347,13 +509,8 @@ class Pieza(QAbstractButton):
         p.drawText(caja, Qt.AlignCenter, self.insignia)
         p.restore()
 
-    def _pintar_leyenda(self, p, r):
-        alto = min(r.height(), max(110, r.height() * 0.62))
-        sombra = QLinearGradient(0, r.bottom() - alto, 0, r.bottom())
-        sombra.setColorAt(0, QColor(8, 8, 12, 0))
-        sombra.setColorAt(0.5, QColor(8, 8, 12, 165))  # oscuro de verdad: los videos traen sus subtítulos abajo
-        sombra.setColorAt(1, QColor(8, 8, 12, 246))
-        p.fillRect(QRectF(r.left(), r.bottom() - alto, r.width(), alto), sombra)
+    def _pintar_leyenda(self, p, r, forma):
+        _sombra(p, r, 110, forma)
         titulo = self.accessibleName()
         if self.leyenda == "encima" and titulo:  # el título solo se pinta aquí; en el carrusel van sus etiquetas
             letra = QFont(self.font())
@@ -365,21 +522,60 @@ class Pieza(QAbstractButton):
             p.drawText(QRectF(12, r.bottom() - 34, r.width() - 24, 24), Qt.AlignLeft | Qt.AlignVCenter, linea)
 
 
+class Pieza(_Lienzo, QAbstractButton):
+    """Un ejemplo que se pulsa (ver _Lienzo). La misma pieza para todas las galerías: el carrusel de Inicio, su
+    mosaico, el de «Ver todo» y la fila del Director."""
+
+    def __init__(self, e: dict | None, leyenda="encima", vacio=("sparkles", "#B79CFF")):
+        super().__init__()
+        self._empezar(e, leyenda, vacio)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)  # como boton(): el anillo del foco, solo con el teclado
+        self.setAccessibleName(str(self.e.get("titulo", "")))
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):  # como un enlace: Intro también la abre (Espacio ya lo hace)
+            return self.click()
+        super().keyPressEvent(e)
+
+
+class Vista(_Lienzo, QWidget):
+    """Lo hecho con una herramienta, arriba de su tarjeta en Inicio (ver _Lienzo). No es un botón: va dentro del de la
+    herramienta, que es el que se pulsa, toma el foco y se nombra (un lector de pantalla anunciaba un botón vacío
+    dentro de otro). Su «NUEVO», arriba a la derecha: a la izquierda tapaba el título de los diseños."""
+    INSIGNIA_DERECHA = True
+
+    def __init__(self, e: dict | None, vacio=("sparkles", "#B79CFF")):
+        super().__init__()
+        self._empezar(e, False, vacio)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)  # el clic y el ratón son de la tarjeta entera
+
+
 def corriendo(b) -> bool:
     return bool(b.jugador) or bool(b.peli and b.peli.state() == QMovie.Running)
 
 
+def _cuadro_gif(b):
+    """Un cuadro nuevo del GIF, ya a su tamaño (son pequeños: se preparan aquí mismo)."""
+    if b.peli is None:
+        return
+    d = b.destino_d()
+    b.cuadro = _preparar(b.peli.currentImage(), d.width(), d.height(), b.alto_util, b.radio_destino(),
+                         b.devicePixelRatioF(), b.foco, b.sombra())
+    b.update(b.destino().toAlignedRect())
+
+
 def arrancar(b):
-    """Mueve la pieza: su MP4 mudo si es la elegida del carrusel (en grande, el GIF de 240 px se veía borroso y a
-    saltos), si no su GIF. El decodificador se crea aquí y se borra al pararla: abierto, Windows no deja reemplazar el
-    archivo (ejemplos/crear.py) y ocupa memoria."""
+    """Mueve la pieza: su MP4 mudo si es la elegida del carrusel (en grande, el GIF se veía borroso y a saltos), si no
+    su GIF. El decodificador se crea aquí y se borra al pararla: abierto, Windows no deja reemplazar el archivo
+    (ejemplos/crear.py) y ocupa memoria."""
     if b.vivo == "video" and b.video:
         _el_puente()
         b.vuelta, b.convirtiendo = b.vuelta + 1, False
         b.jugador, b.sumidero = QMediaPlayer(b), QVideoSink(b)  # sin salida de audio: mudo
         b.jugador.setVideoSink(b.sumidero)
         b.jugador.setLoops(QMediaPlayer.Infinite)
-        _CON_VIDEO[id(b)] = b
+        _CON_VIDEO[b.numero] = b
         b.sumidero.videoFrameChanged.connect(lambda cuadro: _llega(b, cuadro))
         # roto o sin poder leerse: se queda con su GIF o su foto, sin reintentar
         b.jugador.errorOccurred.connect(lambda *_: (setattr(b, "video", None), b.jugador and parar(b)))
@@ -388,7 +584,7 @@ def arrancar(b):
         return
     if not b.peli:
         b.peli = peli = QMovie(str(b.gif), parent=b)
-        peli.frameChanged.connect(lambda _: (setattr(b, "cuadro", peli.currentImage()), b.update()))
+        peli.frameChanged.connect(lambda _: _cuadro_gif(b))
         # roto: la foto fija, sin reintentar (un archivo que no es GIF avisa dos veces)
         peli.error.connect(lambda _: (setattr(b, "gif", None), b.peli and parar(b)))
     b.peli.start()
@@ -400,7 +596,7 @@ def parar(b):
         b.peli.deleteLater()
         b.peli = None
     if b.jugador:
-        _CON_VIDEO.pop(id(b), None)
+        _CON_VIDEO.pop(b.numero, None)
         b.jugador.stop()
         b.jugador.deleteLater()
         b.sumidero.deleteLater()
@@ -426,14 +622,35 @@ def animar(piezas: list, limite: int = MAX_VIVAS):
             parar(b)
 
 
-def vigilar(padre, piezas: list, limite: int = MAX_VIVAS):
+def quietas(piezas: list):
+    """Para todas (la página se oculta): ni un decodificador abierto mientras no se ven."""
+    for b in piezas:
+        if b.peli or b.jugador:
+            parar(b)
+
+
+def vigilar(padre, piezas: list, limite: int = MAX_VIVAS, espera=None) -> QTimer:
     """Revisa cada 400 ms qué piezas se mueven: así cuenta desplazarse, cambiar de página o de ventana sin engancharse
-    a cada cosa. Una sola vigilancia por página, para que el límite sea de la página entera. El reloj muere con
-    «padre»."""
+    a cada cosa. Una sola vigilancia por página, para que el límite sea de la página entera. Mientras espera() diga
+    que sí (el carrusel se desliza), no toca nada. El reloj muere con «padre»; quien lo pone lo para al ocultarse la
+    página (y lo vuelve a poner al verse)."""
     reloj = QTimer(padre)
-    reloj.timeout.connect(lambda: animar(piezas, limite))
+    reloj.timeout.connect(lambda: None if espera and espera() else animar(piezas, limite))
     reloj.start(400)
     return reloj
+
+
+def calentar():
+    """Abre un reproductor y lo suelta, una vez, con la app recién abierta y quieta: el primero carga FFmpeg y
+    congelaba la ventana unos 100 ms (y hasta 600 ms con su primer MP4) justo cuando el carrusel empezaba."""
+    global _caliente
+    if _caliente:
+        return
+    _caliente = True
+    QMediaPlayer(QApplication.instance()).deleteLater()
+
+
+_caliente = False
 
 
 def pieza_ejemplo(e: dict, al_pulsar, usar_pedido=None, **opciones) -> Pieza:
@@ -453,7 +670,8 @@ def pieza_ejemplo(e: dict, al_pulsar, usar_pedido=None, **opciones) -> Pieza:
 
 class Mosaico(QWidget):
     """Galería en columnas del mismo ancho, con huecos finos y cada pieza a su proporción (como la de Higgsfield). Se
-    coloca a mano: una rejilla dejaba huecos grandes entre piezas de distinto alto. Su alto sigue a su ancho."""
+    coloca a mano: una rejilla dejaba huecos grandes entre piezas de distinto alto. Su alto sigue a su ancho. Las
+    piezas ocultas (los filtros de «Ver todo») no ocupan sitio."""
     HUECO = 6
 
     def __init__(self, piezas: list, ancho_min: int = 230, columnas_max: int = 6):
@@ -466,17 +684,34 @@ class Mosaico(QWidget):
         self.setSizePolicy(politica)
 
     def _colocar(self, ancho: int, mover=False) -> int:
-        """Cada pieza a la columna más corta; devuelve el alto que ocupa todo."""
-        columnas = max(2, min(self.columnas_max, (ancho + self.HUECO) // (self.ancho_min + self.HUECO)))
+        """Reparte las piezas en columnas y devuelve el alto que ocupa todo. Como mucho una columna por cada 3
+        piezas: con pocas (los «Videos» de «Ver todo») quedaban columnas vacías al lado de una sola pieza. Se reparten
+        de la más alta a la más baja, cada una a la columna más corta, y dentro de cada columna van en su orden: así
+        las columnas acaban casi a la vez (en orden, a 1280 px, una quedaba 240 px más corta que otra)."""
+        visibles = [b for b in self.piezas if not b.isHidden()]
+        if not visibles:
+            return 0
+        columnas = max(2, min(self.columnas_max, (ancho + self.HUECO) // (self.ancho_min + self.HUECO),
+                              -(-len(visibles) // 3)))
         col = (ancho - self.HUECO * (columnas - 1)) / columnas
-        altos = [0.0] * columnas
-        for b in self.piezas:
+        alto = {b: col / min(max(b.proporcion, 0.75), 1.9) for b in visibles}  # ni tiras larguísimas ni rendijas
+        altos, de = [0.0] * columnas, [[] for _ in range(columnas)]
+        for b in sorted(visibles, key=lambda b: -alto[b]):  # sorted es estable: a igual alto, su orden
             c = altos.index(min(altos))
-            alto = col / min(max(b.proporcion, 0.56), 1.9)  # ni tiras larguísimas ni rendijas
-            if mover:
-                b.setGeometry(round(c * (col + self.HUECO)), round(altos[c]), round(col), round(alto))
-            altos[c] += alto + self.HUECO
+            de[c].append(b)
+            altos[c] += alto[b] + self.HUECO
+        if mover:
+            for c, lista in enumerate(de):
+                y = 0.0
+                for b in sorted(lista, key=visibles.index):
+                    b.setGeometry(round(c * (col + self.HUECO)), round(y), round(col), round(alto[b]))
+                    y += alto[b] + self.HUECO
         return max(0, round(max(altos) - self.HUECO))
+
+    def recolocar(self):
+        """Tras ocultar o enseñar piezas: su alto cambia y cada una va a su nuevo sitio."""
+        self.updateGeometry()
+        self._colocar(self.width(), mover=True)
 
     def hasHeightForWidth(self):
         return True
@@ -534,25 +769,25 @@ class Carrusel(QScrollArea):
             e.ignore()
 
 
-def fila_ejemplos(piezas: list, titulo: str = "", alto: int = 170) -> QWidget:
-    """Una fila de piezas del mismo alto, cada una a su proporción, con su título y las flechas ‹ › (solo si no cabe
-    entera). Sus piezas, en .tarjetas."""
+def fila_ejemplos(piezas: list, alto: int = 170) -> QWidget:
+    """Una fila de piezas del mismo alto, cada una a su proporción, que se desplaza de lado. Sus piezas, en .tarjetas;
+    sus flechas ‹ › (solo se ven si no cabe entera), en .flechas: van en la cabecera de quien la pone, junto a sus
+    botones (en una línea propia ocupaban sitio y quedaban sueltas)."""
     contenido = QWidget()
     fila = QHBoxLayout(contenido)
     fila.setContentsMargins(0, 0, 0, 0)
     fila.setSpacing(8)
     caja = QWidget()
     caja.tarjetas = piezas
-    for b in piezas:
-        b.setFixedSize(round(alto * min(max(b.proporcion, 0.56), 1.78)), alto)
+    for b in piezas:  # lo vertical, como mucho 3:4: a 9:16 era una tira de 95 px
+        b.setFixedSize(round(alto * min(max(b.proporcion, 0.75), 1.78)), alto)
         fila.addWidget(b)
     fila.addStretch()
     caja.carrusel = Carrusel(contenido, alto + 14)  # y la barra fina de abajo
     lay = QVBoxLayout(caja)
     lay.setContentsMargins(0, 0, 0, 0)
-    lay.setSpacing(6)
-    cabecera = QHBoxLayout()
-    cabecera.addWidget(etiqueta(titulo, "sub"), 1)
+    lay.addWidget(caja.carrusel)
+    caja.flechas = []
     for nombre, sentido, texto in (("chevron-left", -1, t("Ver anteriores")),
                                    ("chevron-right", 1, t("Ver siguientes"))):
         flecha = boton("")
@@ -563,15 +798,21 @@ def fila_ejemplos(piezas: list, titulo: str = "", alto: int = 170) -> QWidget:
         flecha.hide()
         flecha.clicked.connect(lambda _=False, s=sentido: caja.carrusel.mover(s))
         caja.carrusel.horizontalScrollBar().rangeChanged.connect(lambda _, maximo, f=flecha: f.setVisible(maximo > 0))
-        cabecera.addWidget(flecha)
-    lay.addLayout(cabecera)
-    lay.addWidget(caja.carrusel)
+        caja.flechas.append(flecha)
     return caja
 
 
+def _intercalar(filas: list) -> list:
+    """(ejemplo, abrir, n.º de su fila) de todas las filas, intercalados: un video, un diseño… así el mosaico no es un
+    bloque de videos y luego otro de diseños."""
+    return [x for grupo in zip_longest(*([(e, abrir, n) for e in lista] for n, (_, lista, abrir) in enumerate(filas)))
+            for x in grupo if x]
+
+
 def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
-    """«Ver todo», la vista aérea de la galería: todos los ejemplos en mosaico, con filtros por tipo. Aquí solo se
-    mueve el que está bajo el ratón, así nunca hay muchos GIF a la vez. Elegir uno cierra la ventana."""
+    """«Ver todo», la vista aérea de la galería: todos los ejemplos en un mosaico, con filtros por tipo que ocultan los
+    demás. Aquí solo se mueve el que está bajo el ratón, así nunca hay muchos GIF a la vez. Elegir uno cierra la
+    ventana."""
     ventana = QDialog(padre)
     ventana.setAttribute(Qt.WA_DeleteOnClose)  # sus GIF no se quedan en memoria
     ventana.setWindowTitle(t("Hecho con Ráfaga Studio"))
@@ -581,27 +822,27 @@ def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
     for i, nombre in enumerate([t("Todo"), *(titulo for titulo, _, _ in filas)]):
         filtros.opcion(nombre, i).setChecked(i == 0)
     filtros.layout().addWidget(casilla_animar())  # a la altura de la cápsula, no de su luz
-    grupo = filtros.grupo
     lay.addWidget(filtros)
     if usar_pedido:
         lay.addWidget(etiqueta(t("Clic derecho: «Usar este pedido» en el Director"), "sub"))
+    piezas = []
+    for e, abrir, n in _intercalar(filas):
+        b = pieza_ejemplo(e, lambda e=e, abrir=abrir: (ventana.close(), abrir(e)),
+                          usar_pedido and (lambda p: (ventana.close(), usar_pedido(p))))
+        b.fila = n
+        piezas.append(b)
+    mosaico = Mosaico(piezas, 200)
+
+    def filtrar(i):
+        for b in piezas:
+            b.setVisible(i == 0 or b.fila == i - 1)
+        mosaico.recolocar()
+    filtros.grupo.idClicked.connect(filtrar)
     contenido = QWidget()
     columna = QVBoxLayout(contenido)
-    columna.setSpacing(10)
-    secciones, piezas = [], []
-    for titulo, lista, abrir in filas:
-        parte = QWidget()
-        col = QVBoxLayout(parte)
-        col.setContentsMargins(0, 0, 0, 10)
-        col.addWidget(etiqueta(titulo, "sub"))
-        de_esta = [pieza_ejemplo(e, lambda e=e, abrir=abrir: (ventana.close(), abrir(e)),
-                                 usar_pedido and (lambda p: (ventana.close(), usar_pedido(p)))) for e in lista]
-        col.addWidget(Mosaico(de_esta, 200))
-        piezas += de_esta
-        secciones.append(parte)
-        columna.addWidget(parte)
+    columna.setContentsMargins(0, 0, 0, 0)
+    columna.addWidget(mosaico)
     columna.addStretch()
-    grupo.idClicked.connect(lambda i: [s.setVisible(i in (0, n + 1)) for n, s in enumerate(secciones)])
     area = QScrollArea()
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.NoFrame)
@@ -624,11 +865,7 @@ def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion_de_inicio=False
     todo = boton(t("Ver todo"))
     todo.clicked.connect(lambda: ver_todo(padre, filas, usar_pedido))
     casilla = casilla_animar()
-    # Intercalados: un video, un diseño… así el mosaico no es un bloque de videos y luego otro de diseños
-    pares = [(e, abrir) for _, lista, abrir in filas for e in lista]
-    if len(filas) == 2:
-        pares = [x for par in zip_longest(*([(e, f[2]) for e in f[1]] for f in filas)) for x in par if x]
-    piezas = [pieza_ejemplo(e, lambda e=e, abrir=abrir: abrir(e), usar_pedido) for e, abrir in pares]
+    piezas = [pieza_ejemplo(e, lambda e=e, abrir=abrir: abrir(e), usar_pedido) for e, abrir, _ in _intercalar(filas)]
     if seccion_de_inicio:
         caja = QWidget()
         lay = QVBoxLayout(caja)
@@ -636,15 +873,17 @@ def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion_de_inicio=False
         lay.setSpacing(16)
         lay.addWidget(seccion(t("Hecho con Ráfaga Studio"), t("Ideas reales para empezar: pásales el ratón y mira"),
                               casilla, todo))
-        lay.addWidget(Mosaico(piezas))
+        lay.addWidget(Mosaico(piezas, columnas_max=4))  # a 1920 px, 6 columnas dejaban un hueco de 300 px debajo
     else:
         caja, lay = tarjeta()
+        fila = fila_ejemplos(piezas)
         cabecera = QHBoxLayout()
-        cabecera.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"), 1)
-        cabecera.addWidget(casilla)
-        cabecera.addWidget(todo)
+        cabecera.setSpacing(10)
+        cabecera.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"), 1, Qt.AlignVCenter)
+        for w in (*fila.flechas, casilla, todo):
+            cabecera.addWidget(w, 0, Qt.AlignVCenter)
         lay.addLayout(cabecera)
-        lay.addWidget(fila_ejemplos(piezas))
+        lay.addWidget(fila)
     caja.tarjetas = piezas
     caja.setVisible(bool(piezas))
     return caja
@@ -844,9 +1083,19 @@ class PaginaDirector(QWidget):
     # ---------- Ejemplos ----------
 
     def _galeria(self):
-        galeria = galeria_ejemplos(self, self.ver_ejemplo, self.usar_pedido)
-        vigilar(self, galeria.tarjetas)
-        return galeria
+        self.galeria = galeria_ejemplos(self, self.ver_ejemplo, self.usar_pedido)
+        self.vigia = vigilar(self, self.galeria.tarjetas)
+        return self.galeria
+
+    def showEvent(self, e):
+        self.vigia.start()
+        super().showEvent(e)
+
+    def hideEvent(self, e):
+        """Oculta, su vigilancia no recorre las piezas cada 400 ms para nada y ningún GIF se queda abierto."""
+        self.vigia.stop()
+        quietas(self.galeria.tarjetas)
+        super().hideEvent(e)
 
     def usar_pedido(self, pedido: str):
         """«Usar este pedido» de un ejemplo: queda escrito para cambiarlo y pulsar «Hacer». No se envía solo: un
@@ -859,8 +1108,15 @@ class PaginaDirector(QWidget):
         """Desplaza la página hasta el widget: la galería deja el chat y el estado debajo, fuera de la pantalla (a
         1280×720 con 150 %, ningún aviso de la voz se veía: solo la luz)."""
         area = self.parentWidget().parentWidget() if self.parentWidget() else None  # app.py la pone en un QScrollArea
+
+        def bajar():
+            # El campo entero y un poco de aire: ensureWidgetVisible se conforma con que se vea el cursor de un campo
+            # de texto, y el campo podía quedar cortado por abajo
+            self.layout().activate()  # recién enseñada (venir de Inicio), su sitio puede no estar puesto aún
+            centro = widget.mapTo(area.widget(), widget.rect().center())
+            area.ensureVisible(centro.x(), centro.y(), 0, widget.height() // 2 + 24)
         if isinstance(area, QScrollArea):
-            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(widget))
+            QTimer.singleShot(0, bajar)
 
     def ver_ejemplo(self, e: dict):
         self.reproductor.show()
@@ -1057,7 +1313,8 @@ class PaginaDirector(QWidget):
         self._volver_micro()
         if self.en_voz.isChecked():
             self._leer_en_voz(error)
-        botones = [(t("Abrir ajustes de sonido"), lambda: QDesktopServices.openUrl(QUrl("ms-settings:sound")))]             if error == voz.SILENCIADO() else []
+        botones = ([(t("Abrir ajustes de sonido"), lambda: QDesktopServices.openUrl(QUrl("ms-settings:sound")))]
+                   if error == voz.SILENCIADO() else [])
         mensaje(self, t("No pude usar el micrófono"), error, QMessageBox.Warning, botones)
 
     def _nueva_escucha(self) -> Escucha:

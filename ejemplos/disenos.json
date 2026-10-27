@@ -7,31 +7,6 @@
     "imagen": "assets/mascota.jpg"
   },
   {
-    "id": "post-cafe",
-    "titulo": "Post: Café Brisa Alta",
-    "pedido": "Un post de anuncio para mi marca de café, Café Brisa Alta",
-    "tipo": "anuncio",
-    "propuesta": {
-      "titulo": "Café Brisa Alta · post",
-      "descripcion": "Post publicitario de la marca.",
-      "fondo_colores": ["#1B120D"],
-      "fondo_prompt_imagen": "",
-      "capas": [
-        {"tipo": "imagen", "x": 0, "y": 0, "ancho": 100, "alto": 62,
-         "prompt_imagen": "steaming cup of black coffee on a rustic wooden table with roasted coffee beans, warm morning light, premium product photography"},
-        {"tipo": "forma", "forma": "rectangulo", "x": 30, "y": 86, "ancho": 40, "alto": 7.5, "color": "#FF9F1C", "redondeo": 50},
-        {"tipo": "texto", "texto": "CAFÉ BRISA ALTA", "x": 8, "y": 5, "ancho": 84, "alto": 5, "tamano": 3.4,
-         "fuente": "Montserrat", "negrita": true, "color": "#FFFFFF", "alineacion": "centro", "sombra": true},
-        {"tipo": "texto", "texto": "Despierta distinto", "x": 6, "y": 65, "ancho": 88, "alto": 11, "tamano": 8,
-         "fuente": "Playfair Display", "negrita": true, "color": "#F5E6D3", "alineacion": "centro"},
-        {"tipo": "texto", "texto": "Café de montaña, tostado en pequeños lotes", "x": 8, "y": 77, "ancho": 84,
-         "alto": 6, "tamano": 3.4, "fuente": "Poppins", "color": "#D8C3A5", "alineacion": "centro"},
-        {"tipo": "texto", "texto": "Pídelo hoy", "x": 30, "y": 87.1, "ancho": 40, "alto": 5.5, "tamano": 3.8,
-         "fuente": "Poppins", "negrita": true, "color": "#1B120D", "alineacion": "centro"}
-      ]
-    }
-  },
-  {
     "id": "miniatura-leyenda",
     "titulo": "Miniatura: La leyenda de Ráfaga",
     "pedido": "La miniatura de YouTube del primer capítulo de mi anime",

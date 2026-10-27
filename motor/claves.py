@@ -622,7 +622,8 @@ def para(uso: str) -> dict | None:
 
 # ---------- El modelo de video de UN trabajo: el selector «Modelo de video» (Director, Crear) y el MCP ----------
 # Además de «auto» (lo de «Claves de IA»). «ninguno» = sin animar; Gemini es Omni, solo para escenas que hablan
-MODELOS_VIDEO = ("ninguno", "huggingface", "modal", "pollinations", *VIDEO_DE_PAGO, "gemini")
+VIDEO_GRATIS = ("ninguno", "huggingface", "modal", "pollinations")  # los que no cobran: nada que hable con una de pago
+MODELOS_VIDEO = (*VIDEO_GRATIS, *VIDEO_DE_PAGO, "gemini")
 _trabajo = threading.local()  # lo elegido para el trabajo que corre en cada hilo (ver por_trabajo)
 
 
@@ -644,9 +645,9 @@ def por_trabajo(modelo):
 
 def validar_modelo_video(modelo) -> str:
     """El modelo de video que llega de un agente (MCP) o del Director, si vale: uno de la lista y conectado (sin
-    animar y Hugging Face van sin clave)."""
-    if modelo in ("auto", "ninguno", "huggingface"):
-        return modelo
+    animar y Hugging Face van sin clave). None (un null del agente) es Automático, como en por_trabajo."""
+    if modelo in (None, "auto", "ninguno", "huggingface"):
+        return modelo or "auto"
     if not isinstance(modelo, str) or modelo not in MODELOS_VIDEO:
         raise ValueError(t("Modelo de video desconocido ({modelo!r:.30}); valen {modelos}.", modelo=modelo,
                            modelos=", ".join(("auto", *MODELOS_VIDEO))))
@@ -669,7 +670,11 @@ def modelos_video() -> list[dict]:
     from . import ia, nube  # aquí: los dos importan este módulo
     from .idioma import dinero
     todas, recordados = cargar(), estados()
-    lista = [("auto", t("Automático (el estudio elige: gratis primero)")),
+    # Automático es lo de «Claves de IA»: si allí se eligió Kling o Seedance, se dice (cobra, con su pregunta). Se
+    # llama fuera de un trabajo (selector, Director, MCP): la capa de por_trabajo está vacía y esto es lo guardado
+    pago = ia.video_de_pago()
+    lista = [("auto", t("Automático (lo de «Claves de IA»: {servicio}, de pago)", servicio=ia.nombre_video(pago))
+              if pago else t("Automático (el estudio elige: gratis primero)")),
              ("ninguno", t("Sin animar (fotos con movimiento, gratis)")),
              ("huggingface", t("Hugging Face · gratis, cupo diario"))]
     if "modal" in todas:
@@ -677,21 +682,27 @@ def modelos_video() -> list[dict]:
                                  n=max(nube.limite() - nube.usados_hoy(), 0), m=nube.limite())))
     if "pollinations" in todas:
         lista.append(("pollinations", t("Pollinations · gratis, con el saldo de tu cuenta")))
-    # Lo más que cuesta un clip (ia.precio_video, como la pregunta de costo), al centavo de arriba: 0,115 dice 0,12
+    # Lo más que cuesta un clip (ia.precio_video, como la pregunta de costo), al centavo de arriba: 0,115 dice 0,12.
+    # Elegidos, hacen también las escenas que hablan (por_trabajo), que cuestan más: se dicen los dos
+    def arriba(precio: float) -> str:
+        return dinero(math.ceil(round(precio * 100, 6)) / 100)
     for p in VIDEO_DE_PAGO:
         if p in todas:
             id_ = todas[p].get("modelo_video") or modulo_video(p).MODELOS[0]["id"]
-            lista.append((p, t("{modelo} · hasta {costo} por clip", modelo=nombre_modelo(id_),
-                               costo=dinero(math.ceil(round(ia.precio_video(p) * 100, 6)) / 100))))
+            lista.append((p, t("{modelo} · hasta {costo} por clip, {voz} si habla", modelo=nombre_modelo(id_),
+                               costo=arriba(ia.precio_video(p)), voz=arriba(ia.precio_video(p, voz=True)))))
     if "gemini" in todas:
         lista.append(("gemini", t("Gemini Omni · {costo} por segundo, habla", costo=dinero(ia.PRECIO_OMNI))))
+    # Sin clave no hay estado que mirar; Hugging Face anima con la cuota anónima, sin su token (impide tampoco lo mira)
     return [{"id": i, "nombre": n,
-             "estado": "" if (e := (recordados.get(i) or {}).get("estado", "ok")) in ("ok", "clave_ok") else e}
+             "estado": "" if i in ("auto", "ninguno", "huggingface") or
+             (e := (recordados.get(i) or {}).get("estado", "ok")) in ("ok", "clave_ok") else e}
             for i, n in lista]
 
 
 def nombre_modelo_video(modelo: str) -> str:
-    """Cómo lo dice el selector («Kling 3.0 · hasta US$0.56 por clip»); uno que ya no está, como Automático."""
+    """Cómo lo dice el selector («Kling 3.0 · hasta US$0.56 por clip, US$1.01 si habla»); uno que ya no está, como
+    Automático."""
     lista = modelos_video()
     return next((m["nombre"] for m in lista if m["id"] == modelo), lista[0]["nombre"])
 

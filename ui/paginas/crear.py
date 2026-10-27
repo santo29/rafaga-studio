@@ -7,8 +7,6 @@ from motor.idioma import dinero, t
 from ui.comun import (archivo_valido, boton, campo_archivo, etiqueta, mensaje, PaginaTrabajo, SelectorFormato,
                       SelectorModelo, SelectorVoz)
 
-GRATIS = ("ninguno", "huggingface", "modal", "pollinations")  # modelos de video del selector que no cobran
-
 
 class PaginaCrear(PaginaTrabajo):
     def __init__(self):
@@ -60,7 +58,7 @@ class PaginaCrear(PaginaTrabajo):
         self.animado = QCheckBox()
         self._texto_animado()
         with claves.por_trabajo(self.modelo.valor()):  # con el modelo recordado, como al elegirlo (_modelo_elegido)
-            self.animado.setChecked(self.modelo.valor() not in GRATIS and desde_prompt.con_voz_propia())
+            self.animado.setChecked(self.modelo.valor() not in claves.VIDEO_GRATIS and desde_prompt.con_voz_propia())
         self.animado.setToolTip(t("Cada escena es un video de IA con voz y labios sincronizados. Sin marcar: imágenes "
                                   "animadas con narración (gratis)."))
         self.form_lay.addWidget(self.animado)
@@ -86,7 +84,7 @@ class PaginaCrear(PaginaTrabajo):
     def _modelo_elegido(self, modelo: str):
         """Gemini Omni solo hace escenas que hablan: la casilla se marca (sigue preguntando el costo antes). Uno gratis
         (o Sin animar) la desmarca: quien elige gratis no espera que hable con una IA de pago."""
-        if modelo == "gemini" or modelo in GRATIS:
+        if modelo == "gemini" or modelo in claves.VIDEO_GRATIS:
             self.animado.setChecked(modelo == "gemini")
         self._texto_animado()
 

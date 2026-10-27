@@ -318,6 +318,8 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
         args["modelo_video"] = modelo_video if modelo_video in lista and (modelo_video != "gemini" or habla) else "auto"
         if args["modelo_video"] == "gemini":
             args["animado"] = True
+        elif nombre == "crear_video" and args["modelo_video"] in claves.VIDEO_GRATIS:
+            args["animado"] = False  # eligió gratis: nada que hable con una IA de pago (como Crear al elegirlo)
         avisar([t("Para el video usaré: {modelo}.", modelo=lista[args["modelo_video"]])])
     problema = _sin_permiso(nombre, args, del_usuario, de_todos)
     if problema:

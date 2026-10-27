@@ -63,7 +63,9 @@ assert nombres["auto"] == "Automático (el estudio elige: gratis primero)"
 assert nombres["ninguno"] == "Sin animar (fotos con movimiento, gratis)"
 assert nombres["huggingface"] == "Hugging Face · gratis, cupo diario"
 assert nombres["modal"] == "Mi nube Modal · gratis, quedan 3 de 3 hoy"
-assert nombres["kling"] == f"Kling 3.0 · hasta US${precio:.2f} por clip", nombres["kling"]
+# Elegido, Kling hace también las escenas que hablan, que cuestan más: se dicen los dos, al centavo de arriba
+assert 1.00 < ia.precio_video("kling", voz=True) <= 1.01
+assert nombres["kling"] == f"Kling 3.0 · hasta US${precio:.2f} por clip, US$1.01 si habla", nombres["kling"]
 assert nombres["gemini"] == "Gemini Omni · US$0.10 por segundo, habla"
 assert not any(m["estado"] for m in lista)
 nube.USO.write_text(json.dumps({"fecha": time.strftime("%Y-%m-%d"), "clips": 1}), encoding="utf-8")
@@ -74,8 +76,14 @@ assert claves.nombre_modelo("kling-3.0-turbo") == "Kling 3.0 Turbo"
 # Seedance 1.0 Pro Fast: 5 s × US$0.023 = 0.115, que redondeado dice 0.11; lo más que cuesta se dice hacia arriba
 claves.guardar({"proveedor": "seedance", "clave": "ark-prueba", "usos": ["video", "video_voz"],
                 "modelo_video": "seedance-1-0-pro-fast-251015"})
-assert claves.nombre_modelo_video("seedance") == "Seedance 1.0 Pro Fast · hasta US$0.12 por clip"
+assert claves.nombre_modelo_video("seedance") == "Seedance 1.0 Pro Fast · hasta US$0.12 por clip, US$1.87 si habla"
 claves.borrar("seedance")
+# Hugging Face anima sin su token (cuota anónima): un token recordado como malo no lo marca en la lista
+claves.guardar({"proveedor": "huggingface", "clave": "hf_" + "a" * 34, "usos": ["imagen", "video"]})
+claves.recordar("huggingface", 401, "Invalid credentials")
+assert next(m for m in claves.modelos_video() if m["id"] == "huggingface")["estado"] == ""
+claves.recordar("huggingface", 200)
+claves.borrar("huggingface")
 
 # ---------- Solo para un trabajo, en su hilo: «Claves de IA» no cambia ----------
 with claves.por_trabajo("kling"):
@@ -204,6 +212,14 @@ try:
     crear.modo.setCurrentIndex(1)  # solo animar la imagen con «Sin animar»: se dice, sin empezar nada
     crear._iniciar()
     assert errores[-1][1] == "Elige un modelo de video" and len(hechos) == 5
+    # Solo animar la imagen con Kling y su «sin saldo» recordado: no empieza, ni pregunta lo que costaría el clip
+    claves.recordar("kling", 402, "Account balance not enough")
+    elegir(crear.modelo, "kling")
+    respuesta[0], n = QMessageBox.No, len(preguntas)
+    crear._iniciar()
+    assert errores[-1][1] == "No se puede empezar" and "No se puede animar con Kling" in errores[-1][2], errores[-1]
+    assert len(preguntas) == n and not crear.tarea.isRunning() and len(hechos) == 5
+    claves.recordar("kling", 200)
     crear.imagen.setText("")
     crear.modo.setCurrentIndex(0)
 
@@ -238,6 +254,14 @@ try:
     r = director.dirigir("una manzana que habla", confirmar=lambda p: pedidas.append(p) or True,
                          modelo_video="gemini")
     assert r["pasos"][0]["argumentos"]["animado"] is True and hechos[-1]["voz_de"] == "gemini" and pedidas
+    # Uno gratis elegido: aunque la IA pida escenas que hablan (de pago), ni se pregunta ni se cobra, como en Crear
+    for gratis in ("huggingface", "ninguno"):
+        ia.texto_json = pasos({**VIDEO, "argumentos": json.dumps({"prompt": "una manzana que habla",
+                                                                   "animado": True})}, FIN)
+        pedidas, n = [], len(hechos)
+        director.dirigir("una manzana que habla", confirmar=lambda p: pedidas.append(p) or True, modelo_video=gratis)
+        assert len(hechos) == n + 1 and not pedidas and hechos[-1]["animado"] is False, (gratis, pedidas)
+        assert hechos[-1]["pago"] is None and hechos[-1]["video"] == gratis
     # Lo que diga que no, no se hace
     ia.texto_json = pasos(VIDEO, FIN)
     n = len(hechos)
@@ -263,12 +287,21 @@ ventanas, contesta, hechos = [], [False], []
 preguntar_real, mcp_server._preguntar = mcp_server._preguntar, lambda texto: ventanas.append(texto) or contesta[0]
 desde_prompt.generar = generar_falso
 try:
-    assert "Modelo de video desconocido ('sora')" in falla(mcp_server.crear_video, "un gato", modelo_video="sora",
-                                                           error=ToolError)
-    assert "Seedance no está conectado" in falla(mcp_server.crear_video, "un gato", modelo_video="seedance",
-                                                 error=ToolError)
+    # Lo que no vale se rechaza antes de la ventana de costo (aquí animado, de pago): su sí no se pierde
+    assert "Modelo de video desconocido ('sora')" in falla(mcp_server.crear_video, "una manzana que habla",
+                                                           animado=True, modelo_video="sora", error=ToolError)
+    assert "Seedance no está conectado" in falla(mcp_server.crear_video, "un gato", animado=True,
+                                                 modelo_video="seedance", error=ToolError)
     assert "Sin animar" in falla(mcp_server.crear_video, "x", imagen="x.png", solo_animar=True,
                                  modelo_video="ninguno", error=ToolError)
+    # Gemini Omni solo hace escenas que hablan: donde no haría nada se dice, en vez de animar con Automático
+    foto = str(Path(__file__).resolve().parent.parent / "assets" / "icono.png")
+    for llamada in (lambda: mcp_server.crear_video("un gato", modelo_video="gemini"),
+                    lambda: mcp_server.crear_video("x", imagen=foto, solo_animar=True, animado=True,
+                                                   modelo_video="gemini"),
+                    lambda: mcp_server.crear_anuncios(foto, "zapatos", modelo_video="gemini"),
+                    lambda: mcp_server.crear_episodio("Mi serie", modelo_video="gemini")):
+        assert "Gemini Omni solo hace escenas que hablan" in falla(llamada, error=ToolError)
     assert not ventanas and not hechos  # nada se preguntó ni se hizo
     assert "no lo aceptó" in falla(mcp_server.crear_video, "un gato", modelo_video="kling", error=ToolError)
     assert f"Esto cuesta unos US${10 * precio:.2f}" in ventanas[-1] and not hechos
@@ -278,14 +311,25 @@ try:
     json.loads(mcp_server.crear_video("un gato", modelo_video="modal"))  # gratis: sin ventana
     json.loads(mcp_server.crear_video("un gato"))  # sin modelo_video: Automático
     assert len(ventanas) == 2 and hechos[-2]["orden"] == ["modal"] and hechos[-1]["pago"] is None
+    json.loads(mcp_server.crear_video("un gato", modelo_video=None))  # null: también Automático
+    assert len(ventanas) == 2 and hechos[-1]["pago"] is None and hechos[-1]["video"] == "auto"
     esquemas = {h.name: h for h in asyncio.run(mcp_server.mcp.list_tools())}
     for nombre in ("crear_video", "crear_anuncios", "crear_episodio", "crear_video_musical"):
         assert esquemas[nombre].input_schema["properties"]["modelo_video"]["default"] == "auto", nombre
         assert "modelo_video (opcional)" in esquemas[nombre].description and "listar_opciones" in \
             esquemas[nombre].description
-    assert [m["id"] for m in json.loads(mcp_server.listar_opciones())["modelos_video"]] == ids
+    opciones = json.loads(mcp_server.listar_opciones())
+    assert [m["id"] for m in opciones["modelos_video"]] == ids
+    # Lo recordado del selector de cada página no es «lo del estudio»: el agente no lo ve como por defecto
+    assert claves._guardados()["modelo_video_director"] == "kling"
+    assert not [k for k in opciones["por_defecto"] if k.startswith("modelo_video_")], opciones["por_defecto"]
 finally:
     mcp_server._preguntar, desde_prompt.generar = preguntar_real, generar_real
+
+# Automático es lo de «Claves de IA»: con Kling elegido allí (cobra, con su pregunta), Automático lo dice
+claves.elegir_por_defecto("video", "kling")
+assert claves.modelos_video()[0]["nombre"] == "Automático (lo de «Claves de IA»: Kling, de pago)"
+assert comun.SelectorModelo("prueba").text() == "Automático"  # en la pastilla, lo corto
 
 # Quitar la clave: el modelo recordado vuelve a Automático (y «Claves de IA» sigue igual)
 claves.borrar("kling")

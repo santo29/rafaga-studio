@@ -777,7 +777,9 @@ class PaginaTrabajo(QWidget):
         from motor import director
         usos = director.usos(nombre, datos) if (nombre := self._herramienta(funcion)) else []
         with claves.por_trabajo(modelo_video):
-            if no_se_puede := claves.impide(usos):
+            # Animar solo la imagen no es una herramienta (usos vacío) pero sí anima: el modelo elegido sin saldo, se
+            # dice. antes_de, con usos: el «zoom suave» de las escenas no aplica a un solo clip
+            if no_se_puede := claves.impide(usos or (["video"] if funcion is desde_prompt.animar_imagen else [])):
                 mensaje_error(self, t("No se puede empezar"), no_se_puede)
                 return False
             if not self._pagar_video(funcion, datos):

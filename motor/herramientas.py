@@ -38,6 +38,16 @@ huggingface (gratis, cupo diario), modal (la nube del usuario, gratis con su cr�
 crear_video). Solo valen los conectados: ver "modelos_video" en listar_opciones."""
 
 
+def validar_modelo(modelo_video, habla: bool = False) -> str:
+    """claves.validar_modelo_video y, además, Gemini Omni solo donde hace algo: las escenas que hablan (habla:
+    crear_video con animado true). Si no, se haría con Automático sin decirlo. El MCP lo llama también antes de
+    preguntar el costo."""
+    modelo = claves.validar_modelo_video(modelo_video)
+    if modelo == "gemini" and not habla:
+        raise ValueError(t("Gemini Omni solo hace escenas que hablan: úsalo en crear_video con animado true."))
+    return modelo
+
+
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
                 animado: bool = False, modelo_video: str = "auto") -> str:
@@ -60,7 +70,8 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
     las del medio y se conserva la última."""
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
-    modelo_video = claves.validar_modelo_video(modelo_video)  # antes de gastar nada
+    # antes de gastar nada. Nunca se fuerza animado: la ventana de costo del MCP se calculó con lo que pidió el agente
+    modelo_video = validar_modelo(modelo_video, habla=animado is True and not (imagen and solo_animar))
     if imagen and solo_animar:
         if modelo_video == "ninguno":
             raise ValueError(t("«Sin animar» no anima nada: para animar solo la imagen, elige otro modelo de video."))
@@ -100,7 +111,7 @@ def crear_anuncios(foto: str, producto: str, detalles: str = "", publico: str = 
     """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto.
     estilo: uno de {estilos}."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
-    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+    with claves.por_trabajo(validar_modelo(modelo_video)):
         return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,
                                     variantes=variantes, segundos=segundos, aviso=_aviso()))
 
@@ -123,7 +134,7 @@ def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", let
     con el sonido y la letra estilo karaoke. Pasa la letra si la tienes: el karaoke muestra la letra escrita, con los
     tiempos de lo que se oye. titulo: el de la canción (vacío: el de su proyecto o el de sus etiquetas).
     Para sincronizar, la canción se sube a la IA de transcripción conectada (Groq u OpenAI); sin ellas se hace en el PC."""
-    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+    with claves.por_trabajo(validar_modelo(modelo_video)):
         return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra, genero=genero,
                                          formato=formato, idea=idea, aviso=_aviso()))
 
@@ -261,7 +272,7 @@ def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: 
     guion (opcional): si tú lo escribes, no se usa la IA de texto de la app. Forma: {"titulo", "resumen",
     "planos": [{"descripcion": lo que se ve en inglés (lugar, acción, cámara; sin texto), "personajes": [nombres
     que salen], "habla": nombre de quien habla o "Narrador", "texto": lo que dice, 1-2 frases}]}."""
-    with claves.por_trabajo(claves.validar_modelo_video(modelo_video)):
+    with claves.por_trabajo(validar_modelo(modelo_video)):
         return _json(serie.crear_episodio(serie_nombre, idea, planos, numero, aviso=_aviso(), guion=guion))
 
 
@@ -310,7 +321,8 @@ def listar_opciones() -> str:
                   "estilos_cabina": list(cabina.PRESETS),
                   "proveedores": [{k: v for k, v in c.items() if k not in ("clave", "base")}
                                   for c in claves.publico() if c["proveedor"] in claves.USOS],
-                  "por_defecto": claves.ajustes(),
+                  # sin lo recordado del selector de cada página: no es lo del estudio y un agente lo leería así
+                  "por_defecto": {k: v for k, v in claves.ajustes().items() if not k.startswith("modelo_video_")},
                   # lo que vale en modelo_video ahora (lo conectado), con su precio y su estado si no atiende
                   "modelos_video": claves.modelos_video()})
 

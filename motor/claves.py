@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -169,10 +170,13 @@ def _ids_modelos(proveedor: str, clave: str) -> list[dict]:
         return []
     elif proveedor == "elevenlabs":
         r = httpx.get("https://api.elevenlabs.io/v1/models", headers={"xi-api-key": clave}, timeout=20)
+        # Sin «Models: Read» ElevenLabs ya dijo que la clave es suya (nombra el permiso que le falta), y la app no usa
+        # esta lista ni para narrar ni para la música: una clave hecha solo con esos permisos se conecta igual
+        if r.status_code in (401, 403) and clasificar(r.status_code, r.text) == "permiso":
+            return []
         r.raise_for_status()
         return []
     elif proveedor == "modal":
-        import subprocess
         import sys
         # -P: no carga un modal.py que haya en la carpeta de trabajo
         r = subprocess.run([sys.executable, "-P", "-m", "modal", "app", "list"], capture_output=True, text=True,
@@ -294,6 +298,53 @@ def voces_elevenlabs(clave: str) -> list[dict]:
             return voces
 
 
+class NoConecta(ValueError):
+    """Por qué una clave no se conectó. estado: el de ESTADOS que lo explica (clave, permiso, sin_conexion…) o
+    «formato». La página lo pone de título: antes todo salía «Clave no válida», también sin internet o con una clave
+    buena a la que le faltaba un permiso."""
+
+    def __init__(self, texto: str, estado: str = "error"):
+        super().__init__(texto)
+        self.estado = estado
+
+
+def _permiso(detalle: str) -> str:
+    """El permiso que falta según el servicio, como lo enseña su web: «missing the permission voices_read» →
+    «Voices: Read»; el de una clave restringida de OpenAI, tal cual («Missing scopes: api.model.read»). "" si no lo
+    dice (un «no permission to access» no nombra ninguno)."""
+    m = re.search(r"missing[_ ](?:the )?permissions?[\s:]+(\w+)|missing scopes?:\s*([\w.]+)", detalle, re.IGNORECASE)
+    if not m:
+        return ""
+    if m[2]:
+        return m[2].rstrip(".")
+    que, _, nivel = m[1].lower().rpartition("_")
+    return f"{que.replace('_', ' ').capitalize()}: {nivel.capitalize()}" if que and nivel in ("read", "write") \
+        else m[1].replace("_", " ").capitalize()
+
+
+def _sin_red(e: Exception) -> bool:
+    """Sin internet, «modal app list» también falla (o no acaba): no es que el token de Modal no valga."""
+    return isinstance(e, subprocess.TimeoutExpired) or \
+        bool(re.search(r"\bconnect|network|timed? ?out|resolve|getaddrinfo", str(e), re.IGNORECASE))
+
+
+def _voces_al_conectar(clave: str) -> tuple[list[dict], str]:
+    """Las voces de la cuenta de ElevenLabs y, si la clave no puede verlas, qué pasa. Sin «Voices: Read» la clave sirve
+    igual (la música no lo necesita): se conecta sin voces y se dice, en vez de rechazarla."""
+    from .ia import motivo  # aquí: ia importa este módulo
+    try:
+        return voces_elevenlabs(clave), ""
+    except httpx.HTTPStatusError as e:
+        detalle = motivo(e.response)
+        # Un 403 llano también: la clave ya listó los modelos, así que lo que le niegan son las voces
+        if e.response.status_code != 403 and clasificar(e.response.status_code, detalle) != "permiso":
+            raise
+        return [], t("La clave de ElevenLabs quedó conectada, pero le falta el permiso «{permiso}»: tus voces de "
+                     "ElevenLabs no saldrán para narrar (la música no lo necesita). Para elegirlas, dale ese permiso "
+                     "a la clave en la web de ElevenLabs (botón «Conseguir clave ↗») y vuelve a conectarla.",
+                     permiso=_permiso(detalle) or "Voices: Read")
+
+
 def limpiar(clave: str) -> str:
     """Lo que se pega, como lo entiende candidatos(). El token de Modal tiene dos partes con prefijo propio (ak- y
     as-) y llega de muchas formas: la orden «modal token set --token-id ak-… --token-secret as-…» que da Modal, con
@@ -323,18 +374,18 @@ def _cuenta_cloudflare(token: str) -> str:
     try:
         r = httpx.get("https://api.cloudflare.com/client/v4/accounts", headers={"Authorization": f"Bearer {token}"},
                       timeout=20)
-    except httpx.HTTPError as e:
-        raise ValueError(t("No hay conexión con {proveedor}: {error}. Inténtalo de nuevo.", proveedor="cloudflare",
-                           error=type(e).__name__)) from None
+    except httpx.HTTPError:
+        raise NoConecta(t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
+                          servicio=nombre("cloudflare")), "sin_conexion") from None
     if r.status_code in (401, 403):
-        raise ValueError(t("Cloudflare no acepta ese token (¿se copió entero?). {falta}", falta=falta))
+        raise NoConecta(t("Cloudflare no acepta ese token (¿se copió entero?). {falta}", falta=falta), "clave")
     try:
         cuentas = {str(a.get("id")) for a in r.json().get("result") or [] if isinstance(a, dict)}
     except (ValueError, AttributeError):
         cuentas = set()
     cuentas = {c for c in cuentas if re.fullmatch(r"[0-9a-f]{32}", c)}
     if r.status_code >= 400 or len(cuentas) != 1:
-        raise ValueError(falta)
+        raise NoConecta(falta, "formato")  # falta una parte de lo que se pega, como con Modal
     return cuentas.pop()
 
 
@@ -346,50 +397,77 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
         clave = clave.strip()
         # su formato no se conoce: cualquier token sin espacios (también base64 o JWT) de un largo razonable
         if proveedor not in VIDEO_DE_PAGO or not re.fullmatch(r"[A-Za-z0-9._~+/=-]{8,512}", clave):
-            raise ValueError(t("Pega solo la clave, sin espacios ni texto alrededor."))
+            raise NoConecta(t("Pega solo la clave, sin espacios ni texto alrededor."), "formato")
         # ponytail: si las claves de Kling resultan medir 40 caracteres (como el token clásico de Cloudflare), esta
         # regla las rechaza: entonces hay que dejar pasar ese caso aquí.
         if candidatos(clave) not in ([], [proveedor]) or clave.startswith(STRIPE) or re.match(AJENAS, clave):
             # «baja»: lo hace la persona al pegar la clave en el cuadro equivocado y no se manda (sin escudo ámbar)
             guardia.registrar("clave_ajena", "baja", t("Se rechazó una clave de otro servicio pegada en «Conectar» "
-                                                        "de {proveedor}: no se mandó.", proveedor=proveedor.capitalize()))
-            raise ValueError(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
-                               "la reconoce sola.", proveedor=proveedor.capitalize()))
+                                                        "de {proveedor}: no se mandó.", proveedor=nombre(proveedor)))
+            raise NoConecta(t("Esa clave es de otro servicio, no de {proveedor}: pégala en el cuadro de arriba, que "
+                              "la reconoce sola.", proveedor=nombre(proveedor)), "formato")
         opciones = [proveedor]
     else:
         clave = limpiar(clave)
         opciones = candidatos(clave)
     if not opciones and re.fullmatch(r"a[ks]-[A-Za-z0-9]+", clave):
-        raise ValueError(t("Es un token de Modal, pero falta la otra parte: pega juntas las dos, la que empieza por "
-                           "«ak-» y la que empieza por «as-», separadas por un espacio (o la orden «modal token set "
-                           "…» entera que te da Modal)."))
+        raise NoConecta(t("Es un token de Modal, pero falta la otra parte: pega juntas las dos, la que empieza por "
+                          "«ak-» y la que empieza por «as-», separadas por un espacio (o la orden «modal token set "
+                          "…» entera que te da Modal)."), "formato")
     if not opciones:  # qué llegó (largo y principio), para saber qué se pegó sin enseñar la clave entera
-        raise ValueError(t("No reconozco el formato de esta clave (llegaron {n} caracteres que empiezan por "
-                           "«{inicio}…»). Pega solo la clave, sin espacios ni texto alrededor. Si es de Kling o "
-                           "Seedance, usa su botón «Conectar» en la lista de servicios.", n=len(clave),
-                           inicio=clave[:6]))
+        raise NoConecta(t("No reconozco el formato de esta clave (llegaron {n} caracteres que empiezan por "
+                          "«{inicio}…»). Pega solo la clave, sin espacios ni texto alrededor. Si es de Kling o "
+                          "Seedance, usa su botón «Conectar» en la lista de servicios.", n=len(clave),
+                          inicio=clave[:6]), "formato")
     if opciones == ["cloudflare"] and not re.search(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])", clave):
         clave = f"{_cuenta_cloudflare(clave)} {clave}"  # solo pegó el token: su cuenta se le pregunta a Cloudflare
     ultimo_error = None
     for proveedor in opciones:
+        servicio = nombre(proveedor)
         try:
             modelos = _ids_modelos(proveedor, clave)
+            voces, aviso = _voces_al_conectar(clave) if proveedor == "elevenlabs" else ([], "")
         except ImportError:  # esta copia de la app aún no trae su conexión
             raise ValueError(t("Esta versión de Ráfaga Studio todavía no trae {proveedor}: actualízala.",
-                               proveedor=proveedor.capitalize())) from None
+                               proveedor=servicio)) from None
         except httpx.HTTPStatusError as e:
-            # Solo si ESTE proveedor rechaza la clave se prueba con el siguiente: así la clave no se manda a otro
-            # proveedor por un fallo de red o del servidor.
-            if e.response.status_code != 401:  # 403 = clave válida sin permiso: no es de otro proveedor
-                raise ValueError(t("{proveedor} no respondió bien ({codigo}); inténtalo de nuevo.", proveedor=proveedor,
-                                   codigo=e.response.status_code))
-            ultimo_error = e
-            continue
-        except httpx.HTTPError as e:
-            raise ValueError(t("No hay conexión con {proveedor}: {error}. Inténtalo de nuevo.", proveedor=proveedor,
-                               error=type(e).__name__))
-        except (RuntimeError, OSError) as e:  # Modal (único candidato de su formato) rechazó el token
-            ultimo_error = e
+            from .ia import motivo  # aquí: ia importa este módulo
+            # limpiar: el cuerpo de la respuesta va a la ventana y a la consola, y hay servicios que repiten la clave
+            codigo, detalle = e.response.status_code, guardia.limpiar(motivo(e.response))
+            respuesta = str(codigo) if detalle == str(codigo) else f"{codigo}: {detalle}"
+            # 403: el servicio no deja usar la clave (no hay que probarla con otro proveedor, y reintentar no lo arregla)
+            estado = "permiso" if codigo == 403 else clasificar(codigo, detalle)
+            if estado == "clave":
+                # Solo si ESTE proveedor rechaza la clave se prueba con el siguiente: así la clave no se manda a otro
+                # proveedor por un fallo de red o del servidor.
+                ultimo_error = t("{servicio} no acepta esta clave ({respuesta}). Comprueba que la copiaste entera, o "
+                                 "crea otra con «Conseguir clave ↗» y conéctala.", servicio=servicio,
+                                 respuesta=respuesta)
+                continue
+            if estado == "permiso":
+                permiso = _permiso(detalle)
+                texto = t("La clave de {servicio} vale, pero le falta el permiso «{permiso}». En la web de {servicio} "
+                          "(botón «Conseguir clave ↗»), edita la clave y dale ese permiso, o crea una con acceso "
+                          "completo; luego vuelve a conectarla.", servicio=servicio, permiso=permiso) if permiso else \
+                    t("{servicio} no deja usar esta clave ({respuesta}). En la web de {servicio} (botón «Conseguir "
+                      "clave ↗»), revisa los permisos de la clave o crea una con acceso completo; luego vuelve a "
+                      "conectarla.", servicio=servicio, respuesta=respuesta)
+                if proveedor == "cloudflare":  # el ID de una zona también mide 32: con él, Cloudflare dice 403
+                    texto += " " + t("Comprueba también que el ID de cuenta es el de tu cuenta (no el de una zona).")
+            elif estado in ("sin_saldo", "sin_cuota"):
+                texto = f"{frase(proveedor, estado)} ({respuesta}). {paso(proveedor, estado)}"
+            else:
+                texto = t("{proveedor} no respondió bien ({codigo}); inténtalo de nuevo.", proveedor=servicio,
+                          codigo=respuesta)
+            raise NoConecta(texto, estado) from None
+        except httpx.RequestError:  # también las redirecciones sin fin de un portal wifi o un proxy
+            raise NoConecta(t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
+                              servicio=servicio), "sin_conexion") from None
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # Modal (único candidato de su formato)
+            if _sin_red(e):
+                raise NoConecta(t("Sin conexión con {servicio}. Revisa tu internet e inténtalo de nuevo.",
+                                  servicio=servicio), "sin_conexion") from None
+            ultimo_error = str(e)  # Modal rechazó el token: su motivo ya va en claro
             continue
         usos = USOS[proveedor]
         info = {**(modelos[0] if proveedor in VIDEO_DE_PAGO else {}), "proveedor": proveedor, "clave": clave,
@@ -408,10 +486,11 @@ def detectar(clave: str, proveedor: str | None = None) -> dict:
             info["modelo_musica"] = "music_v2_5" if proveedor == "elevenlabs" else "lyria-3.5"
         if proveedor == "elevenlabs":
             info["modelo_voz"] = "eleven_multilingual_v2"  # el que admite tiempos por palabra para los subtítulos
-            info["voces"] = voces_elevenlabs(clave)
+            info["voces"] = voces
+        if aviso:  # lo que la página dice al conectarla (no se guarda)
+            info["aviso"] = aviso
         return info
-    raise ValueError(t("La clave parece de {proveedores} pero no funcionó: {error}", proveedores=", ".join(opciones),
-                       error=ultimo_error))
+    raise NoConecta(ultimo_error, "clave")
 
 
 CIFRADO = "DPAPI:"  # prefijo de claves.json cifrado con la cuenta de Windows del usuario
@@ -650,8 +729,10 @@ def clasificar(codigo: int, detalle: str = "") -> str:
                                   r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits", texto):
         return "sin_saldo"
     # La clave vale pero no tiene ese permiso (ElevenLabs deja crear claves con permisos sueltos: «missing the
-    # permission user_read»). Pasó: una clave buena, con saldo, salía como «Clave no válida»
-    if codigo in (401, 403) and re.search(r"missing[_ ](?:the )?permission", texto):
+    # permission user_read»; OpenAI, claves restringidas: «insufficient permissions… Missing scopes: api.model.read»).
+    # Pasó: una clave buena, con saldo, salía como «Clave no válida»
+    if codigo in (401, 403) and re.search(r"missing[_ ](?:the )?permission|missing scopes?\b|insufficient permissions",
+                                          texto):
         return "permiso"
     if codigo in (401, 403) or (codigo == 400 and re.search(r"api[_ ]key", texto)):
         return "clave"
@@ -718,9 +799,10 @@ def _sonda(proveedor: str, info: dict):
         r = httpx.get("https://api.elevenlabs.io/v1/user/subscription", headers={"xi-api-key": clave}, timeout=20)
         if r.status_code in (401, 403) and clasificar(r.status_code, r.text) == "permiso":
             # Una clave sin «User: Read» vale igual para voces y música, pero no deja ver las letras que quedan: si su
-            # lista de modelos responde, la clave vale (como las de SALDO_INVISIBLE)
+            # lista de modelos responde, la clave vale (como las de SALDO_INVISIBLE). Si tampoco tiene «Models: Read»,
+            # ElevenLabs reconoce la clave igual, y esa lista la app no la usa: no se pinta ámbar por ella
             modelos = httpx.get("https://api.elevenlabs.io/v1/models", headers={"xi-api-key": clave}, timeout=20)
-            if modelos.status_code < 400:
+            if modelos.status_code < 400 or clasificar(modelos.status_code, modelos.text) == "permiso":
                 return "clave_ok", t("Sin el permiso «User: Read» de esta clave no se ven las letras que te quedan.")
             return modelos
         if r.status_code < 400:
@@ -730,14 +812,11 @@ def _sonda(proveedor: str, info: dict):
                 return "sin_saldo", t("Se acabaron las letras de tu plan de este mes.")
         return r
     if proveedor == "modal":  # su token, con su propia herramienta (sin GPU ni costo)
-        import subprocess
         try:
             _ids_modelos("modal", clave)
         except (RuntimeError, subprocess.TimeoutExpired) as e:
-            # Sin red, «modal app list» también falla (o no acaba): no es que la clave no valga. Sin detalle: su texto
-            # diría «Modal rechazó el token», y el paso ya dice qué hacer
-            if isinstance(e, subprocess.TimeoutExpired) or \
-                    re.search(r"\bconnect|network|timed? ?out|resolve|getaddrinfo", str(e), re.IGNORECASE):
+            # Sin detalle: su texto diría «Modal rechazó el token», y el paso ya dice qué hacer
+            if _sin_red(e):
                 return "sin_conexion", ""
             return "clave", str(e)
         return "ok", ""

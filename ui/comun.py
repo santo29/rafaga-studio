@@ -212,12 +212,14 @@ class Tarea(QThread):
     def __init__(self, funcion, **datos):
         super().__init__()
         self.funcion, self.datos = funcion, datos
+        self.error = None  # la excepción de `fallo`, por si la página necesita más que su texto (p. ej. su título)
 
     def run(self):
         try:
             self.listo.emit(self.funcion(**self.datos, aviso=lambda t, f: self.progreso.emit(t, f)))
         except Exception as e:  # el error se muestra al usuario, no debe tumbar la app (el detalle, en la consola)
             traceback.print_exc()
+            self.error = e
             self.fallo.emit(texto_de_error(e))
 
 

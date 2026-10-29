@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCh
 
 from motor import diseno, edicion, marca, seguro, video
 from motor.idioma import t
-from ui.comun import (archivo_valido, boton, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO, REFLEJO_FINO,
-                      SelectorVoz, Tarea, tarjeta)
+from ui.comun import (archivo_valido, aviso_guardado, boton, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO,
+                      REFLEJO_FINO, SelectorVoz, Tarea, tarjeta)
 from ui import iconos
 from ui.grabarte import PanelGrabarte, casilla
 from ui.linea_tiempo import Hilo, LineaTiempo, nombre, reloj, render
@@ -1529,6 +1529,8 @@ class PaginaEdicion(QWidget):
     def _exportado_listo(self, resultado):
         self._exportado = Path(resultado["archivo"])
         self.estado.setText(f"✅ {t('Exportado: {archivo}', archivo=self._exportado)}")
+        # Se guarda solo en Videos / Ráfaga Studio, sin preguntar dónde: se dice en claro, con «Abrir carpeta»
+        aviso_guardado(self, t("Video exportado"), self._exportado)
 
     def abrir_carpeta(self):
         """La carpeta de lo último exportado (por defecto, Videos / Ráfaga Studio)."""

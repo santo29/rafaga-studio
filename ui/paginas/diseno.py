@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox,
 
 from motor import claves, diseno, ia, marca, recursos, seguro
 from motor.idioma import dinero, t
-from ui.comun import archivo_valido, boton, etiqueta, mensaje, mensaje_error, REFLEJO_FINO, resumen_avisos, Tarea
+from ui.comun import (archivo_valido, aviso_guardado, boton, etiqueta, mensaje, mensaje_error, REFLEJO_FINO,
+                      resumen_avisos, Tarea)
 from ui.iconos import COLOR, icono
 
 FORMAS = {"rectangulo": t("Rectángulo"), "elipse": t("Elipse"), "linea": t("Línea")}
@@ -1264,8 +1265,10 @@ class PaginaDiseno(QWidget):
                                                    ";;".join(FORMATOS.values()))
         if ruta:
             extension = {"jpeg": "jpg"}.get(Path(ruta).suffix.lower()[1:], Path(ruta).suffix.lower()[1:])
-            self.exportar(Path(ruta), extension if extension in FORMATOS else
-                          next((f for f, t in FORMATOS.items() if t == filtro), "png"))
+            hecho = self.exportar(Path(ruta), extension if extension in FORMATOS else
+                                  next((f for f, t in FORMATOS.items() if t == filtro), "png"))
+            if hecho:  # la barra de abajo corta una ruta larga: dónde quedó, en claro y con «Abrir carpeta»
+                aviso_guardado(self, t("Diseño exportado"), hecho)
 
     def exportar(self, destino, formato="png"):
         """Exporta a la escala elegida arriba (1x, 2x, 4x, 4K o portada de música)."""

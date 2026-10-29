@@ -1,6 +1,7 @@
 """Piezas comunes de la interfaz: estilo, mensajes, botones, tareas en segundo plano y el reproductor."""
 import os
 import re
+import shutil
 import time
 import traceback
 from pathlib import Path
@@ -583,6 +584,134 @@ def resumen_avisos(avisos: list[str], maximo: int = 5) -> str:
     return "\n".join(lineas)
 
 
+def carpeta_para(sufijo: str) -> Path:
+    """La carpeta del usuario para ese tipo de archivo: Videos, Imágenes o Música; lo demás, Descargas."""
+    sufijo = sufijo.lower()
+    lugar = (QStandardPaths.MoviesLocation if sufijo in seguro.VIDEOS else  # antes que AUDIOS: un .mp4 es video
+             QStandardPaths.PicturesLocation if sufijo in seguro.IMAGENES else
+             QStandardPaths.MusicLocation if sufijo in seguro.AUDIOS else QStandardPaths.DownloadLocation)
+    return Path(QStandardPaths.writableLocation(lugar)
+                or QStandardPaths.writableLocation(QStandardPaths.DownloadLocation))
+
+
+def nombre_libre(carpeta: Path, nombre: str, sufijo: str) -> Path:
+    """<carpeta>/<nombre><sufijo> sin pisar otro: «<nombre> (2)<sufijo>»… El nombre, sin lo que Windows no admite."""
+    limpio = re.sub(r'[\\/:*?"<>|\s]+', " ", nombre).strip(" .")[:80] or "Ráfaga Studio"
+    ruta, n = Path(carpeta) / f"{limpio}{sufijo}", 2
+    while ruta.exists():
+        ruta, n = Path(carpeta) / f"{limpio} ({n}){sufijo}", n + 1
+    return ruta
+
+
+def se_puede_abrir(ruta) -> bool:
+    """Si su carpeta se puede enseñar: un ejemplo vive entre los archivos del programa (ejemplos/, assets/) y ahí no
+    se manda a nadie a borrar; lo del usuario (datos/ o fuera del programa), sí."""
+    raiz, ruta = guardia.RAIZ.resolve(), Path(ruta).resolve()
+    return not ruta.is_relative_to(raiz) or ruta.is_relative_to(raiz / "datos")
+
+
+def aviso_guardado(padre, titulo: str, ruta):
+    """Dónde quedó lo que se acaba de guardar, con «Abrir carpeta»: nada se guarda sin que el usuario sepa dónde."""
+    ruta = Path(ruta)
+    carpeta = ruta if ruta.is_dir() else ruta.parent
+    return mensaje(padre, titulo, t("Guardado en {carpeta}", carpeta=ruta),
+                   botones=[(t("Abrir carpeta"), lambda: os.startfile(carpeta))])
+
+
+def _guardar_imagen(origen: Path, destino: Path, jpg: bool) -> bool:
+    imagen = QImage(str(origen))
+    if jpg and imagen.hasAlphaChannel():  # el JPG no tiene transparencia: salía negra
+        opaca = QImage(imagen.size(), QImage.Format_RGB32)
+        opaca.fill(Qt.white)
+        pintor = QPainter(opaca)
+        pintor.drawImage(0, 0, imagen)
+        pintor.end()
+        imagen = opaca
+    return imagen.save(str(destino), "JPG" if jpg else "PNG", 95)  # la calidad solo cuenta en JPG
+
+
+def descargar(padre, archivo, titulo: str = "") -> Path | None:
+    """«Descargar»: una copia del resultado donde elija el usuario. Por defecto en Videos, Imágenes, Música o Descargas
+    según el tipo y con un nombre libre; nunca pisa otro archivo sin preguntar. Una imagen, en PNG o JPG. Al acabar,
+    dónde quedó y «Abrir carpeta». Devuelve la copia, o None si se canceló o no se pudo."""
+    origen = Path(archivo)
+    sufijo = origen.suffix.lower()
+    imagen = sufijo in seguro.IMAGENES
+    validos = (".png", ".jpg", ".jpeg") if imagen else (sufijo,)
+    if seguro.es_ruta_de_red(str(origen)):  # leerlo ya conectaría por SMB con ese servidor
+        mensaje_error(padre, t("No se pudo descargar"), t(
+            "{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o ábrelo desde una "
+            "unidad con letra, como Z:): {ruta}", que=t("archivo").capitalize(), ruta=origen))
+        return None
+    sugerido = nombre_libre(carpeta_para(sufijo), titulo or origen.stem, validos[0])
+    filtro = "PNG (*.png);;JPG (*.jpg *.jpeg)" if imagen else f"{sufijo[1:].upper()} (*{sufijo})"
+    ruta, _ = QFileDialog.getSaveFileName(padre, t("Descargar"), str(sugerido), filtro)  # pregunta antes de pisar
+    if not ruta:
+        return None
+    destino = Path(ruta)
+    if destino.suffix.lower() not in validos:  # sin extensión o con otra: la suya, y por esa el diálogo no preguntó
+        destino = destino.with_name(destino.name + validos[0])
+        pregunta = t("Ya hay un archivo «{nombre}» en esa carpeta. ¿Reemplazarlo?", nombre=destino.name)
+        if destino.exists() and QMessageBox.question(padre, t("Reemplazar archivo"), pregunta) != QMessageBox.Yes:
+            return None
+    # A un archivo aparte y luego en su sitio: si falla a medias (disco lleno), el que había no se pierde
+    parcial = destino.with_name(destino.name + ".parcial")
+    QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+    try:
+        # ponytail: se copia en el hilo de la ventana (un video de cientos de MB la para unos segundos); si molesta,
+        # a una Tarea
+        listo = _guardar_imagen(origen, parcial, destino.suffix.lower() != ".png") if imagen else \
+            shutil.copyfile(origen, parcial)
+        if listo:
+            os.replace(parcial, destino)
+    except OSError:
+        listo = False
+    finally:
+        QGuiApplication.restoreOverrideCursor()
+    if not listo:
+        parcial.unlink(missing_ok=True)
+        mensaje_error(padre, t("No se pudo descargar"), t("No se pudo guardar en {ruta}.", ruta=destino))
+        return None
+    aviso_guardado(padre, t("Descargado"), destino)
+    return destino
+
+
+class AccionesResultado(QWidget):
+    """Lo que se hace con un resultado, igual en cada sección que crea archivos: «Descargar» una copia donde se quiera
+    y, a la vista, «Guardado en: <carpeta>» con «Abrir carpeta». Antes unas secciones no tenían «Descargar» y nadie
+    sabía en qué carpeta quedaba lo hecho."""
+
+    def __init__(self, estilo: str = "principal"):
+        """estilo: «secundario» donde lo hecho es un paso intermedio (la toma de la Cabina) y la acción principal
+        es otra: tres botones de color en una tarjeta no dejan ver cuál toca."""
+        super().__init__()
+        fila = QHBoxLayout(self)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(10)
+        self.descargar = boton(f"⬇  {t('Descargar')}", estilo)
+        self.descargar.setToolTip(t("Guardar una copia donde quieras"))
+        self.descargar.clicked.connect(lambda: descargar(self, self.archivo, self.titulo))
+        self.donde = etiqueta("", "sub")
+        self.donde.setTextInteractionFlags(Qt.TextSelectableByMouse)  # la ruta se puede copiar
+        self.abrir = boton(f"📂  {t('Abrir carpeta')}")
+        self.abrir.clicked.connect(lambda: os.startfile(self.carpeta))
+        fila.addWidget(self.descargar)
+        fila.addWidget(self.donde, 1)
+        fila.addWidget(self.abrir)
+        self.archivo, self.titulo, self.carpeta = None, "", None
+        self.hide()
+
+    def mostrar(self, archivo=None, titulo: str = "", carpeta=None):
+        """archivo: lo que copia «Descargar» (su carpeta es la que se enseña). Sin archivo, solo la carpeta."""
+        self.archivo, self.titulo = archivo and Path(archivo), titulo
+        self.carpeta = Path(carpeta) if carpeta else self.archivo.parent
+        visible = se_puede_abrir(self.carpeta)
+        self.donde.setText(t("Guardado en: {carpeta}", carpeta=self.carpeta) if visible else "")
+        self.abrir.setVisible(visible)
+        self.descargar.setVisible(self.archivo is not None)
+        self.show()
+
+
 class Reproductor(QFrame):
     """Vista previa de los videos generados, con su título, descripción y hashtags."""
     # Lo pone app.py: al_editar(archivo, formato) abre el resultado en el editor de video (las páginas no se conocen)
@@ -614,20 +743,22 @@ class Reproductor(QFrame):
         self.avisos_txt = etiqueta("")  # avisos técnicos aparte, para que nunca se copien a una publicación
         self.avisos_txt.setStyleSheet("color: #FFB454;")
         self.avisos_txt.hide()
-        copiar, abrir = boton(t("Copiar texto para publicar")), boton(t("Abrir carpeta"))
+        copiar = boton(t("Copiar texto para publicar"))
         copiar.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.info.toPlainText()))
-        abrir.clicked.connect(self._abrir_carpeta)
+        # Descargar y dónde quedó, justo bajo la lista: debajo del video quedaban fuera de la vista al terminar
+        self.acciones = AccionesResultado()
         self.editar = boton(f"✂️  {t('Editar')}")
         self.editar.setToolTip(t("Abrir este resultado en el editor de video"))
         self.editar.clicked.connect(self._editar)
         self.editar.setVisible(Reproductor.al_editar is not None)
         self.formato = "9:16"
         fila = QHBoxLayout()
-        for w in (self.play, self.editar, copiar, abrir):
+        for w in (self.play, self.editar, copiar):
             fila.addWidget(w)
         fila.addStretch()
         lay.addWidget(etiqueta(t("Resultados"), "sub"))
         lay.addWidget(self.lista)
+        lay.addWidget(self.acciones)
         lay.addWidget(self.pantalla, 1)
         lay.addWidget(self.barra)
         lay.addLayout(fila)
@@ -650,11 +781,14 @@ class Reproductor(QFrame):
             self.lista.addItem(QListWidgetItem(f"{i}. {t(r['titulo'])}{extra}"))
         if self.resultados:
             self.lista.setCurrentRow(0)
+        else:
+            self.acciones.hide()
 
     def _elegir(self, fila):
         if fila < 0:
             return
         r = self.resultados[fila]
+        self.acciones.mostrar(r["archivo"], t(r["titulo"]))  # cada short, anuncio o canción, el suyo
         self.player.setSource(QUrl.fromLocalFile(r["archivo"]))
         # sin_markdown: los proyectos de antes guardan la descripción con el Markdown de la IA
         titulo, descripcion = ia.sin_markdown(t(r["titulo"]), "linea"), ia.sin_markdown(r["descripcion"])
@@ -669,11 +803,6 @@ class Reproductor(QFrame):
         else:
             self.player.play()
             poner(self.play, f"⏸  {t('Pausar')}")
-
-    def _abrir_carpeta(self):
-        fila = self.lista.currentRow()
-        if fila >= 0:
-            os.startfile(os.path.dirname(self.resultados[fila]["archivo"]))
 
     def _editar(self):
         fila = self.lista.currentRow()
@@ -841,7 +970,7 @@ class VisorImagen(QDialog):
         self.descargar.setToolTip(t("Guardar una copia en PNG o JPG donde quieras (Ctrl+S)"))
         self.descargar.setShortcut(QKeySequence.Save)
         self.descargar.setDefault(True)  # Intro descarga
-        self.descargar.clicked.connect(self._descargar)
+        self.descargar.clicked.connect(lambda: descargar(self, self.ruta, self.windowTitle()))
         self.disenar = boton(f"🎨  {t('Editar en Diseño')}")
         # Un diseño guardado se abre con sus capas; una imagen suelta (un ejemplo) entra entera en uno nuevo
         self.disenar.setToolTip(t("Cambiar sus textos, colores y capas en la página Diseño")
@@ -861,39 +990,12 @@ class VisorImagen(QDialog):
         lay.addLayout(fila)
         self.disenar.setVisible(VisorImagen.al_disenar is not None)  # por la clase: si no, Python la ataría a self
         self.animar.setVisible(VisorImagen.al_animar is not None)
-        # Un ejemplo vive entre los archivos del programa (ejemplos/, assets/): ahí no se manda a nadie a borrar
-        raiz, ruta = guardia.RAIZ.resolve(), self.ruta.resolve()
-        carpeta.setVisible(not ruta.is_relative_to(raiz) or ruta.is_relative_to(raiz / "datos"))
+        carpeta.setVisible(se_puede_abrir(self.ruta))
 
     def _llevar(self, a_donde, *datos):
         """A otra página de la app (que no empieza nada sola): se cierra para que se vea."""
         self.accept()
         a_donde(str(self.ruta), *datos)
-
-    def _descargar(self):
-        """Una copia donde elija, en PNG o JPG; por defecto, en Descargas y con el nombre del diseño."""
-        carpeta = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation) or \
-            QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
-        nombre = re.sub(r'[\\/:*?"<>|\s]+', " ", self.windowTitle()).strip() or self.ruta.stem
-        ruta, _ = QFileDialog.getSaveFileName(self, t("Descargar imagen"), str(Path(carpeta) / f"{nombre}.png"),
-                                              "PNG (*.png);;JPG (*.jpg *.jpeg)")
-        if not ruta:
-            return
-        destino = Path(ruta)
-        if destino.suffix.lower() not in (".png", ".jpg", ".jpeg"):  # sin extensión o con otra: PNG
-            destino = destino.with_name(f"{destino.name}.png")
-        imagen = QImage(str(self.ruta))
-        if destino.suffix.lower() != ".png" and imagen.hasAlphaChannel():  # el JPG no tiene transparencia: salía negra
-            opaca = QImage(imagen.size(), QImage.Format_RGB32)
-            opaca.fill(Qt.white)
-            pintor = QPainter(opaca)
-            pintor.drawImage(0, 0, imagen)
-            pintor.end()
-            imagen = opaca
-        if not imagen.save(str(destino), None, 95):  # la calidad solo cuenta en JPG
-            return mensaje_error(self, t("No se pudo descargar"), t("No se pudo guardar la imagen en {ruta}.",
-                                                                    ruta=destino))
-        mensaje(self, t("Imagen descargada"), t("Guardada en {ruta}", ruta=destino))
 
 
 def ver_imagen(padre, ruta, titulo: str):
@@ -914,6 +1016,8 @@ def ver_video(padre, proyecto: dict):
     lay.setContentsMargins(12, 12, 12, 12)
     ventana.reproductor = Reproductor()
     ventana.reproductor.lista.setVisible(len(proyecto["resultados"]) > 1)  # con uno solo, la lista sobra
+    # Con «Descargar» y «Guardado en» (dos líneas si la ruta es larga) no cabía en 1280×720 con la barra de tareas
+    ventana.reproductor.pantalla.setMinimumHeight(300)
     lay.addWidget(ventana.reproductor)
     ventana.reproductor.mostrar(proyecto)
     ventana.finished.connect(ventana.reproductor.player.stop)

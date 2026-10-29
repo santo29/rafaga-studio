@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QGridLay
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from motor import actividad, claves, nube
-from motor.idioma import t, texto_de_error
+from motor import actividad, claves, ia, nube
+from motor.idioma import dinero, t, texto_de_error
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 from ui.paginas.guardia import _estilo_chip  # la misma pastilla de vidrio que la gravedad de Ráfaga Guardia
 
@@ -214,6 +214,23 @@ class PaginaClaves(QWidget):
             if uso == "diseno":
                 self.nota_diseno = etiqueta(t("Claude o ChatGPT diseñan mejor: conecta su clave."), "sub")
                 defecto_lay.addWidget(self.nota_diseno)
+        # El modelo de Claude para todo lo que hace Claude (guiones, Director, nichos, investigación en internet), con
+        # lo que cuesta cada uno (ia.PRECIO_TEXTO, el mismo precio que apunta la actividad de la IA)
+        fila = QHBoxLayout()
+        texto = etiqueta(t("Modelo de Claude"))
+        texto.setFixedWidth(230)
+        self.modelo_claude = QComboBox()
+        for modelo, nombre in zip(claves.MODELOS_CLAUDE, (t("Opus 5.5 (la mejor calidad)"),
+                                                          t("Sonnet 5.5 (más rápido y más barato)"))):
+            entrada, salida = ia.PRECIO_TEXTO[modelo]
+            self.modelo_claude.addItem(t("{modelo} · {entrada} por millón de tokens de entrada y {salida} de salida",
+                                         modelo=nombre, entrada=dinero(entrada), salida=dinero(salida)), modelo)
+        self.modelo_claude.setCurrentIndex(max(self.modelo_claude.findData(claves.modelo_claude()), 0))
+        self.modelo_claude.currentIndexChanged.connect(lambda _: (claves.elegir_por_defecto(
+            "modelo_claude", self.modelo_claude.currentData()), self._refrescar()))  # la lista enseña el modelo
+        fila.addWidget(texto)
+        fila.addWidget(self.modelo_claude, 1)
+        defecto_lay.addLayout(fila)
         # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip).
         # El aviso va debajo: una casilla no parte su texto en líneas y, entero, la página no cabía en 1280 px
         fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): permitir descargas a través de él."))
@@ -339,7 +356,10 @@ class PaginaClaves(QWidget):
             tarea = actividad.nombre_tarea(l["tarea"])
             celdas = (fecha[11:16] if fecha[:10] == hoy else f"{fecha[8:10]}/{fecha[5:7]} {fecha[11:16]}",
                       f"{t('Agente MCP')} · {tarea}" if l["origen"] == "mcp" else tarea,
-                      actividad.nombre_que(l["que"]), actividad.nombre_servicio(l["proveedor"]),
+                      actividad.nombre_que(l["que"]),
+                      # con Claude, el modelo que respondió (Opus 5.5 o Sonnet 5.5): cambian lo que cuesta
+                      " ".join(filter(None, (actividad.nombre_servicio(l["proveedor"]),
+                                             claves.MODELOS_CLAUDE.get(l["modelo"])))),
                       t("no se cobró") if fallo and not l["costo"] else actividad.texto_costo(l["costo"]),
                       actividad.texto_resultado(l))
             for columna, texto in enumerate(celdas):

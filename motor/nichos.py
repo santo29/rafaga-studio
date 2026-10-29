@@ -1,6 +1,7 @@
 """Investigador de nichos virales: datos reales de YouTube + investigación web en vivo + análisis de la IA."""
 import json
 import queue
+import re
 import threading
 import time
 from datetime import datetime
@@ -70,7 +71,7 @@ def _a_tiempo(tareas: dict, plazo: float, hilos: int = 6) -> dict:
         cola.put(tarea)
 
     def obrero():
-        while True:
+        while time.monotonic() < fin:  # pasado el plazo no se empieza otra: gastaría red mientras la IA analiza
             try:
                 nombre, funcion = cola.get_nowait()
             except queue.Empty:
@@ -122,8 +123,10 @@ def _fechas_guardadas() -> dict:
     except (OSError, ValueError):
         return {}
     ahora = time.time()
+    # Una fecha mal escrita (archivo tocado a mano) tumbaba cada investigación en strptime hasta borrar el archivo
     return {i: v for i, v in datos.items() if isinstance(v, list) and len(v) == 2 and isinstance(v[0], str)
-            and isinstance(v[1], (int, float)) and ahora - v[1] < VIGENCIA_FECHAS} if isinstance(datos, dict) else {}
+            and re.fullmatch(r"\d{8}", v[0]) and isinstance(v[1], (int, float)) and ahora - v[1] < VIGENCIA_FECHAS} \
+        if isinstance(datos, dict) else {}
 
 
 def _youtube(consultas: list[str], avisar: Callable[[str, float], None]) -> list[dict]:
@@ -198,14 +201,18 @@ def investigar(tema: str = "", redes: str = "YouTube, TikTok, Instagram y Facebo
         avisar(t("Investigando tendencias en internet (TikTok, Instagram, Facebook)…"),
                0.3 + 0.35 * min((time.monotonic() - inicio) / PLAZO_WEB, 1))
         hilo_web.join(max(0.0, min(5.0, limite - time.monotonic())))
-    texto_web, notas = web.get("texto"), []
-    if hilo_web.is_alive():
-        notas.append(t("La investigación en internet tardó demasiado: el análisis siguió solo con YouTube."))
+    # El estado del hilo se lee una vez: si acaba entre dos lecturas, su texto no puede usarse sin su nota
+    vivo = hilo_web.is_alive()
+    texto_web, notas = None if vivo else web.get("texto"), []
+    tarde = t("La investigación en internet tardó demasiado: el análisis siguió solo con YouTube.")
+    if vivo:
+        notas.append(tarde)
     elif web.get("error"):
         notas.append(t("La investigación en internet falló ({causa}): el análisis siguió solo con YouTube.",
                        causa=texto_de_error(web["error"])))
-    elif texto_web and web["segundos"] >= PLAZO_WEB:
-        notas.append(t("La investigación en internet llegó a su tiempo máximo: se usó lo que alcanzó a encontrar."))
+    elif web.get("segundos", 0) >= PLAZO_WEB:  # cortada: con Opus y Sonnet 5.5 el texto llega al final, y suele no haber
+        notas.append(t("La investigación en internet llegó a su tiempo máximo: se usó lo que alcanzó a encontrar.")
+                     if texto_web else tarde)
     for nota in notas:
         avisar(nota, 0.65)
 

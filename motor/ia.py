@@ -540,6 +540,15 @@ def _claude(c: dict):
     return anthropic.Anthropic(api_key=c["clave"], timeout=anthropic.Timeout(PLAZO_CLAUDE, connect=15.0))
 
 
+def _error_claude(c: dict, e) -> RuntimeError:
+    """_error_texto de un anthropic.APIStatusError. Uno a mitad del stream (p. ej. «overloaded») llega con el 200 del
+    principio y su cuerpo ya leído en e.body: e.response.text no se puede leer ahí (salía httpx2.ResponseNotRead, en
+    inglés, sin apuntar y sin probar otra IA). Se toma como 529: no atendió."""
+    detalle = _mensaje_de(e.body) if isinstance(e.body, dict) else None
+    return _error_texto(c, e.status_code if e.status_code >= 400 else 529,
+                        recortar(" ".join(detalle.split()), 300) if detalle else motivo(e.response))
+
+
 def _costo_claude(modelo: str, uso, largo: float = 0, busquedas: int = 0) -> float:
     """Lo que costó un pedido a Claude con los tokens que dice su respuesta: la entrada, la que se escribió en caché
     (1,25 × entrada) y la que se leyó de ella, la salida y cada búsqueda web. Sin `uso`, la entrada se estima (`largo`)."""
@@ -562,10 +571,11 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         # Lo rápido (un paso del Director, entender un pedido) y el repaso de ortografía: piensa poco y responde en
         # segundos. Los guiones y los análisis, «medium» (el de fábrica de Opus 5.5; Sonnet 5.5 traería «high», más lento).
         charla = _CHARLA.get()
-        rapido = rapido or charla or esquema is _ESQUEMA_ORTOGRAFIA
+        rapido = rapido or charla or esquema == _ESQUEMA_ORTOGRAFIA  # por contenido: una copia también es rápida
         try:
             with _claude(c).messages.stream(
-                model=modelo, max_tokens=16000 if rapido else 32000,
+                # En streaming un tope alto no cuesta si no se usa, y lo que piensa también cuenta en él
+                model=modelo, max_tokens=16000 if rapido else 64000,
                 # El Director manda las mismas instrucciones (largas) en cada paso: en caché cuestan y tardan menos desde
                 # el segundo. En un pedido suelto no se recupera lo que cuesta escribirla (1,25 ×): ahí no se pide
                 system=[{"type": "text", "text": instrucciones, "cache_control": {"type": "ephemeral"}}] if charla
@@ -576,14 +586,18 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
             ) as s:
                 r = s.get_final_message()
         except anthropic.APIStatusError as e:  # sin esto se veía «Error code: 401 - {'error': {…}, 'request_id': …}»
-            raise _error_texto(c, e.status_code, motivo(e.response)) from None
+            raise _error_claude(c, e) from None
         except Exception as e:  # sin conexión, cortado…: también se apunta
             actividad.anotar("texto", c["proveedor"], modelo, error=e)
             raise
         actividad.anotar("texto", c["proveedor"], modelo, _costo_claude(modelo, getattr(r, "usage", None), largo),
-                         t("Claude rechazó el pedido.") if r.stop_reason == "refusal" else None)
+                         {"refusal": t("Claude rechazó el pedido."),
+                          "max_tokens": t("respondió incompleto")}.get(r.stop_reason))
         if r.stop_reason == "refusal":
             raise RuntimeError(t("Claude rechazó el pedido."))
+        if r.stop_reason == "max_tokens":  # el JSON llega cortado: json.loads fallaba en inglés, ya pagado
+            raise RuntimeError(t("Claude respondió incompleto (se quedó sin espacio para terminar). "
+                                 "Inténtalo de nuevo."))
         claves.recordar(c["proveedor"], 200)
         return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
 
@@ -900,44 +914,68 @@ def pegar_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path
 
 def investigar_web(pregunta: str, plazo: float = 300) -> str | None:
     """Investigación en vivo en internet con Claude (búsqueda web). None si la IA de texto no es Claude.
-    Como mucho `plazo` segundos: al cumplirse se corta y devuelve lo que ya escribió (o None si nada). Es un paso
-    intermedio (lo analiza otra IA después): esfuerzo «low» y hasta 5 búsquedas, que busque menos y lo junte antes."""
+    Como mucho `plazo` segundos (y lo que tarda en cerrarse la conexión): al cumplirse se corta y devuelve lo que ya
+    escribió (o None si nada). Es un paso intermedio (lo analiza otra IA después): esfuerzo «low» y hasta 5 búsquedas,
+    que busque menos y lo junte antes."""
     c = claves.para("texto")
     if not c or c.get("proveedor") != "anthropic":
         return None
     import anthropic
-    modelo, fin = c.get("modelo_texto") or "", time.monotonic() + plazo
-    mensajes = [{"role": "user", "content": pregunta}]
-    for _ in range(6):  # la búsqueda puede pausar el turno; se retoma hasta 5 veces
-        cortado = False
-        try:
-            # En streaming: el plazo se mira con cada trozo que llega y la conexión nunca espera 10 min a ciegas
-            with _claude(c).messages.stream(
-                    model=modelo, max_tokens=16000, output_config={"effort": "low"},
-                    tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
-                    messages=mensajes) as s:
-                for _evento in s:
-                    if time.monotonic() > fin:
-                        cortado = True
-                        break
-                # ponytail: cortado, la salida que se apunta es la de hasta ahora (la del final no llega): por lo bajo
-                r = s.current_message_snapshot if cortado else s.get_final_message()
-        except anthropic.APIStatusError as e:  # en claro («respondió 400: Your credit balance is too low»), no el JSON
-            error = _error_texto(c, e.status_code, motivo(e.response))
-            if isinstance(error, SinServicio):  # _error_texto deja apuntar esos a quien llama
-                actividad.anotar("texto", "anthropic", modelo, error=error.corto)
-            raise error from None
-        except Exception as e:
-            actividad.anotar("texto", "anthropic", modelo, error=e)
-            raise
-        uso = getattr(r, "usage", None)  # cada búsqueda web cuesta aparte: va en la misma línea
-        busquedas = getattr(getattr(uso, "server_tool_use", None), "web_search_requests", 0) or 0
-        actividad.anotar("texto", "anthropic", modelo, _costo_claude(modelo, uso, busquedas=busquedas),
-                         t("Se cortó: tardó más de {segundos} s.", segundos=round(plazo)) if cortado else None)
-        if cortado or r.stop_reason != "pause_turn":
-            break
-        mensajes = [*mensajes, {"role": "assistant", "content": r.content}]
-    return "\n".join(b.text for b in r.content if b.type == "text") or None
+    modelo, cliente, vencido = c.get("modelo_texto") or "", _claude(c), threading.Event()
+
+    def cortar():
+        vencido.set()
+        cliente.close()
+    # El plazo de verdad: mirar el reloj con cada evento no bastaba (los «ping» no llegan al bucle y, mientras Claude
+    # piensa o busca, no llega nada). Cerrar el cliente corta la espera aunque no llegue nada, también la de cabeceras
+    reloj = threading.Timer(plazo, cortar)
+    reloj.daemon = True
+    reloj.start()
+    mensajes, r = [{"role": "user", "content": pregunta}], None
+    try:
+        # La búsqueda puede pausar el turno; se retoma hasta 5 veces, nunca pasado el plazo: otra ronda reenviaría (y
+        # pagaría como entrada) todo lo encontrado para cortarse enseguida
+        for _ in range(6):
+            if vencido.is_set():
+                break
+            parcial, cortado = None, False
+            try:
+                with cliente.messages.stream(
+                        model=modelo, max_tokens=16000, output_config={"effort": "low"},
+                        tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
+                        messages=mensajes) as s:
+                    for _evento in s:
+                        parcial = s.current_message_snapshot  # lo escrito hasta ahora: lo que queda si se corta
+                    r = s.get_final_message()
+            except anthropic.APIStatusError as e:  # en claro («respondió 400: Your credit balance is too low»)
+                error = _error_claude(c, e)
+                if isinstance(error, SinServicio):  # _error_texto deja apuntar esos a quien llama
+                    actividad.anotar("texto", "anthropic", modelo, error=error.corto)
+                raise error from None
+            except Exception as e:
+                if not vencido.is_set():  # sin conexión…; el corte del plazo, en cambio, no es un fallo
+                    actividad.anotar("texto", "anthropic", modelo, error=e)
+                    raise
+                cortado = True
+            hecho = parcial if cortado else r
+            uso = getattr(hecho, "usage", None)  # cada búsqueda web cuesta aparte: va en la misma línea
+            # Cortado, el uso es el del principio: las búsquedas se cuentan en el contenido y la salida (que llega al
+            # final) queda por lo bajo. ponytail: se apunta solo la de hasta el principio
+            busquedas = (getattr(getattr(uso, "server_tool_use", None), "web_search_requests", 0)
+                         or sum(b.type == "server_tool_use" and b.name == "web_search"
+                                for b in getattr(hecho, "content", None) or []))
+            actividad.anotar("texto", "anthropic", modelo, _costo_claude(modelo, uso, busquedas=busquedas),
+                             t("Se cortó: tardó más de {segundos} s.", segundos=round(plazo)) if cortado
+                             else t("Claude rechazó el pedido.") if r.stop_reason == "refusal" else None)
+            if cortado:
+                r = parcial or r  # sin nada nuevo, lo de la ronda anterior
+                break
+            if r.stop_reason != "pause_turn":
+                break
+            mensajes = [*mensajes, {"role": "assistant", "content": r.content}]
+    finally:
+        reloj.cancel()
+    return ("\n".join(b.text for b in r.content if b.type == "text") or None) if r else None
 
 
 def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:

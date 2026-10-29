@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -101,7 +102,9 @@ try:
     assert all(int(i[1:]) % 2 for i in fechas), fechas  # solo las de fecha gruesa: «hace 2 días» ya vale
     assert COLGADO in fechas and all(i.startswith("z") for i in fechas)  # los más vistos
     pedido = analisis[-1]
-    assert "En TikTok explotan" in pedido and "subido hace 400 días" in pedido and "subido hace 2 días" in pedido
+    # 400 o 401: la fecha exacta es solo el día y los días se cuentan desde su medianoche (por la tarde redondea a 401)
+    assert "En TikTok explotan" in pedido and re.search(r"subido hace 40[01] días", pedido) and \
+        "subido hace 2 días" in pedido
     assert pedido.count("Video z3 |") == 1  # el que sale en las tres búsquedas, una vez
     assert plazos_web == [nichos.PLAZO_WEB] and r["con_web"] and "avisos" not in r
     assert any(re.search(r" · \d+ s$", a) for a in avisos), avisos  # el progreso dice el tiempo que lleva
@@ -119,6 +122,11 @@ try:
     assert nichos._fechas_guardadas() == {}
     nichos.FECHAS.write_text("{roto", encoding="utf-8")
     assert nichos._fechas_guardadas() == {}
+    # Ni una fecha mal escrita (tocada a mano): antes tumbaba cada investigación en strptime
+    nichos.FECHAS.write_text(json.dumps({COLGADO: ["2024-01-01", AHORA], "z0000000001": ["20240101", AHORA]}),
+                             encoding="utf-8")
+    assert list(nichos._fechas_guardadas()) == ["z0000000001"]
+    assert nichos.investigar("tema")["nichos"]
 
     # La web no responde nunca: la investigación sigue sin ella cuando se acaba su plazo, y lo dice
     nichos.PLAZO_WEB = 1.0
@@ -129,6 +137,12 @@ try:
     assert time.monotonic() - inicio < 4, time.monotonic() - inicio
     assert not r["con_web"] and "tardó demasiado" in r["avisos"][0], r
     assert "no terminó a tiempo o falló" in analisis[-1] and "Dame 5 nichos" in analisis[-1]
+    # Se corta ella sola en su plazo sin texto (lo normal si aún buscaba: Opus y Sonnet 5.5 escriben al final): también
+    # se dice, no se queda en silencio
+    ia.investigar_web = lambda pregunta, plazo=300: time.sleep(plazo) or None
+    r = nichos.investigar("tema")
+    assert not r["con_web"] and r["avisos"] == ["La investigación en internet tardó demasiado: el análisis siguió solo "
+                                                "con YouTube."], r
     # La web falla (Claude sin saldo): igual, sigue con YouTube y dice por qué
     ia.investigar_web = lambda pregunta, plazo=300: (_ for _ in ()).throw(RuntimeError("Claude no tiene saldo."))
     r = nichos.investigar("tema")
@@ -142,6 +156,11 @@ finally:
 inicio = time.monotonic()
 hechas = nichos._a_tiempo({"rapida": lambda: 1, "falla": lambda: 1 / 0, "lenta": lambda: time.sleep(30)}, 0.5)
 assert hechas == {"rapida": 1} and time.monotonic() - inicio < 1.5
+# Pasado el plazo, los hilos no empiezan otra tarea (gastaría red mientras la IA analiza, y se tira)
+empezadas = []
+nichos._a_tiempo({i: (lambda i=i: empezadas.append(i) or time.sleep(0.3)) for i in range(4)}, 0.2, hilos=1)
+time.sleep(0.6)
+assert empezadas == [0], empezadas
 print("Investigador de nichos a la vez y con plazos: bien.")
 
 # ---------- Claude: cada trabajo con su esfuerzo y su tope, en streaming, con plazos y su costo real ----------
@@ -154,10 +173,12 @@ def mensaje(texto, stop="end_turn", **uso):
 
 
 class Flujo:
-    """Lo que devuelve messages.stream: sus eventos (uno cada `pausa` s) y el mensaje final."""
+    """Lo que devuelve messages.stream: sus eventos (uno cada `pausa` s), lo escrito hasta ahora y el mensaje final
+    (que tarda `espera` s más). Con el cliente cerrado, la lectura se corta con un error, como la de verdad."""
 
-    def __init__(self, final, eventos=1, pausa=0.0, parcial=None):
-        self.final, self.eventos, self.pausa, self.current_message_snapshot = final, eventos, pausa, parcial
+    def __init__(self, final, eventos=1, pausa=0.0, parcial=None, espera=0.0):
+        self.final, self.eventos, self.pausa, self.espera = final, eventos, pausa, espera
+        self.current_message_snapshot, self.cliente = parcial or final, None
 
     def __enter__(self):
         return self
@@ -168,15 +189,19 @@ class Flujo:
     def __iter__(self):
         for _ in range(self.eventos):
             time.sleep(self.pausa)
+            if self.cliente.cerrado:
+                raise httpx.ReadError("cerrado")
             yield types.SimpleNamespace(type="content_block_delta")
 
     def get_final_message(self):
+        time.sleep(self.espera)
         return self.final
 
 
 class ClaudeFalso:
     def __init__(self, **k):
         creados.append(k)
+        self.cerrado = False
         self.messages = types.SimpleNamespace(stream=self.stream)
 
     def stream(self, **k):
@@ -184,7 +209,11 @@ class ClaudeFalso:
         respuesta = respuestas.pop(0)
         if isinstance(respuesta, Exception):
             raise respuesta
+        respuesta.cliente = self
         return respuesta
+
+    def close(self):
+        self.cerrado = True
 
 
 ESQ = {"type": "object", "properties": {"palabra": {"type": "string"}}, "required": ["palabra"]}
@@ -197,12 +226,22 @@ try:
     respuestas.append(Flujo(mensaje('{"palabra": "hola"}', input_tokens=1000, output_tokens=200)))
     assert ia.texto_json("i", "p", ESQ) == {"palabra": "hola"}
     k = pedidos_claude[-1]
-    assert (k["model"], k["max_tokens"], k["output_config"]["effort"]) == ("claude-opus-5-5", 32000, "medium"), k
+    # Tope alto (en streaming no cuesta si no se usa, y lo que piensa cuenta en él)
+    assert (k["model"], k["max_tokens"], k["output_config"]["effort"]) == ("claude-opus-5-5", 64000, "medium"), k
     assert isinstance(k["system"], str)  # un pedido suelto: sin caché (escribirla cuesta 1,25 × y no se recupera)
     # El cliente no espera 10 min por intento (el de fábrica): 30 min sin noticias parecía colgado
     assert creados[-1]["timeout"].read == ia.PLAZO_CLAUDE == 120 and creados[-1]["timeout"].connect == 15
     hecha = actividad.ultimas(1)[0]
     assert hecha["modelo"] == "claude-opus-5-5" and abs(hecha["costo"] - (1000 * 4 + 200 * 20) / 1e6) < 1e-12, hecha
+    # Llegó al tope: el JSON viene cortado. Se dice en claro (no un error de JSON en inglés) y se apunta lo pagado
+    respuestas.append(Flujo(mensaje('{"palabra": "ho', "max_tokens", input_tokens=1000, output_tokens=64000)))
+    try:
+        ia.texto_json("i", "p", ESQ)
+        raise AssertionError("debió fallar")
+    except RuntimeError as e:
+        assert str(e) == "Claude respondió incompleto (se quedó sin espacio para terminar). Inténtalo de nuevo.", e
+    incompleta = actividad.ultimas(1)[0]
+    assert incompleta["motivo"] == "respondió incompleto" and incompleta["costo"] > 1, incompleta
 
     # Un turno del Director: piensa poco y sus instrucciones van en caché (el 2.º turno las lee a US$0,20 el millón)
     respuestas += [Flujo(mensaje('{"palabra": "uno"}', input_tokens=100, output_tokens=50,
@@ -234,6 +273,15 @@ try:
     respuestas.append(Flujo(mensaje('{"textos": ["Hola amigo"]}', input_tokens=50, output_tokens=10)))
     assert ia.ortografia(["Hola amigo"]) == ["Hola amigo"]
     assert (pedidos_claude[-1]["max_tokens"], pedidos_claude[-1]["output_config"]["effort"]) == (16000, "low")
+    # Se reconoce por su contenido: una copia del esquema (si ortografia() lo reconstruye) sigue siendo rápida
+    respuestas.append(Flujo(mensaje('{"textos": ["Hola"]}', input_tokens=50, output_tokens=10)))
+    ia._texto_con(claves.para("texto"), "i", "p", json.loads(json.dumps(ia._ESQUEMA_ORTOGRAFIA)))
+    assert (pedidos_claude[-1]["max_tokens"], pedidos_claude[-1]["output_config"]["effort"]) == (16000, "low")
+    # Lo que se pide rápido (entender un pedido en Diseño): también low, pero sin caché (es un pedido suelto)
+    respuestas.append(Flujo(mensaje('{"palabra": "x"}', input_tokens=50, output_tokens=10)))
+    ia.texto_json("i", "p", ESQ, rapido=True)
+    assert (pedidos_claude[-1]["max_tokens"], pedidos_claude[-1]["output_config"]["effort"]) == (16000, "low")
+    assert isinstance(pedidos_claude[-1]["system"], str)
 
     # La investigación en internet: en streaming, esfuerzo «low» y hasta 5 búsquedas, con el modelo elegido (Sonnet)
     claves.elegir_por_defecto("modelo_claude", "claude-sonnet-5-5")
@@ -251,14 +299,25 @@ try:
     assert primera["modelo"] == "claude-sonnet-5-5" and primera["resultado"] == "ok"
     assert abs(primera["costo"] - ((500 * 2 + 100 * 10) / 1e6 + 3 * 0.01)) < 1e-12, primera
     assert abs(segunda["costo"] - ((800 * 2 + 300 * 10) / 1e6 + 2 * 0.01)) < 1e-12, segunda
-    # Llega a su plazo: corta y devuelve lo que ya tenía (y queda apuntado como cortado, con lo gastado)
-    respuestas.append(Flujo(mensaje("lo del final"), eventos=100, pausa=0.05,
-                            parcial=mensaje("Lo encontrado hasta ahora.", input_tokens=400, output_tokens=0)))
+    # Llega a su plazo: corta (cierra la conexión) y devuelve lo que ya tenía, apuntado como cortado con lo gastado. El
+    # uso del principio no trae las búsquedas (llegan al final): se cuentan las que hay en lo escrito
+    parcial = mensaje("Lo encontrado hasta ahora.", input_tokens=400, output_tokens=0)
+    parcial.content[:0] = [busca(type="server_tool_use", name="web_search")] * 2
+    respuestas.append(Flujo(mensaje("lo del final"), eventos=100, pausa=0.05, parcial=parcial))
     inicio = time.monotonic()
     assert ia.investigar_web("¿Qué es viral?", plazo=0.3) == "Lo encontrado hasta ahora."
     assert time.monotonic() - inicio < 1.5
     cortada = actividad.ultimas(1)[0]
-    assert cortada["resultado"] == "fallo" and "Se cortó" in cortada["motivo"] and cortada["costo"] > 0, cortada
+    assert cortada["resultado"] == "fallo" and "Se cortó" in cortada["motivo"], cortada
+    assert abs(cortada["costo"] - (400 * 2 / 1e6 + 2 * 0.01)) < 1e-12, cortada
+    # Un turno pausado que termina pasado el plazo no empieza otra ronda (reenviaría y pagaría todo lo encontrado)
+    antes = len(pedidos_claude)
+    respuestas.append(Flujo(mensaje("parte 1", "pause_turn", input_tokens=500, output_tokens=100), espera=0.5))
+    assert ia.investigar_web("¿Qué es viral?", plazo=0.2) == "parte 1" and len(pedidos_claude) == antes + 1
+    # Un rechazo queda apuntado como tal
+    respuestas.append(Flujo(mensaje("", "refusal", input_tokens=10, output_tokens=0)))
+    assert ia.investigar_web("¿Qué es viral?") is None
+    assert actividad.ultimas(1)[0]["motivo"] == "Claude rechazó el pedido."
     # Claude sin saldo: el motivo en claro (no el JSON del SDK), apuntado y recordado para avisar en el próximo trabajo
     cuerpo = {"error": {"type": "invalid_request_error", "message": "Your credit balance is too low to access the "
                                                                     "Anthropic API."}}
@@ -281,6 +340,79 @@ finally:
     anthropic.Anthropic = abrir_claude
 assert not respuestas, respuestas
 print("Claude con su esfuerzo, su caché y sus plazos: bien.")
+
+# ---------- Con el SDK de Claude de verdad, contra un servidor de este PC que habla como su API (sin internet) ----------
+INICIO = {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant",
+                                                "model": "claude-opus-5-5", "content": [], "stop_reason": None,
+                                                "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 1}}}
+modo_api = {"v": "pings"}
+
+
+class ApiFalsa(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("content-length", 0)))
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("transfer-encoding", "chunked")
+        self.end_headers()
+
+        def enviar(evento, datos=None):
+            trozo = f"event: {evento}\ndata: {json.dumps(datos or {'type': evento})}\n\n".encode() if evento else b""
+            self.wfile.write(f"{len(trozo):x}\r\n".encode() + trozo + b"\r\n")
+            self.wfile.flush()
+        try:
+            enviar("message_start", INICIO)
+            if modo_api["v"] == "error":  # sobrecargada a mitad: la API lo manda así, tras el 200 del principio
+                enviar("error", {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}})
+            elif modo_api["v"] == "silencio":  # 10 s sin mandar nada, ni un «ping»: la lectura queda esperando
+                time.sleep(10)
+            else:  # 10 s de «ping» y nada más, como mientras Claude piensa o busca: el SDK no los enseña
+                for _ in range(50):
+                    time.sleep(0.2)
+                    enviar("ping")
+            enviar("")
+        except OSError:  # la app cortó la conexión: es lo que se prueba
+            pass
+
+
+servidor = ThreadingHTTPServer(("127.0.0.1", 0), ApiFalsa)
+servidor.handle_error = lambda pedido, direccion: None  # la app corta la conexión a propósito: no es un error
+threading.Thread(target=servidor.serve_forever, daemon=True).start()
+base_antes = os.environ.get("ANTHROPIC_BASE_URL")
+os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{servidor.server_address[1]}"  # lo lee el cliente de ia._claude
+claves.guardar({"proveedor": "anthropic", "clave": "sk-ant-prueba", "usos": ["texto"], "modelo_texto": "claude-opus-5-5"})
+try:
+    # Solo «ping», o nada, más allá del plazo: se corta en su plazo igual (antes, 4 s con plazo 1 s, y sin fin sin
+    # eventos)
+    for modo_api["v"] in ("pings", "silencio"):
+        inicio = time.monotonic()
+        assert ia.investigar_web("¿Qué es viral?", plazo=1) is None
+        assert time.monotonic() - inicio < 3, (modo_api, time.monotonic() - inicio)
+        assert "Se cortó" in actividad.ultimas(1)[0]["motivo"]
+    # Un error a mitad del stream: en claro y como «no atendió» (texto_json prueba la siguiente IA). Antes salía
+    # httpx2.ResponseNotRead, en inglés, sin apuntar y sin probar otra
+    modo_api["v"] = "error"
+    for pedir in (lambda: ia.investigar_web("¿Qué es viral?", plazo=5),
+                  lambda: ia._texto_con(claves.para("texto"), "i", "p", ESQ)):
+        try:
+            pedir()
+            raise AssertionError("debió fallar")
+        except ia.SinServicio as e:
+            assert str(e) == "La IA de texto (Claude) respondió 529: Overloaded", e
+    assert actividad.ultimas(1)[0]["motivo"] == "529: Overloaded"  # la de investigar_web (la otra la apunta texto_json)
+finally:
+    servidor.shutdown()
+    if base_antes is None:
+        os.environ.pop("ANTHROPIC_BASE_URL", None)
+    else:
+        os.environ["ANTHROPIC_BASE_URL"] = base_antes
+    claves.borrar("anthropic")
+print("Claude de verdad: el plazo corta aunque no llegue nada y un error a mitad se dice en claro: bien.")
 
 # ---------- El modelo de Claude: Opus 5.5 (de fábrica) o Sonnet 5.5, elegido en «Claves de IA» ----------
 claves.AJUSTES = tmp / "ajustes_modelo.json"

@@ -185,6 +185,7 @@
  "Cinemático": "Cinematic",
  "Claude o ChatGPT diseñan mejor: conecta su clave.": "Claude or ChatGPT design better: connect their key.",
  "Claude rechazó el pedido.": "Claude declined the request.",
+ "Claude respondió incompleto (se quedó sin espacio para terminar). Inténtalo de nuevo.": "Claude gave an incomplete answer (it ran out of room to finish). Try again.",
  "Clave no válida": "Invalid key",
  "Claves de IA": "AI keys",
  "Clic derecho: «Usar este pedido» en el Director": "Right-click: “Use this request” in the AI Director",

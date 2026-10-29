@@ -2,6 +2,7 @@
 import json
 import queue
 import re
+import sys
 import threading
 import time
 from datetime import datetime
@@ -248,7 +249,7 @@ def investigar(tema: str = "", redes: str = "YouTube, TikTok, Instagram y Facebo
     resultado["nichos"].sort(key=lambda n: n["potencial"], reverse=True)
     print(f"[Ráfaga] Nichos en {time.monotonic() - inicio:.0f} s: YouTube {de_youtube:.0f} s, web "
           + (f"{web['segundos']:.0f} s (a la vez)" if "segundos" in web else "sin terminar")
-          + f", análisis {time.monotonic() - antes:.0f} s", flush=True)
+          + f", análisis {time.monotonic() - antes:.0f} s", file=sys.stderr, flush=True)
 
     carpeta = PROYECTOS.parent / "nichos"
     carpeta.mkdir(parents=True, exist_ok=True)

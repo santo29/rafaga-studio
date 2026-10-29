@@ -5,6 +5,7 @@ import contextvars
 import json
 import math
 import re
+import sys
 import threading
 import time
 import traceback
@@ -424,7 +425,7 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
             _no_atendio(todas[otro], fallo, cola[i + 1])
             continue
         print(f"[Ráfaga] {claves.nombre(c['proveedor'])}: {getattr(primero, 'corto', primero)} Se usó "
-              f"{claves.nombre(otro)}.", flush=True)
+              f"{claves.nombre(otro)}.", file=sys.stderr, flush=True)
         return resultado
     try:
         return _limpio(_texto_gratis(instrucciones, pedido, esquema))
@@ -741,7 +742,7 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
                 _no_atendio(c, error, "")
             from . import nubes
             causa = f"{claves.nombre(c['proveedor'])}: {nubes._causa(error, c['proveedor'])}"
-            print(f"[Ráfaga] Sin repaso de ortografía ({causa})", flush=True)
+            print(f"[Ráfaga] Sin repaso de ortografía ({causa})", file=sys.stderr, flush=True)
             nota = t("No se pudo repasar la ortografía ({causa}).", causa=causa)
             if notas is not None and nota not in notas:  # una vez por trabajo, aunque se repase en dos pedidos
                 notas.append(nota)

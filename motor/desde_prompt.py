@@ -10,7 +10,7 @@ from typing import Callable
 import edge_tts
 
 from . import claves, ia, memoria, seguro, video
-from .idioma import actual, dinero, IDIOMAS, t, texto_de_error
+from .idioma import actual, dinero, IDIOMAS, porcentaje, t, texto_de_error
 from .shorts import PROYECTOS
 
 # Voces gratuitas de Microsoft Edge. ponytail: no es un modelo abierto; cambiar por Kokoro/Piper si se quiere 100% local.
@@ -104,11 +104,13 @@ def palabras_por_segundo(voz: str) -> float:
 
 # La narración que el usuario ya escribió en su pedido («Guion / Voz en Off: "…"», «Narración: «…»», «Voice-over:
 # "…"»), una línea por escena: va tal cual, ni la IA la reescribe ni se acorta. Entre comillas: «Narración: alegre»
-# dice cómo narrar, no lo que se dice.
+# dice cómo narrar, no lo que se dice. Con un número delante («1. Voz en off: …») o una acotación detrás
+# («"Hola." (tono alegre)»): si no, esa línea se perdía sin decir nada y el video salía con una escena menos.
 # ponytail: solo con las comillas en la misma línea que la etiqueta; si van debajo, la IA escribe el guion como siempre
-_NARRACION = re.compile(r"(?im)^[ \t>*•-]*(?:gui[oó]n[ \t]*/[ \t]*)?(?:voz en off|narraci[oó]n|narrador|locuci[oó]n|"
-                        r"voice[- ]?over|narration|narrator|voix off|narrateur|narra[cç][aã]o|locu[cç][aã]o)"
-                        r"(?:[ \t]*\([^)\n]*\))?[ \t*]*:[ \t*]*[\"“«](.+)[\"”»][ \t*]*$")
+_NARRACION = re.compile(r"(?im)^[ \t>*•\d.)-]*(?:gui[oó]n[ \t]*/[ \t]*)?(?:voz en off|narraci[oó]n|narrador|"
+                        r"locuci[oó]n|voice[- ]?over|narration|narrator|voix off|narrateur|narra[cç][aã]o|"
+                        r"locu[cç][aã]o)(?:[ \t]*\([^)\n]*\))?[ \t*]*:[ \t*]*[\"“«'‘](.+?)[\"”»'’]"
+                        r"(?:[ \t]*\([^)\n]*\))?[ \t*]*$")
 
 
 def narracion_del_usuario(prompt: str) -> list[str]:
@@ -142,14 +144,15 @@ def voces() -> dict[str, str]:
                         f"eleven:{v['id']}" for v in eleven}}
 
 
-def narrar(texto: str, voz: str, destino: Path) -> list[dict]:
-    """Genera la voz y devuelve los tiempos por palabra. voz = id de Edge o 'eleven:<voice_id>'."""
+def narrar(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> list[dict]:
+    """Genera la voz y devuelve los tiempos por palabra. voz = id de Edge o 'eleven:<voice_id>'. velocidad: 1 = la
+    normal; 1.2 = un 20 % más rápida (lo más que admite ElevenLabs)."""
     # El único paso de texto a voz (videos, anuncios, serie, el Director hablando y la voz del editor): sin esto se
     # oía «asterisco», «almohadilla» o la URL entera, y salía igual en los subtítulos quemados
     texto = ia.sin_markdown(texto, "voz")
     if voz.startswith("eleven:"):
-        return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino)
-    return con_signos(asyncio.run(_voz(texto, voz, destino)), texto)
+        return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino, velocidad)
+    return con_signos(asyncio.run(_voz(texto, voz, destino, velocidad)), texto)
 
 
 def _nucleo(palabra: str) -> str:
@@ -209,10 +212,11 @@ def con_glosario(prompt: str, *textos: str) -> str:
     return ". ".join([prompt, *extras]) if extras else prompt
 
 
-async def _voz(texto: str, voz: str, destino: Path) -> list[dict]:
+async def _voz(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> list[dict]:
     palabras = []
     with open(destino, "wb") as f:
-        async for trozo in edge_tts.Communicate(texto, voz, boundary="WordBoundary").stream():
+        async for trozo in edge_tts.Communicate(texto, voz, rate=f"{round((velocidad - 1) * 100):+d}%",
+                                                boundary="WordBoundary").stream():
             if trozo["type"] == "audio":
                 f.write(trozo["data"])
             elif trozo["type"] == "WordBoundary":
@@ -314,8 +318,23 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         aviso(notas[-1], 0.05)
     if len(escenas) > tope:
         guion["escenas"] = escenas[:tope - 1] + escenas[-1:]
-        notas.append(t("El guion traía {n} escenas y se usaron {tope} (las del medio que sobraban se quitaron).",
+        notas.append(t("Tu narración tiene {n} líneas y en este video caben {tope} escenas: se quitaron las líneas del "
+                       "medio que sobraban.", n=len(escenas), tope=tope) if lineas else
+                     t("El guion traía {n} escenas y se usaron {tope} (las del medio que sobraban se quitaron).",
                        n=len(escenas), tope=tope))
+    if animado and lineas:  # sin el tope de 18 palabras: cada escena sigue siendo un clip de pago de SEGUNDOS_HABLADO s
+        dichas = {e["narracion"] for e in guion["escenas"]}
+        notas += [t("La línea {n} de tu narración tiene {palabras} palabras: en una escena animada de {s} s puede no "
+                    "caber entera.", n=n, palabras=len(x.split()), s=SEGUNDOS_HABLADO)
+                  for n, x in enumerate(lineas, 1) if x in dichas and len(x.split()) > 18]
+    # La narración del usuario no se acorta: si no cabe en lo pedido, la voz va un poco más rápida (un 20 % como mucho)
+    velocidad, pausas = 1.0, 0.25 * len(guion["escenas"])  # los 0,25 s de cada escena, como en al_tiempo
+    if lineas and not animado:
+        habla = sum(len(e["narracion"].split()) for e in guion["escenas"]) / ritmo
+        if habla + pausas > segundos * 1.15:  # el margen del aviso «tal cual» de abajo: el ritmo es aproximado
+            velocidad = round(min(1.2, habla / max(segundos - pausas, 1)), 2)
+            notas.append(t("Tu narración no cabía en los {segundos} s pedidos: la voz va un {p} más rápida.",
+                           segundos=segundos, p=porcentaje(velocidad - 1)))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-video")
     carpeta.mkdir(parents=True)
     for e in guion["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
@@ -349,10 +368,12 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     try:  # la imagen que ya hizo clips_hablados (el primer fotograma de Kling) no se pide otra vez
         final = montar(guion, carpeta, formato, voz, aviso, respaldo=foto, notas=notas, hablados=hablados,
                        crear_imagen=lambda p, w, h, d: d if d.is_file() else dibujar(p, w, h, d),
-                       desde=0.7 if animado else 0.1, pago=pago, sin_pago=cobrados)
+                       desde=0.7 if animado else 0.1, pago=pago, sin_pago=cobrados, velocidad=velocidad)
     except Exception as error:
         relanzar_con_gasto(error, notas, carpeta)
-    if lineas and abs((dura := video.duracion(final)) - segundos) > 0.15 * segundos:  # su texto no se acortó
+    # su texto no se acortó (si el tope quitó alguna línea, ya se dijo: no se usó «tal cual»)
+    if lineas and len(guion["escenas"]) == len(lineas) and abs((dura := video.duracion(final)) - segundos) > \
+            0.15 * segundos:
         notas.append(t("Tu narración se usó tal cual la escribiste: el video dura {real} s y pediste {segundos} s.",
                        real=round(dura), segundos=segundos))
     proyecto = {"tipo": "video", "prompt": prompt, "formato": formato, "carpeta": str(carpeta),
@@ -521,8 +542,9 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
            nombre: str = "video_final", crear_imagen: Callable | None = None, desde: float = 0.1,
            hasta: float = 0.97, respaldo: Path | None = None, notas: list | None = None,
            hablados: dict[int, Path] | None = None, pagados: dict | None = None, pago: str | None = None,
-           sin_pago=frozenset()) -> Path:
+           sin_pago=frozenset(), velocidad: float = 1.0) -> Path:
     """Convierte un guion (escenas con narración e imagen) en un video terminado.
+    velocidad: la de la voz (1.2 = un 20 % más rápida), para que la narración del usuario quepa en lo pedido.
     crear_imagen(prompt, ancho, alto, destino) permite cambiar cómo se hacen las imágenes (p. ej. con el producto).
     respaldo: imagen que existe y se usa si falla una imagen y todavía no hay ninguna buena (p. ej. la foto).
     notas: si se pasa una lista, se le añade lo que salió distinto (imágenes que fallaron y por qué) y lo gastado.
@@ -548,7 +570,8 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
             continue
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
-        palabras = narrar(e["narracion"], e.get("voz") or voz, audio)  # una serie: cada personaje con su voz
+        # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
+        palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
         paso_imagen = paso + 0.3 * (hasta - desde) / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
         # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería

@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from motor import claves, desde_prompt, edicion, ia, memoria, nubes, render_edicion, shorts, video  # noqa: E402
+from motor import claves, desde_prompt, edicion, ia, idioma, memoria, nubes, render_edicion, shorts, video  # noqa: E402
 from ui.comun import Reproductor  # noqa: E402
 
 app = QApplication.instance() or QApplication(["pruebas"])
@@ -114,9 +114,40 @@ PEDIDO = ("Detalles Generales del Video\nDuración: 30 segundos\nNarración: ale
                     f"Macro cinematic shot number {i}.\n" for i, (forma, x) in enumerate(zip(ETIQUETAS, LINEAS), 1)))
 assert desde_prompt.narracion_del_usuario(PEDIDO) == LINEAS, desde_prompt.narracion_del_usuario(PEDIDO)
 assert desde_prompt.narracion_del_usuario("Un video de gatos.\nNarración: divertida\nVoz en off: masculina") == []
+# Con un número delante, una acotación detrás o comillas simples: antes esa línea se perdía sin decir nada
+assert desde_prompt.narracion_del_usuario("1. Voz en off: \"Hola (bajito).\" (tono alegre)\n2) Voice-over: 'It's "
+                                          "here.'\nNarración: \"Fin.\"") == ["Hola (bajito).", "It's here.", "Fin."]
 assert desde_prompt.palabras_por_segundo("eleven:abc") == 2.6 and desde_prompt.palabras_por_segundo("es-DO-x") == 2.0
 
-pedidos, largo = [], [31.0]
+# La velocidad de la voz llega a Edge («+20%») y a ElevenLabs (voice_settings.speed); 1 no cambia nada
+comunicados, mandados = [], []
+
+
+class EdgeFalso:
+    def __init__(self, texto, voz, **opciones):
+        comunicados.append(opciones)
+
+    async def stream(self):
+        return
+        yield
+
+
+reales = desde_prompt.edge_tts.Communicate, ia.httpx.post
+desde_prompt.edge_tts.Communicate = EdgeFalso
+ia.httpx.post = lambda url, **k: mandados.append(k["json"]) or ia.httpx.Response(200, json={"audio_base64": ""})
+try:
+    desde_prompt.narrar("Hola", "es-DO-EmilioNeural", tmp / "v.mp3", 1.2)
+    desde_prompt.narrar("Hola", "es-DO-EmilioNeural", tmp / "v.mp3")
+    assert [c["rate"] for c in comunicados] == ["+20%", "+0%"], comunicados
+    claves.guardar({"proveedor": "elevenlabs", "clave": "sk_prueba", "usos": ["voz"]})
+    desde_prompt.narrar("Hola", "eleven:sarah", tmp / "v.mp3", 1.15)
+    desde_prompt.narrar("Hola", "eleven:sarah", tmp / "v.mp3")
+    assert mandados[0]["voice_settings"] == {"speed": 1.15} and "voice_settings" not in mandados[1], mandados
+finally:
+    desde_prompt.edge_tts.Communicate, ia.httpx.post = reales
+    claves.borrar("elevenlabs")
+
+pedidos, largo, velocidades = [], [31.0], []
 # La IA lo resume (como pasó: 82 palabras quedaron en 62) y en 4 escenas en vez de 5
 RESUMIDO = {"titulo": "Pechuga Cordon Bleu", "descripcion": "d", "hashtags": ["#receta"], "estilo_visual": "photo",
             "escenas": [{"narracion": "¿Quieres impresionar con una cena?", "imagen": f"plano {i}"} for i in range(4)]}
@@ -125,10 +156,11 @@ reales = (ia.texto_json, ia.imagen, ia.video_desde_imagen, desde_prompt.narrar, 
 ia.texto_json = lambda instrucciones, pedido, esquema, *a, **k: pedidos.append(pedido) or json.loads(json.dumps(RESUMIDO))
 ia.imagen = lambda prompt, w, h, d, *a, **k: d
 ia.video_desde_imagen = lambda *a, **k: None
-desde_prompt.narrar = lambda texto, voz, destino: []
+desde_prompt.narrar = lambda texto, voz, destino, velocidad=1.0: velocidades.append(velocidad) or []
 video.duracion = lambda archivo: largo[0]
 video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escena
 video.unir = lambda partes, d: d
+reales_animado = desde_prompt.proveedor_voz, desde_prompt.clips_hablados
 try:
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     r = desde_prompt.generar(PEDIDO, segundos=30, voz="eleven:sarah")
@@ -138,11 +170,27 @@ try:
     assert "La narración ya la escribió el usuario" in pedidos[-1] and all(x in pedidos[-1] for x in LINEAS)
     assert "5 escenas (una por cada línea" in pedidos[-1] and "palabras de narración" not in pedidos[-1]
     assert not any("se acortó" in a or "Tu narración" in a for a in r["avisos"]), r["avisos"]  # 31 s de 30: bien
-    largo[0] = 41.0  # con una voz más lenta: se dice, sin tocar su texto
+    assert velocidades == [1.0] * 5, velocidades  # con ElevenLabs (2,6 palabras/s) cabe: la voz, a su ritmo
+    # Con Edge (la gratis, 2 palabras/s) sus 84 palabras serían unos 43 s: la voz va un 20 % más rápida
+    largo[0], velocidades[:] = 41.0, []  # y aun así no cabe: se dice, sin tocar su texto
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     r = desde_prompt.generar(PEDIDO, segundos=30)
+    assert velocidades == [1.2] * 5, velocidades
+    assert "Tu narración no cabía en los 30 s pedidos: la voz va un 20 % más rápida." in r["avisos"], r["avisos"]
     assert any("Tu narración se usó tal cual la escribiste: el video dura 41 s y pediste 30 s." == a
                for a in r["avisos"]), r["avisos"]
+    # Animado: cada escena es un clip de pago de 8 s; a 30 s caben 4 y se dice qué línea se quitó y cuál es larga
+    desde_prompt.proveedor_voz, desde_prompt.clips_hablados = lambda: "gemini", lambda *a, **k: {}
+    desde_prompt.PROYECTOS, velocidades[:] = Path(tempfile.mkdtemp(dir=tmp)), []
+    r = desde_prompt.generar(PEDIDO, segundos=30, animado=True)
+    guion = json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))
+    assert [e["narracion"] for e in guion["escenas"]] == LINEAS[:3] + LINEAS[4:], guion
+    assert "Tu narración tiene 5 líneas y en este video caben 4 escenas: se quitaron las líneas del medio que " \
+           "sobraban." in r["avisos"], r["avisos"]
+    largas = [a for a in r["avisos"] if a.startswith("La línea ")]
+    assert largas == ["La línea 2 de tu narración tiene 21 palabras: en una escena animada de 8 s puede no caber "
+                      "entera."], r["avisos"]
+    assert not any("tal cual" in a or "más rápida" in a for a in r["avisos"]) and velocidades == [1.0] * 4, r["avisos"]
     # Sin narración escrita: la IA escribe para la voz elegida (ElevenLabs habla más rápido que Edge)
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     desde_prompt.generar("Un video de gatos", segundos=30, voz="eleven:sarah")
@@ -153,6 +201,7 @@ try:
 finally:
     (ia.texto_json, ia.imagen, ia.video_desde_imagen, desde_prompt.narrar, video.duracion, video.escena_de_imagen,
      video.unir, desde_prompt.PROYECTOS) = reales
+    desde_prompt.proveedor_voz, desde_prompt.clips_hablados = reales_animado
 print("Narración del usuario tal cual y duración pedida pasadas.")
 
 # ---------- 4. Shorts de un video sin voz: un título para cada uno y sin «/100» ----------
@@ -168,7 +217,7 @@ def claude(c, instrucciones, pedido, esquema, rapido=False):
     if instrucciones == ia.ORTOGRAFIA:
         return {"textos": json.loads(pedido)["textos"]}
     assert instrucciones.startswith(shorts.INSTRUCCIONES_SIN_VOZ) and esquema is shorts.ESQUEMA_SIN_VOZ
-    vistos.append(pedido)
+    vistos.append((c["proveedor"], pedido))
     momentos = sum(b["type"] == "text" and b["text"].startswith("Momento") for b in pedido)
     return {"momentos": [{"titulo": f"Paso {n}: se dora el pollo", "descripcion": f"Lo que pasa en el paso {n}.",
                           "hashtags": ["#pollo", f"#paso{n}"]} for n in range(1, momentos + 1)]}
@@ -188,31 +237,46 @@ try:
     assert len(res) == 3 and [c["titulo"] for c in res] == [f"Paso {n}: se dora el pollo" for n in (1, 2, 3)], res
     assert all("puntuacion" not in c and c["hashtags"][0] == "#pollo" and c["descripcion"] for c in res), res
     assert "(primero, los que más tienen)" in r["avisos"][0] and len(r["avisos"]) == 1, r["avisos"]
-    imagenes = [b for b in vistos[0] if b["type"] == "image"]
-    assert len(imagenes) == 9 and TITULO in vistos[0][0]["text"]  # 3 fotogramas de cada momento, y el título
+    imagenes = [b for b in vistos[0][1] if b["type"] == "image"]
+    assert len(imagenes) == 9 and TITULO in vistos[0][1][0]["text"]  # 3 fotogramas de cada momento, y el título
     assert all(base64.b64decode(b["source"]["data"])[:3] == b"\xff\xd8\xff" for b in imagenes)
     assert QImage.fromData(base64.b64decode(imagenes[0]["source"]["data"])).width() <= 512
-    # Claude sin saldo: los shorts salen igual, numerados en el orden del video, y se dice por qué
+    # Claude sin saldo: los shorts salen igual, numerados en el orden de la lista y de sus archivos (short_01.mp4 es
+    # el «Momento 1»), con el tema del video en vez de su título tal cual, y se dice por qué
     ia._pedir = lambda c, instrucciones, *a, **k: claude(c, instrucciones, *a, **k) \
         if instrucciones == ia.ORTOGRAFIA else (_ for _ in ()).throw(ia.SinServicio("402: sin saldo"))
     ia.texto_json = lambda instrucciones, pedido, esquema, *a, **k: {
-        "descripcion": "Pechugas de pollo para una cena sencilla.", "hashtags": ["#pollo", "#receta", "#cena"]}
+        "descripcion": "Pechugas de pollo para una cena sencilla.", "hashtags": ["#pollo", "#receta", "#cena"],
+        "tema": "Pechugas de pollo jugosas"}
     shorts.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     r = shorts.generar("https://www.youtube.com/watch?v=OYVojP3fg2s", cantidad=3, dur_min=5, dur_max=10)
     assert any("Claude no pudo ver los momentos (402: sin saldo)" in a for a in r["avisos"]), r["avisos"]
-    por_tiempo = sorted(r["resultados"], key=lambda c: c["inicio"])
-    assert [c["titulo"] for c in por_tiempo] == [
-        f"Momento {n} de 3: No cocines pechugas de pollo hasta que veas esta receta!" for n in (1, 2, 3)], por_tiempo
+    res = r["resultados"]
+    assert [c["titulo"] for c in res] == [f"Momento {n} de 3: Pechugas de pollo jugosas" for n in (1, 2, 3)], res
+    assert [Path(c["archivo"]).name for c in res] == ["short_01.mp4", "short_02.mp4", "short_03.mp4"]
     assert all(c["descripcion"] == "Pechugas de pollo para una cena sencilla." and c["hashtags"] ==
-               ["#pollo", "#receta", "#cena"] and "puntuacion" not in c for c in por_tiempo)
-    # Sin Claude ni ninguna IA que responda: numerados, y la descripción es el título del video
+               ["#pollo", "#receta", "#cena"] and "puntuacion" not in c for c in res)
+    # Gemini también ve imágenes (por su API compatible con OpenAI): los fotogramas van como «image_url»
     claves.borrar("anthropic")
+    claves.guardar({"proveedor": "gemini", "clave": "AIza-prueba", "usos": ["texto"]})
+    claves.elegir_por_defecto("texto", "gemini")
+    ia._pedir = claude
+    shorts.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
+    r = shorts.generar("https://www.youtube.com/watch?v=OYVojP3fg2s", cantidad=3, dur_min=5, dur_max=10)
+    assert [c["titulo"] for c in r["resultados"]] == [f"Paso {n}: se dora el pollo" for n in (1, 2, 3)], r
+    proveedor, pedido = vistos[-1]
+    partes = [b for b in pedido if b["type"] == "image_url"]
+    assert proveedor == "gemini" and len(partes) == 9 and not any(b["type"] == "image" for b in pedido), pedido[:2]
+    assert all(b["image_url"]["url"].startswith("data:image/jpeg;base64,") and base64.b64decode(
+        b["image_url"]["url"].split(",", 1)[1])[:3] == b"\xff\xd8\xff" for b in partes)
+    # Sin ninguna IA que responda: numerados, y la descripción es el título del video
+    claves.borrar("gemini")
     ia.texto_json = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("sin red"))
     shorts.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     r = shorts.generar("https://www.youtube.com/watch?v=OYVojP3fg2s", cantidad=2, dur_min=5, dur_max=10)
     assert len({c["titulo"] for c in r["resultados"]}) == 2 and all(c["descripcion"] == TITULO and
                                                                  c["hashtags"] == [] for c in r["resultados"])
-    assert len(vistos) == 1 and all(p == [] for p in recortes)  # Claude solo una vez; sin voz, sin subtítulos
+    assert len(vistos) == 2 and all(p == [] for p in recortes)  # se ve solo con quien puede; sin voz, sin subtítulos
 finally:
     shorts.descargar, video.recortar, ia.transcribir, ia._pedir, ia.texto_json, shorts.PROYECTOS = reales
 print("Shorts sin voz con su propio título pasados.")
@@ -220,15 +284,24 @@ print("Shorts sin voz con su propio título pasados.")
 # ---------- 5. El reproductor: sin «/100» en los shorts sin voz, y el error en lugar de la pantalla negra ----------
 rep = Reproductor()
 rep.sonido.setMuted(True)  # el dueño usa el PC mientras corren las pruebas: sin pitidos
-rep.mostrar({"formato": "9:16", "resultados": [
-    {"archivo": str(montado), "titulo": "Paso 1", "descripcion": "", "hashtags": [], "inicio": 269.2, "fin": 327.0},
-    {"archivo": str(montado), "titulo": "Con voz", "descripcion": "", "hashtags": [], "inicio": 12, "fin": 40,
-     "puntuacion": 87},
-    {"archivo": str(montado), "titulo": "Guardado antes", "descripcion": "", "hashtags": [], "inicio": 12, "fin": 65.4,
-     "puntuacion": 11, "motivo": "Muchos cambios de escena"}]})  # como el proyecto del dueño: «11/100»
-assert rep.lista.item(0).text() == "1. Paso 1  ·  4:29  ·  58s", rep.lista.item(0).text()
-assert rep.lista.item(1).text() == "2. Con voz  ·  0:12  ·  28s  ·  87/100", rep.lista.item(1).text()
-assert rep.lista.item(2).text() == "3. Guardado antes  ·  0:12  ·  53s", rep.lista.item(2).text()
+CORTES = {"es": "Muchos cambios de escena", "en": idioma._textos("en")["Muchos cambios de escena"]}
+for app_en, motivo in (("es", "es"), ("es", "en"), ("en", "es")):  # el motivo se guardó en el idioma de entonces
+    os.environ["RAFAGA_IDIOMA"] = app_en
+    idioma.actual.cache_clear()
+    rep.mostrar({"formato": "9:16", "resultados": [
+        {"archivo": str(montado), "titulo": "Paso 1", "descripcion": "", "hashtags": [], "inicio": 269.2, "fin": 327.0},
+        {"archivo": str(montado), "titulo": "Con voz", "descripcion": "", "hashtags": [], "inicio": 12, "fin": 40,
+         "puntuacion": 87},
+        # como el proyecto del dueño: «11/100» y una hora en el título que no era la del tramo
+        {"archivo": str(montado), "titulo": "Guardado antes · 5:03", "descripcion": "", "hashtags": [], "inicio": 12,
+         "fin": 65.4, "puntuacion": 11, "motivo": CORTES[motivo]}]})
+    assert rep.lista.item(0).text() == "1. Paso 1  ·  4:29  ·  58s", rep.lista.item(0).text()
+    assert rep.lista.item(1).text() == "2. Con voz  ·  0:12  ·  28s  ·  87/100", rep.lista.item(1).text()
+    assert rep.lista.item(2).text() == "3. Guardado antes  ·  0:12  ·  53s", (app_en, motivo, rep.lista.item(2).text())
+rep.lista.setCurrentRow(2)
+assert rep.info.toPlainText().startswith("Guardado antes\n"), rep.info.toPlainText()  # lo que se copia, igual
+os.environ["RAFAGA_IDIOMA"] = "es"
+idioma.actual.cache_clear()
 
 
 def esperar(condicion, segundos=15):
@@ -240,13 +313,30 @@ def esperar(condicion, segundos=15):
 
 
 assert not esperar(lambda: rep.vista.currentWidget() is rep.sin_video, 2)  # el video bueno se reproduce
+# Un video de antes, en rango completo (yuvj420p): Qt lo descodifica sin error, pero se avisa debajo, sin taparlo
+ANTERIOR = "Este video es de una versión anterior y en algunos equipos se ve negro aquí"
+rep.mostrar({"avisos": ["Aviso del proyecto"], "resultados": [
+    {"archivo": str(clip_pc), "titulo": "x", "descripcion": "", "hashtags": []},
+    {"archivo": str(montado), "titulo": "y", "descripcion": "", "hashtags": []}]})
+assert esperar(lambda: ANTERIOR in rep.avisos_txt.text()), rep.avisos_txt.text()
+assert "Aviso del proyecto" in rep.avisos_txt.text() and rep.vista.currentWidget() is rep.pantalla
+rep.lista.setCurrentRow(1)  # uno nuevo (rango «tv»): sin el aviso, aunque llegue algún cuadro del anterior
+assert esperar(lambda: rep.player.position() > 300) and esperar(lambda: ANTERIOR not in rep.avisos_txt.text(), 1)
+assert rep.avisos_txt.text() == "⚠️ Aviso del proyecto", rep.avisos_txt.text()
+rep.lista.setCurrentRow(0)  # y otra vez el de antes, con el nuevo aún sonando
+assert esperar(lambda: ANTERIOR in rep.avisos_txt.text()), rep.avisos_txt.text()
 roto = tmp / "roto.mp4"
 roto.write_bytes(b"esto no es un video" * 100)
-for archivo, causa in ((roto, "no entiende su formato"), (tmp / "borrado.mp4", "quizá se movió o se borró")):
+for archivo, causa, carpeta in ((roto, "no entiende su formato", True),
+                                (tmp / "borrado.mp4", "quizá se movió o se borró", False)):
     rep.mostrar({"resultados": [{"archivo": str(archivo), "titulo": "x", "descripcion": "", "hashtags": []}]})
     assert esperar(lambda: rep.vista.currentWidget() is rep.sin_video), archivo
     assert rep.sin_video.text().startswith("No se puede reproducir este video aquí") and causa in rep.sin_video.text(), \
         rep.sin_video.text()
+    # si se borró, abrir la carpeta no lo reproduce: no se manda allí
+    assert ("Prueba a abrirlo desde «Abrir carpeta»." in rep.sin_video.text()) == carpeta, rep.sin_video.text()
+    rep._alternar()  # ▶ con el error a la vista: ni reproduce ni pasa a «Pausar»
+    assert "Pausar" not in rep.play.text() and rep.player.playbackState() != rep.player.PlaybackState.PlayingState
 rep.mostrar({"resultados": [{"archivo": str(montado), "titulo": "x", "descripcion": "", "hashtags": []}]})
 assert rep.vista.currentWidget() is rep.pantalla  # otro resultado: vuelve la pantalla
 rep.player.stop()

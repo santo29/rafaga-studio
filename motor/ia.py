@@ -1405,8 +1405,9 @@ def _video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | 
             _borrar(f"{API_GEMINI}/interactions/{interaccion}", cabecera)
 
 
-def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
-    """Narra con ElevenLabs y devuelve los tiempos por palabra (vienen por letra y se agrupan)."""
+def voz_elevenlabs(texto: str, voice_id: str, destino: Path, velocidad: float = 1.0) -> list[dict]:
+    """Narra con ElevenLabs y devuelve los tiempos por palabra (vienen por letra y se agrupan). velocidad: de 0,7 a
+    1,2 (su rango); solo se manda si cambia, para no tocar los ajustes que la voz tiene guardados."""
     c = claves.cargar().get("elevenlabs")
     if not c:
         raise SinClave(t("Conecta tu clave de ElevenLabs para usar sus voces."))
@@ -1415,7 +1416,8 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     try:
         r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
                        params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": c["clave"]}, timeout=300,
-                       json={"text": texto, "model_id": modelo})
+                       json={"text": texto, "model_id": modelo,
+                             **({"voice_settings": {"speed": velocidad}} if velocidad != 1 else {})})
         if r.is_error:  # su motivo en claro (p. ej. «quota_exceeded»), no el texto de httpx en inglés
             raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio="ElevenLabs",
                                  codigo=r.status_code, detalle=motivo(r)))

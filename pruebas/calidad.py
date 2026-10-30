@@ -366,13 +366,14 @@ recortes = []
 video.recortar = lambda original, ini, fin, formato, modo, palabras, destino: recortes.append((ini, fin, palabras)) \
     or destino
 ia.transcribir = lambda audio, progreso=None: progreso(1) or []
-ia.texto_json = lambda *a, **k: pedidos.append(a) or {"descripcion": "d", "hashtags": []}
+ia.texto_json = lambda *a, **k: pedidos.append(a) or {"descripcion": "d", "hashtags": [], "tema": "Conejo gigante"}
 try:
     carpeta_nueva()
     r = shorts.generar("https://www.youtube.com/watch?v=aqz-KE-bpKQ", cantidad=2, dur_min=5, dur_max=10)
-    # Sin voz no se pide elegir momentos a la IA: solo la descripción y los hashtags, desde el título del video
+    # Sin voz no se pide elegir momentos a la IA: solo la descripción, los hashtags y el tema, desde el título
     assert [p[0] for p in pedidos] == [shorts.INSTRUCCIONES_TITULO] and "no tiene voz" in r["avisos"][0], r
-    assert len(r["resultados"]) == 2 and r["resultados"][0]["titulo"].startswith("Momento "), r
+    assert [c["titulo"] for c in r["resultados"]] == ["Momento 1 de 2: Conejo gigante",
+                                                     "Momento 2 de 2: Conejo gigante"], r
     pedidos.clear()
     assert all(not p and 4 <= fin - ini <= 10 for ini, fin, p in recortes), recortes
     (x0, x1, _), (y0, y1, _) = sorted(recortes)

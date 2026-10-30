@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRect, Qt, QUrl  
 from PySide6.QtGui import QColor, QDropEvent, QImage, QMouseEvent, QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import QAbstractButton, QApplication, QMessageBox  # noqa: E402
 
-from motor import claves, diseno, edicion, marca, video  # noqa: E402
+from motor import claves, diseno, edicion, marca, nube, video  # noqa: E402
 from pruebas import camara_falsa  # noqa: E402
 from ui.comun import ESTILO  # noqa: E402
 import ui.paginas.diseno as pd  # noqa: E402
@@ -75,6 +75,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     edicion.CARPETA, diseno.CARPETA = d / "ediciones", d / "disenos"  # nada de tocar datos/ de verdad
     marca.ARCHIVO, marca.CARPETA_LOGO = d / "marca.json", d / "marca"
     claves.ARCHIVO, claves.AJUSTES = d / "claves.json", d / "ajustes.json"
+    nube.USO = d / "uso_nube.json"  # ni el cupo de Modal de hoy
     pe.carpeta_videos = lambda: d / "Videos"  # ni la carpeta Videos del usuario
     clip = d / "clip.mp4"
     video.ffmpeg("-f", "lavfi", "-i", "testsrc2=s=160x90:r=30:d=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
@@ -392,7 +393,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # ---------- Barra de herramientas (como en CapCut) y sus paneles ----------
     assert [b.text() for b in p.pestanas.buttons()] == [
         "Medios", "Audio", "Grabarte", "Texto", "Stickers", "Efectos", "Transiciones", "Subtítulos", "Filtros",
-        "Ajustes", "Plantillas"]  # nada de «Próximamente»: cada pestaña hace lo que dice
+        "Ajustes", "Plantillas", "Avatar IA"]  # nada de «Próximamente»: cada pestaña hace lo que dice
     for b in p.pestanas.buttons():
         b.click()
         assert b.isChecked() and p.paneles.currentIndex() == p.pestanas.id(b) and p.titulo_pestana.text() == b.text()
@@ -400,7 +401,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert not camara_falsa.Camara.creadas  # abrir «Grabarte» no enciende la cámara: solo tú, con su botón
     assert p.listas["transicion"].count() == len(edicion.TRANSICIONES)  # la lista completa, también las nuevas
     textos = " ".join(w.text() for w in p.findChildren(pe.QLabel) + p.findChildren(QAbstractButton))
-    assert "Próximamente" not in textos and not hasattr(p, "avatar_btn")
+    assert "Próximamente" not in textos
     efectos, filtros, desl = p.listas["efecto"], p.listas["filtro"], p.deslizadores
 
     def opcion(lista, clave):
@@ -488,6 +489,58 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     voz = p.proyecto["audios"][-1]
     assert len(p.proyecto["audios"]) == voces + 1 and voz["tipo"] == "voz" and voz["inicio"] == round(p.cursor, 3)
     assert Path(voz["archivo"]).parent == p.carpeta.resolve()
+
+    # ---------- Avatar IA (motor falso): solo con foto y voz, con lo que cuesta a la vista y preguntado ----------
+    claves.guardar({"proveedor": "modal", "clave": "ak-1 as-2", "usos": ["video"]})
+    p.herramientas["avatar"].click()
+    assert not p.avatar_btn.isEnabled() and "US$" in p.avatar_costo.text() and "hoy quedan 3 de 3" in \
+        p.avatar_costo.text(), p.avatar_costo.text()
+    pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(foto), ""))
+    p.elegir_foto_avatar()
+    assert not p.avatar_btn.isEnabled() and "foto.png" in p.avatar_foto.text()  # falta la voz
+    del p._avatar["foto"]
+    p.voz_de_la_linea()  # la voz IA de arriba
+    assert not p.avatar_btn.isEnabled() and "voz.wav" in p.avatar_voz.text()  # falta la foto
+    p.elegir_foto_avatar()
+    assert p.avatar_btn.isEnabled() and not p.avatar_space.isChecked()  # el Space gratis, desmarcado de fábrica
+    hechos, preguntas = [], []
+
+    def avatar_falso(foto_, audio, formato, destino, space=False):
+        hechos.append((foto_, video.duracion(audio), formato, space))
+        shutil.copyfile(clip, destino)
+        return destino
+    pe.ia.avatar = avatar_falso
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or QMessageBox.No)
+    p.avatar_btn.click()
+    assert "US$0.35" in preguntas[-1] and "US$0.95" in preguntas[-1] and not hechos and not p.tareas  # «No»: nada
+    assert "se cobra aparte" in preguntas[-1]  # el tope es por intento: si Modal corta su GPU, repite y cobra
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or QMessageBox.Yes)
+    capas, pila = len(p.proyecto["capas"]), len(p.deshacer_pila)
+    p.avatar_btn.click()
+    assert not p.avatar_btn.isEnabled()  # uno a la vez
+    esperar(lambda: not p.tareas)
+    avatar = p.proyecto["capas"][-1]  # en el momento de la voz, con el borde de la marca, y la voz sale (va dentro)
+    assert len(p.proyecto["capas"]) == capas + 1 and avatar["tipo"] == "video" and avatar["inicio"] == voz["inicio"]
+    assert Path(avatar["archivo"]).parent == (p.carpeta / "avatares").resolve() and avatar["borde"] == pe._color_marca()
+    assert voz["id"] not in [a["id"] for a in p.proyecto["audios"]] and len(p.deshacer_pila) == pila + 1
+    assert hechos[-1][2:] == (p.proyecto["formato"], False) and abs(hechos[-1][1] - (voz["hasta"] - voz["desde"])) < 0.1
+    assert not list((p.carpeta / "avatares").glob("*.wav")) and p.avatar_btn.isEnabled()  # el tramo no se queda
+    p.deshacer()  # un solo paso: vuelve la voz y se va el avatar
+    assert len(p.proyecto["capas"]) == capas and voz in p.proyecto["audios"]
+    p.avatar_space.setChecked(True)  # gratis en el Space: sin pregunta de costo, y la casilla no se recuerda
+    n = len(preguntas)
+    assert "Gratis" in p.avatar_costo.text()
+    p.avatar_btn.click()
+    assert p.avatar_space.isChecked() and "Gratis" in p.avatar_costo.text()  # mientras trabaja, el panel dice lo suyo
+    esperar(lambda: not p.tareas)
+    assert hechos[-1][3] is True and len(preguntas) == n and not p.avatar_space.isChecked()
+    p.deshacer()
+    claves.elegir_por_defecto("limite_nube_diario", 0)  # nube apagada: no se puede pulsar, y dice por qué
+    p.herramientas["avatar"].click()
+    assert not p.avatar_btn.isEnabled() and "apagada" in p.avatar_falta.text()
+    claves.elegir_por_defecto("limite_nube_diario", 3)
+    claves.borrar("modal")
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
 
     # ---------- Reproducir la vista previa ----------
     p._al_mover_cursor(0.5)
@@ -677,11 +730,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert q.proyecto["nombre"] == "Copia buena" and q.sucio
     assert q.guardar() and edicion._leer(caida)["nombre"] == "Copia buena"
     # Un video que se cerró sin guardar antes de que hubiera copia (como el del usuario): se rehace con sus
-    # grabaciones y voces IA, se guarda y se dice qué volvió y qué no
+    # grabaciones, avatares (cuentan como grabaciones) y voces IA, se guarda y se dice qué volvió y qué no
     perdido = edicion.nueva_carpeta("mi video")
-    (perdido / "grabaciones").mkdir()
-    (perdido / "voces").mkdir()
+    for sub in ("grabaciones", "avatares", "voces"):
+        (perdido / sub).mkdir()
     shutil.copyfile(clip, perdido / "grabaciones" / "grabacion-1.mp4")
+    shutil.copyfile(clip, perdido / "avatares" / "avatar-1.mp4")
     shutil.copyfile(musica, perdido / "voces" / "voz-1.wav")
     shutil.rmtree(perdido / "cache")  # lo único que borraba la app al descartarlo
     vistos = len(ofrecidos)
@@ -689,11 +743,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     r.show()
     esperar(lambda: r.carpeta == perdido and not r.tareas)
     assert ofrecidos[vistos].startswith("«mi video» se cerró sin guardar")
-    assert "grabaciones (1), voces IA (1) y fotos encima del video (0)" in ofrecidos[vistos]
-    assert ofrecidos[-1].startswith("Están otra vez en la línea de tiempo 2 de 2 archivos.")
+    assert "grabaciones (2), voces IA (1) y fotos encima del video (0)" in ofrecidos[vistos]
+    assert ofrecidos[-1].startswith("Están otra vez en la línea de tiempo 3 de 3 archivos.")
     assert pe.NO_SE_COPIA in ofrecidos[vistos] and pe.NO_SE_COPIA in ofrecidos[-1]
     assert (perdido / "proyecto.json").is_file() and not r.sucio and r.proyecto["nombre"] == "mi video (recuperado)"
-    assert [c["tipo"] for c in r.proyecto["capas"]] == ["video"] and [a["tipo"] for a in r.proyecto["audios"]] == ["voz"]
+    assert [Path(c["archivo"]).name for c in r.proyecto["capas"]] == ["grabacion-1.mp4", "avatar-1.mp4"]
+    assert [a["tipo"] for a in r.proyecto["audios"]] == ["voz"]
     assert edicion.sin_guardar() == []  # ya es un video guardado: no se vuelve a ofrecer
     # Si guardar el video rehecho falla (disco lleno, un permiso), sigue sin guardar: su copia automática, su marca y
     # la pregunta al cerrar, nunca «no recuperar»
@@ -750,6 +805,24 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     s_._empezar(edicion.nuevo(), None)
     assert not (tirado / "cache").exists() and (tirado / "voces" / "voz-1.wav").is_file()
     assert edicion.sin_guardar() == []
+    # Lo mismo con un avatar de un audio de fuera («Audio…»): ya pagado, se queda en avatares/ y la pregunta dice dónde
+    claves.guardar({"proveedor": "modal", "clave": "ak-1 as-2", "usos": ["video"]})
+    pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(foto), ""))
+    s_.elegir_foto_avatar()
+    pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(musica), ""))
+    s_.elegir_audio_avatar()
+    esperar(lambda: not s_.tareas)
+    s_.avatar_btn.click()  # «Antes de gastar»: Sí
+    esperar(lambda: not s_.tareas)
+    pagado, tirado, preguntas = Path(s_.proyecto["capas"][-1]["archivo"]), s_.carpeta, []
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or
+                                        QMessageBox.Discard)
+    assert s_._descartar_ok()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    s_._empezar(edicion.nuevo(), None)
+    assert pagado.is_file() and pagado.parent.name == "avatares" and str(tirado / "avatares") in preguntas[-1]
+    assert not (tirado / "cache").exists() and edicion.sin_guardar() == []
+    claves.borrar("modal")
 
     # ---------- Subtítulos de 60 min: la línea de tiempo pinta solo las palabras que se ven ----------
     larga = pe.LineaTiempo()
@@ -810,6 +883,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             (panel, ed.paneles.width())
         assert dentro.minimumSizeHint().width() <= ancho, (b.text(), dentro.minimumSizeHint(), ancho)
         assert not pagina.verticalScrollBar().maximum() and not pagina.horizontalScrollBar().maximum(), b.text()
+    ed.herramientas["avatar"].click()
+    app.processEvents()
+    vista = ed.paneles.currentWidget().viewport()
+    for w in (ed.avatar_costo, ed.avatar_btn):  # lo que cuesta y «Crear mi avatar», a la vista sin desplazar el panel
+        assert vista.rect().contains(QRect(w.mapTo(vista, QPoint(0, 0)), w.size())), (w.mapTo(vista, QPoint(0, 0)),
+                                                                                       vista.size())
     # La copia automática falló con una ruta larga: el aviso junto al título se acorta con «…» (entero en la ayuda),
     # la página no se ensancha y «Exportar» sigue a la vista
     ed._fallo_copia = "[Errno 13] Acceso denegado: '" + "C:\\Users\\Usuario\\AppData\\Local\\Programs\\Ráfaga " \

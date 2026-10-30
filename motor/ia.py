@@ -6,6 +6,7 @@ import json
 import math
 import re
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -1148,6 +1149,39 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO if p == pago},  # solo el que se preguntó
     }, que_fue=que_fue)
     return resultado
+
+
+ESPACIO_AVATAR = "Wan-AI/Wan2.2-S2V"  # el oficial de Wan (Alibaba): sube foto y voz a Alibaba Cloud y las guarda 24 h
+MAX_AVATAR_SPACE = 18  # segundos: el Space acepta menos de 20
+ESPERA_AVATAR_SPACE = 900  # Alibaba dice que su tarea tarda unos 5-10 min: con la espera de siempre (5) no llegaba
+
+
+def avatar(foto: Path, audio: Path, formato: str, destino: Path, space: bool = False) -> Path:
+    """Tu foto habla con tu voz (un MP4 con la voz dentro). En tu nube Modal (nube.avatar: del crédito gratis, 1 clip
+    del cupo del día) o, solo si lo marcas esa vez (space=True), gratis en el Space oficial de Wan. Solo se prueba el
+    elegido: tu cara y tu voz nunca van por detrás a un Space público, y lo de pago nunca entra si falla lo gratis."""
+    from . import nube, nubes, video
+
+    def huggingface():
+        from gradio_client import handle_file
+
+        from . import render_edicion
+        error = nube.voz_larga(video.medir(audio)[0], MAX_AVATAR_SPACE)
+        if error:
+            raise ValueError(error)
+        # Al Space público (lo ve su dueño) va una copia hecha de nuevo solo con los píxeles y con nombre neutro: ni el
+        # EXIF (el GPS de una foto de móvil) ni el nombre del archivo. Sin token (llamar_space): el Space llama a la
+        # API de Alibaba con la clave de su dueño
+        with tempfile.TemporaryDirectory() as carpeta:
+            limpia = render_edicion._foto(Path(foto), Path(carpeta))
+            salida = nubes.llamar_space(ESPACIO_AVATAR, handle_file(str(limpia)), handle_file(str(audio)), "480P",
+                                        api_name="/predict", espera=ESPERA_AVATAR_SPACE)
+        return _clip_real(nubes.archivo_del_space(salida), destino)
+
+    def que_fue(p):  # el modelo y lo que cuesta, para la actividad de la IA
+        return ("EchoMimicV3-Flash", nube.PRECIO_AVATAR) if p == "modal" else (ESPACIO_AVATAR, 0.0)
+    tareas = {"huggingface": huggingface} if space else {"modal": lambda: nube.avatar(foto, audio, formato, destino)}
+    return nubes.rotar("avatar", tareas, que_fue=que_fue)[0]
 
 
 API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"

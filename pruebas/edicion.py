@@ -530,4 +530,56 @@ with tempfile.TemporaryDirectory() as d:
     assert arreglada["capas"][0]["archivo"] == str(videos["clip.mp4"].resolve())
     falla(edicion.reenlazar, abierta, abierta["capas"][0]["id"], str(voz))  # sin imagen no vale para una cámara
 
+    # ---------- Recuperar lo que no se guardó ----------
+    shutil.rmtree(edicion.CARPETA)
+    assert edicion.sin_guardar() == []
+    # La copia automática se escribe y se abre aparte de proyecto.json
+    guardada = edicion.nueva_carpeta("con copia")
+    edicion.guardar(base, guardada)
+    assert edicion.sin_guardar() == []  # guardado y sin copia: nada que recuperar
+    cambiado = {**base, "nombre": "Con copia"}
+    assert edicion.guardar(cambiado, guardada, edicion.AUTOGUARDADO).name == edicion.AUTOGUARDADO
+    os.utime(guardada / "proyecto.json", (time.time() - 60,) * 2)
+    assert edicion.abrir(guardada, edicion.AUTOGUARDADO)["nombre"] == "Con copia"
+    assert edicion.abrir(guardada)["nombre"] == base["nombre"]
+    [h] = edicion.sin_guardar()
+    assert (h["carpeta"], h["nombre"], h["copia"]) == (guardada, "Con copia", True)
+    os.utime(guardada / edicion.AUTOGUARDADO, (time.time() - 120,) * 2)  # guardado después: la copia ya no vale
+    assert edicion.sin_guardar() == []
+    (guardada / edicion.AUTOGUARDADO).write_text("{roto", encoding="utf-8")
+    os.utime(guardada / edicion.AUTOGUARDADO, None)
+    assert edicion.sin_guardar() == []  # una copia rota no se ofrece: lo guardado sigue ahí
+    # Un video que se cerró sin guardar antes de que hubiera copia (como el del usuario): sus grabaciones y voces
+    perdido = edicion.nueva_carpeta("mi video")
+    (perdido / "grabaciones").mkdir()
+    (perdido / "voces").mkdir()
+    toma1, toma2 = perdido / "grabaciones" / "grabacion-1.mp4", perdido / "grabaciones" / "grabacion-2.m4a"
+    shutil.copy(videos["clip.mp4"], toma1)
+    shutil.copy(voz, toma2)
+    shutil.copy(voz, perdido / "voces" / "voz-1.m4a")
+    (perdido / "voces" / "vacia.mp3").write_bytes(b"")  # una a medias no cuenta
+    (perdido / "grabaciones" / "notas.txt").write_text("x", encoding="utf-8")  # ni lo que no es audio o video
+    for n, f in enumerate((toma1, toma2, perdido / "voces" / "voz-1.m4a")):
+        os.utime(f, (time.time() - 30 + n,) * 2)
+    [h] = edicion.sin_guardar()
+    assert (h["carpeta"], h["nombre"], h["copia"], h["grabaciones"], h["voces"]) == (perdido, "mi video", False, 2, 1)
+    r = edicion.recuperar(perdido)
+    p = r["proyecto"]
+    assert r["errores"] == [] and p["nombre"] == "mi video (recuperado)" and p["formato"] == "9:16"
+    [cara] = p["capas"]
+    assert cara["tipo"] == "video" and cara["archivo"] == str(toma1.resolve()) and cara["inicio"] == 0
+    assert [(a["tipo"], a["archivo"]) for a in p["audios"]] == [("voz", str(toma2.resolve())),
+                                                                ("voz", str((perdido / "voces" / "voz-1.m4a").resolve()))]
+    a1, a2 = p["audios"]
+    assert a1["inicio"] == 0 and cerca(a2["inicio"], a1["hasta"] - a1["desde"])  # una detrás de otra, sin pisarse
+    # Una grabación rota no tumba el resto: se dice cuál y por qué
+    (perdido / "grabaciones" / "grabacion-3.mp4").write_bytes(b"no es un video")
+    r = edicion.recuperar(perdido)
+    assert len(r["errores"]) == 1 and r["errores"][0].startswith("grabacion-3.mp4: ")
+    assert len(r["proyecto"]["capas"]) == 1 and len(r["proyecto"]["audios"]) == 2
+    # Descartado a propósito: no se vuelve a ofrecer (y nada se borra)
+    (perdido / edicion.NO_RECUPERAR).touch()
+    assert edicion.sin_guardar() == [] and toma1.is_file()
+    falla(edicion.recuperar, r"\\atacante.example\s\video")
+
 print("Pruebas del editor de video (modelo) pasadas.")

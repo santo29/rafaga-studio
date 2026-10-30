@@ -11,7 +11,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRect, Qt, QUrl  # noqa: E402
 from PySide6.QtGui import QColor, QDropEvent, QImage, QMouseEvent, QWheelEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PySide6.QtWidgets import QAbstractButton, QApplication, QMessageBox  # noqa: E402
 
 from motor import claves, diseno, edicion, marca, video  # noqa: E402
 from pruebas import camara_falsa  # noqa: E402
@@ -279,7 +279,17 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert p.stickers.count() == 0  # dibujar 120 iconos tarda: no al arrancar
     p.herramientas["stickers"].click()
     assert p.stickers.count() > 100  # se llena al abrir la pestaña
+    # Los emojis, dibujados como icono: en la rejilla su texto no cabía bajo el hueco del dibujo y salía «…»
+    primero = p.stickers.item(0)
+    assert primero.data(Qt.UserRole + 1) == "emoji" and primero.text() == "" and not primero.icon().isNull()
+    dibujo = primero.icon().pixmap(36, 36).toImage()
+    assert any(dibujo.pixelColor(x, y).alpha() for x in range(36) for y in range(36))  # algo pintado, no vacío
+    assert all(p.stickers.item(i).text() == "" for i in range(p.stickers.count()))  # ni un «…»
+    assert p.sin_stickers.isHidden()
+    p.buscar_sticker.setText("zzzqqq")  # nada: se dice qué hacer, no una rejilla vacía
+    assert p.stickers.count() == 0 and not p.sin_stickers.isHidden() and "zzzqqq" in p.sin_stickers.text()
     p.buscar_sticker.setText("fire")
+    assert p.sin_stickers.isHidden()
     fuego = next(p.stickers.item(i) for i in range(p.stickers.count()) if p.stickers.item(i).data(Qt.UserRole) == "🔥")
     p.stickers.itemClicked.emit(fuego)
     p.buscar_sticker.setText("pizza")
@@ -373,14 +383,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # ---------- Barra de herramientas (como en CapCut) y sus paneles ----------
     assert [b.text() for b in p.pestanas.buttons()] == [
         "Medios", "Audio", "Grabarte", "Texto", "Stickers", "Efectos", "Transiciones", "Subtítulos", "Filtros",
-        "Ajustes", "Plantillas", "Avatar IA"]
+        "Ajustes", "Plantillas"]  # nada de «Próximamente»: cada pestaña hace lo que dice
     for b in p.pestanas.buttons():
         b.click()
         assert b.isChecked() and p.paneles.currentIndex() == p.pestanas.id(b) and p.titulo_pestana.text() == b.text()
         assert b.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
     assert not camara_falsa.Camara.creadas  # abrir «Grabarte» no enciende la cámara: solo tú, con su botón
     assert p.listas["transicion"].count() == len(edicion.TRANSICIONES)  # la lista completa, también las nuevas
-    assert not p.avatar_btn.isEnabled()  # «Próximamente»: no promete lo que aún no hace
+    textos = " ".join(w.text() for w in p.findChildren(pe.QLabel) + p.findChildren(QAbstractButton))
+    assert "Próximamente" not in textos and not hasattr(p, "avatar_btn")
     efectos, filtros, desl = p.listas["efecto"], p.listas["filtro"], p.deslizadores
 
     def opcion(lista, clave):
@@ -497,7 +508,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     tirada = p.carpeta
     assert tirada != carpeta and (tirada / "cache").is_dir()
     pd.Cuadricula.exec = lambda s: bool(s.rejilla.count()) and (s._elegir(s.rejilla.item(0)) or True)
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Discard)  # «No guardar»
     p.pedir_abrir()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     esperar(lambda: not p.tareas and p.carpeta == carpeta)
     assert p.proyecto == guardado and not p.sucio and not tirada.exists()
     for malo in (d / "no_existe", r"\\atacante.example\s\video"):
@@ -525,8 +538,17 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not p.tareas)
     assert exportados == ["720p", "4K"]
     assert (d / "Videos" / "Mi viaje.mp4").is_file() and (d / "Videos" / "Mi viaje (2).mp4").is_file()
+    # Cada exportación dice dónde quedó el archivo (nunca en silencio), con «Abrir carpeta»
+    assert [x for x in avisos if x.startswith("Tu video está guardado en:")][-2:] == [
+        f"Tu video está guardado en:\n{d / 'Videos' / 'Mi viaje.mp4'}",
+        f"Tu video está guardado en:\n{d / 'Videos' / 'Mi viaje (2).mp4'}"]
     p.abrir_carpeta()
     assert abiertas == [d / "Videos"]
+    exec_original = QMessageBox.exec
+    QMessageBox.exec = lambda caja: next(b for b in caja.buttons() if b.text() == "Abrir carpeta").click()
+    p._exportado_listo({"archivo": str(d / "Videos" / "Mi viaje.mp4")})
+    QMessageBox.exec = exec_original
+    assert abiertas == [d / "Videos"] * 2
     assert pe.destino_libre("con").name == "video con.mp4" and pe.destino_libre('a\\b/c:"d"').name == "a b c d.mp4"
 
     # ---------- Un video que se movió de carpeta: en rojo y «Volver a enlazar…» ----------
@@ -559,6 +581,133 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     enlazado = p.proyecto["clips"][0]
     assert "falta" not in enlazado and enlazado["archivo"] == str(nuevo_sitio.resolve()) and p.reenlazar_btn.isHidden()
     assert "Faltan archivos" not in p.estado.text(), p.estado.text()  # el aviso de arriba se va al enlazarlos todos
+
+    # ---------- Copia automática: tras cada cambio, al ocultar la página, y sin pisar nunca otra más nueva ----------
+    p._autoguardado.setInterval(50)
+    copia = p.carpeta / edicion.AUTOGUARDADO
+    assert p.sucio and p.marca_guardado.text() == "● Cambios sin guardar"  # el reenlace de arriba, sin guardar
+    esperar(copia.is_file)  # sola, poco después del último cambio
+    assert edicion._leer(p.carpeta, edicion.AUTOGUARDADO) == p.proyecto != edicion._leer(p.carpeta)
+    assert "copia automática a las" in p.marca_guardado.text()
+    assert p.guardar() and not copia.exists() and not p.sucio and p.marca_guardado.text() == ""
+    p._autoguardado.setInterval(60_000)
+    p._aplicar(edicion.validar({**p.proyecto, "fps": 25}))
+    p.hide()  # a otra página del menú: la copia, ya
+    assert edicion._leer(p.carpeta, edicion.AUTOGUARDADO)["fps"] == 25
+    p.show()
+    edicion.guardar({**p.proyecto, "nombre": "De otra ventana"}, p.carpeta, edicion.AUTOGUARDADO)
+    p._aplicar(edicion.validar({**p.proyecto, "fps": 30}))
+    p.autoguardar()  # otra ventana escribió su copia después: no se pisa, y se dice
+    assert edicion._leer(p.carpeta, edicion.AUTOGUARDADO)["nombre"] == "De otra ventana"
+    assert p.marca_guardado.text().startswith("⚠️ Cambios sin guardar: otra ventana") and p.sucio
+    # «Guardar» con proyecto.json cambiado fuera del editor (p. ej. Dibujos animados al rehacer el episodio) pregunta
+    edicion.guardar({**p.proyecto, "nombre": "Cambiado fuera"}, p.carpeta)
+    preguntas = []
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or QMessageBox.No)
+    assert not p.guardar() and edicion._leer(p.carpeta)["nombre"] == "Cambiado fuera" and p.sucio
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    assert p.guardar() and edicion._leer(p.carpeta) == p.proyecto and not p.sucio and len(preguntas) == 1
+    assert "fuera del editor" in preguntas[0] and p.marca_guardado.text() == ""
+
+    # ---------- Antes de descartar: «Guardar», «No guardar» o «Cancelar» ----------
+    p._aplicar(edicion.validar({**p.proyecto, "fps": 24}))
+    respuestas, preguntas = iter([QMessageBox.Cancel, QMessageBox.Save]), []
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, botones=None, *a, **k:
+                                        preguntas.append((titulo, botones)) or next(respuestas))
+    assert not p._descartar_ok() and p.sucio and copia.is_file()  # «Cancelar»: todo sigue; su copia, ya escrita
+    assert p._descartar_ok() and not p.sucio and edicion._leer(p.carpeta)["fps"] == 24 and not copia.exists()
+    assert preguntas == [("Cambios sin guardar", QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)] * 2
+    p._aplicar(edicion.validar({**p.proyecto, "fps": 30}))
+    p.autoguardar()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Discard)
+    assert p._descartar_ok() and not p.sucio and not copia.exists() and edicion._leer(p.carpeta)["fps"] == 24
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    p.hide()  # descartado: ocultar la página no vuelve a escribir la copia
+    p.show()
+    assert not copia.exists()
+    assert pe.PaginaEdicion()._descartar_ok()  # un video vacío no tiene nada que perder: ni pregunta
+
+    # ---------- Al abrir el editor: recuperar lo que se quedó sin guardar ----------
+    p._aplicar(edicion.validar({**p.proyecto, "nombre": "Sin guardar"}))
+    p.autoguardar()
+    caida = p.carpeta
+    p._empezar(edicion.nuevo(), None)  # como si la app se hubiera cerrado de golpe: la copia se queda
+    assert (caida / edicion.AUTOGUARDADO).is_file() and (caida / "proyecto.json").is_file()
+    ofrecidos = []
+
+    def pulsar(texto):
+        def exec_(caja):
+            ofrecidos.append(caja.text())
+            boton = next((b for b in caja.buttons() if b.text() == texto), None)
+            return boton.click() if boton else 0
+        return exec_
+
+    QMessageBox.exec = pulsar("Recuperar")
+    q = pe.PaginaEdicion()
+    q.show()
+    esperar(lambda: q.carpeta == caida and not q.tareas)
+    assert q.proyecto["nombre"] == "Sin guardar" and q.sucio  # recuperado, pero aún sin guardar
+    assert ofrecidos[-1].startswith("«Sin guardar» tiene cambios que no llegaron a guardarse")
+    # Al abrirlo con «Abrir», también se pregunta; con «No», lo guardado (y la copia ya es de esta ventana)
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+    q.abrir(caida)
+    esperar(lambda: not q.tareas)
+    assert q.proyecto["nombre"] != "Sin guardar" and not q.sucio
+    q._aplicar(edicion.validar({**q.proyecto, "fps": 60}))
+    q.autoguardar()
+    assert edicion._leer(caida, edicion.AUTOGUARDADO)["fps"] == 60 and "⚠" not in q.marca_guardado.text()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    assert q.guardar()
+    # Un video que se cerró sin guardar antes de que hubiera copia (como el del usuario): se rehace con sus
+    # grabaciones y voces IA, se guarda y se dice qué volvió y qué no
+    perdido = edicion.nueva_carpeta("mi video")
+    (perdido / "grabaciones").mkdir()
+    (perdido / "voces").mkdir()
+    shutil.copyfile(clip, perdido / "grabaciones" / "grabacion-1.mp4")
+    shutil.copyfile(musica, perdido / "voces" / "voz-1.wav")
+    shutil.rmtree(perdido / "cache")  # lo único que borraba la app al descartarlo
+    vistos = len(ofrecidos)
+    r = pe.PaginaEdicion()
+    r.show()
+    esperar(lambda: r.carpeta == perdido and not r.tareas)
+    assert ofrecidos[vistos].startswith("«mi video» se cerró sin guardar") and "(1) y voces IA (1)" in ofrecidos[vistos]
+    assert ofrecidos[-1].startswith("Están otra vez en la línea de tiempo 2 de 2 archivos.")
+    assert pe.NO_SE_COPIA in ofrecidos[vistos] and pe.NO_SE_COPIA in ofrecidos[-1]
+    assert (perdido / "proyecto.json").is_file() and not r.sucio and r.proyecto["nombre"] == "mi video (recuperado)"
+    assert [c["tipo"] for c in r.proyecto["capas"]] == ["video"] and [a["tipo"] for a in r.proyecto["audios"]] == ["voz"]
+    assert edicion.sin_guardar() == []  # ya es un video guardado: no se vuelve a ofrecer
+    # «Ahora no» y «No preguntar más» (no se ofrece otra vez y no se borra nada); una vez por sesión
+    otro = edicion.nueva_carpeta("otro")
+    (otro / "grabaciones").mkdir()
+    shutil.copyfile(clip, otro / "grabaciones" / "grabacion-1.mp4")
+    vistos = len(ofrecidos)
+    QMessageBox.exec = pulsar("Ahora no")
+    s_ = pe.PaginaEdicion()
+    s_.show()
+    esperar(lambda: len(ofrecidos) > vistos)
+    assert s_.carpeta is None and len(edicion.sin_guardar()) == 1
+    s_.hide()
+    s_.show()
+    app.processEvents()
+    assert len(ofrecidos) == vistos + 1  # volver a la página no lo ofrece otra vez
+    QMessageBox.exec = pulsar("No preguntar más")
+    s_ = pe.PaginaEdicion()
+    s_.show()
+    esperar(lambda: len(ofrecidos) > vistos + 1)
+    assert s_.carpeta is None and edicion.sin_guardar() == [] and (otro / "grabaciones" / "grabacion-1.mp4").is_file()
+    QMessageBox.exec = exec_original
+    # «No guardar» en un video nuevo con voces IA: se va la caché, se quedan tus archivos y no se ofrece al volver
+    s_._carpeta()
+    (s_.carpeta / "voces").mkdir()
+    shutil.copyfile(musica, s_.carpeta / "voces" / "voz-1.wav")
+    tirado = s_.carpeta
+    s_._aplicar(edicion.validar({**s_.proyecto, "fps": 24}))
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Discard)
+    assert s_._descartar_ok()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    s_._empezar(edicion.nuevo(), None)
+    assert not (tirado / "cache").exists() and (tirado / "voces" / "voz-1.wav").is_file()
+    assert edicion.sin_guardar() == []
 
     # ---------- Subtítulos de 60 min: la línea de tiempo pinta solo las palabras que se ven ----------
     larga = pe.LineaTiempo()
@@ -603,21 +752,41 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert ventana.edicion.proyecto["clips"][0]["archivo"] == str(clip.resolve())
     # Con la cámara de «Grabarte» encendida, ir a otra página del menú la apaga (la ventana ya se ve: como de verdad)
     ventana.show()
+    # A 1280×720 (1920×1080 al 150 %, la pantalla del dueño): la página no se desplaza y cada panel de la izquierda
+    # cabe a lo ancho, también con una voz de ElevenLabs de nombre largo (acortada con «…» y entera en la ayuda)
+    ventana.resize(1280, 720)
+    ed, pagina = ventana.edicion, ventana.paginas.currentWidget()
+    largo = "ElevenLabs · El Faraón - Full, Clear, Mellow narrator voice"
+    ed.voz.addItem(largo, "x")
+    ed.voz.setCurrentIndex(ed.voz.count() - 1)
+    assert ed.voz.toolTip() == largo
+    for b in ed.pestanas.buttons():
+        b.click()
+        app.processEvents()
+        panel = ed.paneles.currentWidget()
+        dentro, ancho = (panel.widget(), panel.viewport().width()) if isinstance(panel, pe.QScrollArea) else \
+            (panel, ed.paneles.width())
+        assert dentro.minimumSizeHint().width() <= ancho, (b.text(), dentro.minimumSizeHint(), ancho)
+        assert not pagina.verticalScrollBar().maximum() and not pagina.horizontalScrollBar().maximum(), b.text()
     ventana.edicion.herramientas["grabarte"].click()
     assert ventana.edicion.grabarte.encender() and camara_falsa.Camara.creadas[-1].activa
     ventana.ir_a(0)
     assert ventana.edicion.grabarte.estado == "apagada" and not camara_falsa.Camara.creadas[-1].activa
     ventana.ir_a(i)
-    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)  # un video sin guardar: cerrar pregunta
-    reproductor.editar.click()  # y «No» deja el proyecto como estaba
+    copia = ventana.edicion.carpeta / edicion.AUTOGUARDADO
+    copia.unlink(missing_ok=True)
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Cancel)  # un video sin guardar: cerrar pregunta
+    reproductor.editar.click()  # y «Cancelar» deja el proyecto como estaba
     assert len(ventana.edicion.proyecto["clips"]) == 1 and not ventana.edicion.tareas
-    assert not ventana.close()
+    assert copia.is_file()  # antes de preguntar ya está su copia: si la app se cierra a la fuerza ahí, no se pierde
+    copia.unlink()
+    assert not ventana.close() and copia.is_file()
     # Exportando (o preparando algo): cerrar pregunta. «No» sigue trabajando; «Sí» lo cancela (mata sus ffmpeg, que
-    # si no seguirían solos y dejarían un «tmp-…mp4» en Videos) y cierra
+    # si no seguirían solos y dejarían un «tmp-…mp4» en Videos) y cierra. «No guardar» quita la copia automática
     QMessageBox.question = staticmethod(lambda padre, titulo, *a, **k:
-                                        QMessageBox.No if titulo == "Está trabajando" else QMessageBox.Yes)
+                                        QMessageBox.No if titulo == "Está trabajando" else QMessageBox.Discard)
     ventana.edicion._trabajo(lambda aviso: time.sleep(0.5) or {}, lambda r: None)
-    assert not ventana.close() and ventana.edicion.tareas
+    assert not ventana.close() and ventana.edicion.tareas and not copia.exists()
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     tirada = ventana.edicion.carpeta  # nunca se guardó: al cerrar se borra con su caché
     assert tirada.is_dir() and ventana.close() and cancelados and not ventana.edicion.tareas and not tirada.exists()

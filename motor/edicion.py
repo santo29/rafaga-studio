@@ -92,6 +92,8 @@ MAX_VIDEOS = 6  # capas de video: cada una es un video más que decodificar a la
 MAX_DURACION, MIN_CLIP, IMAGEN = 3600, 0.1, 3  # segundos: total, lo mínimo de un clip, lo que dura una foto nueva
 _T = 86_400  # «desde»/«hasta» dentro de un archivo: hasta 24 h (se puede usar un trozo de una grabación larga)
 _MAX_JSON = 8 * 1024 ** 2
+AUTOGUARDADO = "autoguardado.json"  # la copia automática de lo que aún no se guardó (la escribe el editor)
+NO_RECUPERAR = "no-recuperar"  # en un video descartado a propósito: sin_guardar() ya no lo ofrece
 _TIPOS = {"video": seguro.VIDEOS, "imagen": seguro.IMAGENES}
 _TIPOS_CAPA = ("texto", "icono", "emoji", "imagen", "video")
 
@@ -676,16 +678,17 @@ def nueva_carpeta(nombre: str) -> Path:
     return carpeta
 
 
-def guardar(proyecto: dict, carpeta: Path) -> Path:
-    """Valida y escribe proyecto.json (atómico). La miniatura de la lista (miniatura.png) la pone la interfaz."""
+def guardar(proyecto: dict, carpeta: Path, nombre_archivo: str = "proyecto.json") -> Path:
+    """Valida y escribe proyecto.json (o la copia automática, AUTOGUARDADO), atómico. La miniatura de la lista
+    (miniatura.png) la pone la interfaz."""
     limpio, carpeta = validar(proyecto), diseno._local(carpeta)
-    archivo = carpeta / "proyecto.json"
+    archivo = carpeta / nombre_archivo
     diseno.escribir_json(archivo, limpio)
     return archivo
 
 
-def _leer(carpeta: Path) -> dict:
-    archivo = diseno._local(carpeta) / "proyecto.json"
+def _leer(carpeta: Path, nombre_archivo: str = "proyecto.json") -> dict:
+    archivo = diseno._local(carpeta) / nombre_archivo
     try:
         if archivo.stat().st_size > _MAX_JSON:
             raise ValueError("demasiado grande")
@@ -698,10 +701,11 @@ def _leer(carpeta: Path) -> dict:
     return validar(datos)
 
 
-def abrir(carpeta: Path) -> dict:
+def abrir(carpeta: Path, nombre_archivo: str = "proyecto.json") -> dict:
     """El proyecto validado, con cada archivo de clip, capa de video y audio comprobado (local y es lo que dice ser).
-    Si ya no está (movido, borrado, USB quitado) no falla: lo marca «falta» para volver a enlazarlo (reenlazar)."""
-    p = _leer(carpeta)
+    Si ya no está (movido, borrado, USB quitado) no falla: lo marca «falta» para volver a enlazarlo (reenlazar).
+    nombre_archivo=AUTOGUARDADO: la copia automática de lo que no se llegó a guardar."""
+    p = _leer(carpeta, nombre_archivo)
     for lista, que in ((p["clips"], t("clip")), ([c for c in p["capas"] if c["tipo"] == "video"], t("capa de video")),
                        (p["audios"], t("audio"))):
         for n, e in enumerate(lista, 1):
@@ -742,3 +746,72 @@ def listar(maximo: int | None = None) -> list[dict]:
         proyectos.append((fecha, {"nombre": nombre or archivo.parent.name, "carpeta": str(archivo.parent),
                                   "miniatura": miniatura}))
     return [p for _, p in sorted(proyectos, key=lambda t: t[0], reverse=True)]
+
+
+# ---------- Recuperar lo que no se guardó ----------
+
+def _fecha(archivo: Path) -> float | None:
+    try:
+        return archivo.stat().st_mtime if archivo.is_file() else None
+    except OSError:
+        return None
+
+
+def _sueltos(carpeta: Path, sub: str) -> list[Path]:
+    """Las grabaciones (o voces IA) que siguen en la carpeta de un video, de la más vieja a la más nueva."""
+    try:
+        return sorted((f for f in (carpeta / sub).glob("*") if f.is_file() and f.stat().st_size
+                       and f.suffix.lower() in seguro.VIDEOS | seguro.AUDIOS), key=lambda f: f.stat().st_mtime)
+    except OSError:
+        return []
+
+
+def _nombre_de(carpeta: Path) -> str:
+    """El nombre que tenía el video, sacado de su carpeta («20261027-111722-mi-video» → «mi video»)."""
+    return re.sub(r"^\d{8}-\d{6}-", "", carpeta.name).replace("-", " ").strip()[:80] or t("Mi video")
+
+
+def sin_guardar() -> list[dict]:
+    """Los videos que se pueden recuperar, del más nuevo al más viejo: {"carpeta", "nombre", "fecha" (segundos),
+    "copia"}. copia=True: una copia automática más nueva que lo guardado (la app se cerró sin guardar). copia=False:
+    un video que se cerró sin guardar antes de que hubiera copia automática, del que siguen sus grabaciones y voces IA
+    (lleva "grabaciones" y "voces": cuántas). Los descartados a propósito (NO_RECUPERAR) no salen."""
+    hallados = []
+    for carpeta in CARPETA.glob("*/"):
+        if (carpeta / NO_RECUPERAR).exists():
+            continue
+        guardado, copia = _fecha(carpeta / "proyecto.json"), _fecha(carpeta / AUTOGUARDADO)
+        if copia and copia > (guardado or 0):
+            try:
+                nombre = _leer(carpeta, AUTOGUARDADO)["nombre"]
+            except ValueError:
+                continue  # una copia rota no se ofrece: lo guardado sigue ahí
+            hallados.append({"carpeta": carpeta, "nombre": nombre, "fecha": copia, "copia": True})
+        elif guardado is None and not copia:
+            grabaciones, voces = _sueltos(carpeta, "grabaciones"), _sueltos(carpeta, "voces")
+            if grabaciones or voces:
+                hallados.append({"carpeta": carpeta, "nombre": _nombre_de(carpeta), "copia": False,
+                                 "fecha": max(_fecha(f) or 0 for f in grabaciones + voces),
+                                 "grabaciones": len(grabaciones), "voces": len(voces)})
+    return sorted(hallados, key=lambda h: h["fecha"], reverse=True)
+
+
+def recuperar(carpeta: Path) -> dict:
+    """Rehace un video que se cerró sin guardar y sin copia automática con lo que sigue en su carpeta: las grabaciones
+    de Grabarte y las voces IA, de la más vieja a la más nueva, cada una detrás de la anterior en su pista (las de
+    cámara, como capa en la esquina; las de solo voz y las voces IA, como audios «voz» desde el principio). Lo
+    importado (videos, fotos, música) nunca se copia a la carpeta: eso no se puede recuperar.
+    {"proyecto", "errores"}: lo que no entró, con su motivo."""
+    carpeta = diseno._local(carpeta)
+    p, errores, fin = nuevo(t("{nombre} (recuperado)", nombre=_nombre_de(carpeta))), [], {"capas": 0.0, "audios": 0.0}
+    for archivo in _sueltos(carpeta, "grabaciones") + _sueltos(carpeta, "voces"):
+        try:
+            real = str(seguro.archivo_medio(str(archivo), seguro.VIDEOS | seguro.AUDIOS, t("grabación")))
+            pista = "capas" if _medir(real)[1] and archivo.suffix.lower() in seguro.VIDEOS else "audios"
+            p = anadir_grabacion(p, real, inicio=fin[pista])
+        except (ValueError, OSError) as e:
+            errores.append(f"{archivo.name}: {e}")
+            continue
+        e = p[pista][-1]
+        fin[pista] = min(round(e["inicio"] + e["hasta"] - e["desde"], 3), MAX_DURACION)
+    return {"proyecto": p, "errores": errores}

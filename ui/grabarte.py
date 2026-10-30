@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGraph
 from motor import edicion, seguro, video
 from motor.idioma import t
 from ui import iconos
-from ui.comun import Segmentos, boton, etiqueta, mensaje, mensaje_error
+from ui.comun import ComboCorto, Segmentos, boton, etiqueta, mensaje, mensaje_error
 
 LIBRE_MINIMO, LIBRE_PARAR = 500 * 1024 ** 2, 200 * 1024 ** 2  # bytes libres para empezar a grabar y para seguir
 CUENTA = 3  # segundos de la cuenta atrás
@@ -181,7 +181,7 @@ class PanelGrabarte(QWidget):
         for i, texto in enumerate((t("Cámara y voz"), t("Solo voz"))):
             self.modo.opcion(texto, i).setChecked(i == 0)
         self.modo.grupo.idClicked.connect(self._al_cambiar_modo)
-        self.camaras, self.micros = QComboBox(), QComboBox()
+        self.camaras, self.micros = ComboCorto(), ComboCorto()  # un nombre largo acaba en «…»
         self.camaras.setToolTip(t("Cámara"))
         self.micros.setToolTip(t("Micrófono"))
         for combo in (self.camaras, self.micros):

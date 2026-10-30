@@ -13,7 +13,7 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle,
-                               QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
+                               QStyleFactory, QStyleOptionComboBox, QStylePainter, QTextEdit, QVBoxLayout, QWidget)
 
 from motor import claves, desde_prompt, guardia, ia, seguro
 from motor.idioma import dinero, t, texto_de_error
@@ -482,7 +482,23 @@ class SelectorFormato(Segmentos):
         return self.grupo.checkedButton().property("formato")
 
 
-class SelectorVoz(QComboBox):
+class ComboCorto(QComboBox):
+    """Un desplegable que, en un panel estrecho, acorta lo elegido con «…» (Qt lo cortaba a media letra) y abre su
+    lista tan ancha como la opción más larga. Para que no ensanche el panel: AdjustToMinimumContentsLengthWithIcon."""
+    def showPopup(self):
+        self.view().setMinimumWidth(self.view().sizeHintForColumn(0) + 32)
+        super().showPopup()
+
+    def paintEvent(self, e):
+        p, opcion = QStylePainter(self), QStyleOptionComboBox()
+        self.initStyleOption(opcion)
+        p.drawComplexControl(QStyle.CC_ComboBox, opcion)
+        campo = self.style().subControlRect(QStyle.CC_ComboBox, opcion, QStyle.SC_ComboBoxEditField, self)
+        opcion.currentText = self.fontMetrics().elidedText(opcion.currentText, Qt.ElideRight, campo.width() - 4)
+        p.drawControl(QStyle.CE_ComboBoxLabel, opcion)
+
+
+class SelectorVoz(ComboCorto):
     """Voces gratis + las de ElevenLabs. Se recarga al abrirse por si se conectó ElevenLabs después. Sin elegir, sale
     una voz en el idioma de la app."""
     def __init__(self):

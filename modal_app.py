@@ -2,7 +2,7 @@
 
 Ráfaga Studio lo instala solo desde "Claves de IA" → "Instalar motor de video en Modal".
 Modelos: Wan 2.2 TI2V-5B (imagen → video de ~5 s en 720p; aprox. $0.20–0.35 por clip en H100) y, para el Avatar IA,
-EchoMimicV3-Flash (foto + voz de hasta 10 s → video que habla; aprox. $0.30–0.35 en L40S, como mucho $0.80).
+EchoMimicV3-Flash (foto + voz de hasta 10 s → video que habla; aprox. $0.30–0.35 en L40S, como mucho $0.95).
 """
 import modal
 
@@ -45,6 +45,9 @@ AVATAR = {  # repo: (revisión, lo que se baja)
 # Segundos: lo más que puede durar (y cobrarse) un avatar. nube.HASTA_AVATAR, el «como mucho» que ve el usuario, sale
 # de aquí: una prueba falla si se suben sin subir ese precio
 PLAZOS_AVATAR = {"startup_timeout": 300, "timeout": 900, "scaledown_window": 60}
+# Núcleos de CPU y MiB de RAM: (lo pedido, el tope). Modal cobra lo que se usa y el tope no se pasa: sin él, la RAM y la
+# CPU no tenían techo (su benchmark pidió 64 GiB). El «como mucho» también sale de aquí
+RECURSOS_AVATAR = {"cpu": (2, 4), "memory": (16384, 65536)}
 SEGUNDOS_AVATAR = 10.5  # la voz más larga que acepta: los 10 s de la app (nube.MAX_AVATAR) y margen al medir
 FPS_AVATAR = 25  # los del modelo
 PROMPT_AVATAR = ("A person speaks naturally to the camera. Static camera, stable identity, clothing, and background, "
@@ -108,7 +111,8 @@ class Wan:
 
 
 # L40S (48 GB): su benchmark midió 33,7 GB. Uno a la vez: dos avatares seguidos no pagan dos GPU
-@app.cls(image=imagen_avatar, gpu="L40S", volumes={"/models": cache}, max_containers=1, **PLAZOS_AVATAR)
+@app.cls(image=imagen_avatar, gpu="L40S", volumes={"/models": cache}, max_containers=1, **PLAZOS_AVATAR,
+         **RECURSOS_AVATAR)
 class Avatar:
     @modal.method()
     def hablar(self, foto: bytes, voz_wav: bytes, vertical: bool) -> bytes:
@@ -147,7 +151,7 @@ class Avatar:
                                 "--num_inference_steps", "8", "--guidance_scale", "4", "--audio_guidance_scale", "2",
                                 "--sample_size", "768", "768", "--seed", "43", "--fps", str(FPS_AVATAR)],
                                cwd=CODIGO_AVATAR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            print(r.stdout)  # al registro de la app en Modal
-            if r.returncode:
-                raise RuntimeError("EchoMimicV3 falló:\n" + r.stdout[-800:])
+            print(r.stdout)  # al registro de la app en Modal: el detalle (en inglés) se queda ahí
+            if r.returncode:  # a la app, solo la causa: nube.avatar la dice en el idioma del usuario
+                raise MemoryError() if "OutOfMemoryError" in r.stdout else ChildProcessError(r.returncode)
             return (carpeta / "foto_output.mp4").read_bytes()  # infer_flash.py lo llama «<foto>_output.mp4»

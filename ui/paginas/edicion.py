@@ -663,8 +663,10 @@ class PaginaEdicion(QWidget):
         puede, a la vista antes de pulsar (_avatar_listo, al abrir la pestaña y con cada cambio)."""
         # "foto" (Path) y "voz": {"id"} de un audio de la línea de tiempo o el archivo elegido con su tramo
         self._avatar, self._avatar_en_marcha = {}, False
-        foto, de_la_linea, audio = boton(f"🖼️  {t('Elegir foto')}"), boton(t("Voz de la línea de tiempo")), \
-            boton(t("Elegir audio…"))
+        foto, de_la_linea, audio = boton(f"🖼️  {t('Foto…')}"), boton(t("Voz de la línea de tiempo")), \
+            boton(f"🎵  {t('Audio…')}")
+        foto.setToolTip(t("Elegir foto"))
+        audio.setToolTip(t("Elegir audio…"))
         de_la_linea.setToolTip(t("La voz elegida en la línea de tiempo o, si no eliges ninguna, la última"))
         foto.clicked.connect(self.elegir_foto_avatar)
         de_la_linea.clicked.connect(self.voz_de_la_linea)
@@ -678,10 +680,15 @@ class PaginaEdicion(QWidget):
         self.avatar_btn = boton(f"✨  {t('Crear mi avatar')}", "principal")
         self.avatar_btn.setEnabled(False)  # hasta que haya foto y voz
         self.avatar_btn.clicked.connect(self.crear_avatar)
-        # Como en Grabarte: lo de cada avatar arriba, a la vista a 1280×720 (lo que falta ya pide una foto con
-        # permiso); la casilla y la explicación entera, debajo
-        return self._panel(foto, self.avatar_foto, de_la_linea, audio, self.avatar_voz, self.avatar_costo,
-                           self.avatar_falta, self.avatar_btn, fila, etiqueta(t(
+        elegir = QWidget()  # foto y audio en una fila: así lo que cuesta y «Crear mi avatar» se ven a 1280×720
+        fila_elegir = QHBoxLayout(elegir)
+        fila_elegir.setContentsMargins(0, 0, 0, 0)
+        fila_elegir.addWidget(foto)
+        fila_elegir.addWidget(audio)
+        # Lo que falta (ya pide una foto con permiso), justo debajo del botón; lo elegido, la casilla y la explicación
+        # entera, después
+        return self._panel(elegir, de_la_linea, self.avatar_costo, self.avatar_btn, self.avatar_falta,
+                           self.avatar_foto, self.avatar_voz, fila, etiqueta(t(
                                "Tu foto habla con tu voz. Se hace en tu nube Modal: unos {costo} de tu crédito gratis "
                                "por avatar de hasta {n} s (como mucho {tope}) y cuenta como 1 clip del cupo de hoy. "
                                "Usa solo fotos tuyas o de alguien que te dio permiso, y marca el video como hecho con "
@@ -1710,14 +1717,14 @@ class PaginaEdicion(QWidget):
             if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: nada de pago empieza
                 return mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
             if QMessageBox.question(self, t("Antes de gastar"), t(
-                    "{que}\n\nCuesta {costo}. ¿Seguir?", que=t("Tu avatar, en tu nube Modal: cuenta como 1 clip del "
-                                                               "cupo de hoy."),
+                    "{que}\n\nCuesta {costo}. ¿Seguir?", que=t(
+                        "Tu avatar, en tu nube Modal: cuenta como 1 clip del cupo de hoy. Si Modal interrumpe su GPU a "
+                        "medias (pasa pocas veces), lo repite solo y ese intento se cobra aparte."),
                     costo=t("unos {costo} de tu crédito de Modal, como mucho {tope}", costo=dinero(nube.PRECIO_AVATAR),
                             tope=dinero(nube.HASTA_AVATAR)))) != QMessageBox.Yes:
                 return self.estado.setText(t("Cancelado: no se gastó nada."))
         carpeta = self._carpeta()
         self._avatar_en_marcha = True
-        self.avatar_space.setChecked(False)  # el Space se pide cada vez: no se recuerda (y repinta el panel)
         self._avatar_listo()
         self._trabajo(_avatar, lambda r: self._avatar_hecho(r, carpeta, voz), al_fallar=lambda _e: self._avatar_fin(),
                       foto=str(self._avatar["foto"]), voz=voz, formato=self.proyecto["formato"], carpeta=carpeta,
@@ -1725,6 +1732,8 @@ class PaginaEdicion(QWidget):
 
     def _avatar_fin(self):
         self._avatar_en_marcha = False
+        # El Space se pide cada vez: no se recuerda. Al terminar y no al empezar: mientras trabaja, el panel dice lo suyo
+        self.avatar_space.setChecked(False)
         self._avatar_listo()
 
     def _avatar_hecho(self, r, carpeta, voz):
@@ -1802,9 +1811,9 @@ class PaginaEdicion(QWidget):
             # borró, pero una miniatura o un proxy tenía abierto un archivo de cache/ o la volvió a crear
             for c in self._sin_guardar | {c for c in edicion.CARPETA.glob("*/") if not (c / "imagenes").exists()}:
                 if c.parent == edicion.CARPETA and not (c / "proyecto.json").exists():  # solo las que hizo _carpeta
-                    if any((c / "grabaciones").glob("*")) or any((c / "voces").glob("*")):
-                        # Tus grabaciones y voces IA no se borran nunca solas: de un video así solo se va la caché, y
-                        # al abrir el editor no se ofrece recuperarlo (se descartó a propósito)
+                    if any(any((c / sub).glob("*")) for sub in ("grabaciones", "voces", "avatares")):
+                        # Tus grabaciones, voces IA y avatares (ya pagados) no se borran nunca solos: de un video así
+                        # solo se va la caché, y al abrir el editor no se ofrece recuperarlo (se descartó a propósito)
                         shutil.rmtree(c / "cache", ignore_errors=True)
                         try:
                             (c / edicion.NO_RECUPERAR).touch()
@@ -1825,9 +1834,11 @@ class PaginaEdicion(QWidget):
             return True
         self.autoguardar()
         texto = t("El video tiene cambios sin guardar. ¿Guardarlos antes de seguir?")
-        grabaciones = self.carpeta / "grabaciones" if self.carpeta else None
+        grabaciones, avatares = (self.carpeta / sub if self.carpeta else None for sub in ("grabaciones", "avatares"))
         if grabaciones and any(grabaciones.glob("*")):  # sin guardar, esa carpeta no sale en «Abrir»
             texto += "\n\n" + t("Si no los guardas, tus grabaciones se quedan en {carpeta}.", carpeta=grabaciones)
+        if avatares and any(avatares.glob("*")):  # un avatar ya pagado tampoco se borra
+            texto += "\n\n" + t("Si no los guardas, tus avatares se quedan en {carpeta}.", carpeta=avatares)
         respuesta = QMessageBox.question(self, t("Cambios sin guardar"), texto,
                                          QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save)
         if respuesta == QMessageBox.Save:

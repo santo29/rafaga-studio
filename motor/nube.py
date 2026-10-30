@@ -9,17 +9,19 @@ import time
 from pathlib import Path
 
 from . import claves
-from .idioma import t
+from .idioma import dinero, t, texto_de_error
 
 RAIZ = Path(__file__).resolve().parent.parent
 USO = RAIZ / "datos" / "uso_nube.json"
 LIMITE_DIARIO = 3  # ~3 clips/día × 30 días × ~$0.30 ≈ los $30 gratis del plan Starter
 PRECIO_CLIP = 0.35  # US$ por clip de 5 s del crédito de Modal, por lo alto (lo que dice «Claves de IA»: 0,20 a 0,35)
-PRECIO_L40S = 0.000542  # US$ por segundo de una L40S en Modal (modal.com/pricing, 29-10-2026)
+# US$ por segundo en Modal (modal.com/pricing, 29-10-2026): una L40S, un núcleo de CPU y un GiB de RAM
+PRECIO_L40S, PRECIO_CPU, PRECIO_GIB = 0.000542, 0.0000131, 0.00000222
 # Avatar IA (modal_app.Avatar): una voz de hasta MAX_AVATAR s cuesta unos PRECIO_AVATAR (extrapolado del benchmark de
-# 3,6 s: medir los primeros en Modal y ajustarlo) y nunca más de HASTA_AVATAR, que sale de sus plazos × PRECIO_L40S más
-# algo de RAM y CPU. Cuenta como 1 clip del cupo del día: el crédito gratis es el mismo
-MAX_AVATAR, PRECIO_AVATAR, HASTA_AVATAR = 10, 0.35, 0.80
+# 3,6 s: medir los primeros en Modal y ajustarlo) y nunca más de HASTA_AVATAR por intento, que sale de sus plazos por la
+# GPU y los topes de CPU y RAM (pruebas/avatar.py lo comprueba). Si Modal interrumpe la GPU, repite solo y ese intento se
+# cobra aparte (con GPU no admite nonpreemptible): «Antes de gastar» lo dice. Cuenta como 1 clip del cupo del día
+MAX_AVATAR, PRECIO_AVATAR, HASTA_AVATAR = 10, 0.35, 0.95
 
 
 def limite() -> int:
@@ -121,24 +123,28 @@ def animar(imagen_png: Path, prompt: str, formato: str, segundos: float, destino
 
 
 def voz_larga(segundos: float, tope: float) -> str:
-    """Por qué esa voz no vale para un avatar ("" si cabe): lo dicen igual el panel y el motor."""
+    """Por qué esa voz no vale para un avatar ("" si cabe): lo dicen igual el panel y el motor. Se compara lo que se
+    enseña (con un decimal): «dura 10.0 s y admite 10 s» no sale nunca; modal_app tiene margen para esas centésimas."""
+    segundos = round(segundos, 1)
     return t("La voz dura {s} s y el avatar admite como mucho {n} s: recórtala o elige otra.", s=f"{segundos:.1f}",
              n=tope) if segundos > tope else ""
 
 
 def avatar(foto: Path, audio: Path, formato: str, destino: Path) -> Path:
     """Tu foto habla con tu voz en tu nube Modal (modal_app.Avatar): cuenta como 1 clip del cupo del día. Una voz
-    larga o un motor instalado antes del avatar fallan antes de apartar el cupo."""
+    larga o un motor instalado antes del avatar fallan antes de apartar el cupo; lo que falle con la GPU ya en marcha
+    sale como ia.Cobrado (la actividad lo cuenta y no se prueba otra opción)."""
     c = claves.cargar()["modal"]
     import modal.exception
     from . import video
-    from .ia import _clip_real  # aquí: ia también carga este módulo
+    from .ia import Cobrado, _clip_real  # aquí: ia también carga este módulo
     error = voz_larga(video.medir(audio)[0], MAX_AVATAR)
     if error:
         raise ValueError(error)
     with tempfile.TemporaryDirectory() as carpeta:
         wav = Path(carpeta) / "voz.wav"
-        video.ffmpeg("-i", audio, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav)  # lo que lee su wav2vec
+        # En WAV y con su calidad: esa voz es la que lleva el MP4 (su wav2vec la baja a 16 kHz mono solo para el modelo)
+        video.ffmpeg("-i", audio, "-vn", "-c:a", "pcm_s16le", wav)
         voz, imagen = wav.read_bytes(), foto.read_bytes()
     clase = modal.Cls.from_name("rafaga-studio-video", "Avatar", client=_cliente(c["clave"]))
     try:
@@ -146,5 +152,15 @@ def avatar(foto: Path, audio: Path, formato: str, destino: Path) -> Path:
     except modal.exception.NotFoundError:
         raise RuntimeError(t("Tu motor de Modal no tiene el avatar: pulsa «Instalar motor en Modal» en «Claves de IA» "
                              "(otra vez, si ya lo tenías) y vuelve a probar. No se gastó nada.")) from None
-    datos = usar_gpu(clase, lambda: clase().hablar.remote(imagen, voz, formato in ("9:16", "4:5")))
-    return _clip_real(datos, destino)
+
+    def hablar():  # el cupo ya está apartado: «sin cupo» y «apagada» no llegan aquí y siguen sin costo
+        try:
+            return _clip_real(clase().hablar.remote(imagen, voz, formato in ("9:16", "4:5")), destino)
+        except Exception as e:  # sin memoria y el plazo los da modal_app.Avatar; el detalle, en su registro de Modal
+            causa = (t("su GPU se quedó sin memoria: prueba con una voz más corta") if isinstance(e, MemoryError) else
+                     t("se le acabó el tiempo") if isinstance(e, modal.exception.FunctionTimeoutError) else
+                     t("el modelo falló (el detalle está en el registro de tu app en Modal)")
+                     if isinstance(e, ChildProcessError) else texto_de_error(e))
+            raise Cobrado(t("Tu nube Modal no pudo hacer el avatar: {causa}. Puede que su GPU ya haya gastado hasta "
+                            "{tope} de tu crédito.", causa=causa, tope=dinero(HASTA_AVATAR))) from e
+    return usar_gpu(clase, hablar)

@@ -6,6 +6,7 @@ import json
 import math
 import re
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -1163,12 +1164,18 @@ def avatar(foto: Path, audio: Path, formato: str, destino: Path, space: bool = F
 
     def huggingface():
         from gradio_client import handle_file
+
+        from . import render_edicion
         error = nube.voz_larga(video.medir(audio)[0], MAX_AVATAR_SPACE)
         if error:
             raise ValueError(error)
-        # Sin token (llamar_space): el Space llama a la API de Alibaba con la clave de su dueño
-        salida = nubes.llamar_space(ESPACIO_AVATAR, handle_file(str(foto)), handle_file(str(audio)), "480P",
-                                    api_name="/predict", espera=ESPERA_AVATAR_SPACE)
+        # Al Space público (lo ve su dueño) va una copia hecha de nuevo solo con los píxeles y con nombre neutro: ni el
+        # EXIF (el GPS de una foto de móvil) ni el nombre del archivo. Sin token (llamar_space): el Space llama a la
+        # API de Alibaba con la clave de su dueño
+        with tempfile.TemporaryDirectory() as carpeta:
+            limpia = render_edicion._foto(Path(foto), Path(carpeta))
+            salida = nubes.llamar_space(ESPACIO_AVATAR, handle_file(str(limpia)), handle_file(str(audio)), "480P",
+                                        api_name="/predict", espera=ESPERA_AVATAR_SPACE)
         return _clip_real(nubes.archivo_del_space(salida), destino)
 
     def que_fue(p):  # el modelo y lo que cuesta, para la actividad de la IA

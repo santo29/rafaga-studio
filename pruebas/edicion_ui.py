@@ -512,7 +512,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     pe.ia.avatar = avatar_falso
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or QMessageBox.No)
     p.avatar_btn.click()
-    assert "US$0.35" in preguntas[-1] and "US$0.80" in preguntas[-1] and not hechos and not p.tareas  # «No»: nada
+    assert "US$0.35" in preguntas[-1] and "US$0.95" in preguntas[-1] and not hechos and not p.tareas  # «No»: nada
+    assert "se cobra aparte" in preguntas[-1]  # el tope es por intento: si Modal corta su GPU, repite y cobra
     QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or QMessageBox.Yes)
     capas, pila = len(p.proyecto["capas"]), len(p.deshacer_pila)
     p.avatar_btn.click()
@@ -530,6 +531,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     n = len(preguntas)
     assert "Gratis" in p.avatar_costo.text()
     p.avatar_btn.click()
+    assert p.avatar_space.isChecked() and "Gratis" in p.avatar_costo.text()  # mientras trabaja, el panel dice lo suyo
     esperar(lambda: not p.tareas)
     assert hechos[-1][3] is True and len(preguntas) == n and not p.avatar_space.isChecked()
     p.deshacer()
@@ -728,11 +730,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert q.proyecto["nombre"] == "Copia buena" and q.sucio
     assert q.guardar() and edicion._leer(caida)["nombre"] == "Copia buena"
     # Un video que se cerró sin guardar antes de que hubiera copia (como el del usuario): se rehace con sus
-    # grabaciones y voces IA, se guarda y se dice qué volvió y qué no
+    # grabaciones, avatares (cuentan como grabaciones) y voces IA, se guarda y se dice qué volvió y qué no
     perdido = edicion.nueva_carpeta("mi video")
-    (perdido / "grabaciones").mkdir()
-    (perdido / "voces").mkdir()
+    for sub in ("grabaciones", "avatares", "voces"):
+        (perdido / sub).mkdir()
     shutil.copyfile(clip, perdido / "grabaciones" / "grabacion-1.mp4")
+    shutil.copyfile(clip, perdido / "avatares" / "avatar-1.mp4")
     shutil.copyfile(musica, perdido / "voces" / "voz-1.wav")
     shutil.rmtree(perdido / "cache")  # lo único que borraba la app al descartarlo
     vistos = len(ofrecidos)
@@ -740,11 +743,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     r.show()
     esperar(lambda: r.carpeta == perdido and not r.tareas)
     assert ofrecidos[vistos].startswith("«mi video» se cerró sin guardar")
-    assert "grabaciones (1), voces IA (1) y fotos encima del video (0)" in ofrecidos[vistos]
-    assert ofrecidos[-1].startswith("Están otra vez en la línea de tiempo 2 de 2 archivos.")
+    assert "grabaciones (2), voces IA (1) y fotos encima del video (0)" in ofrecidos[vistos]
+    assert ofrecidos[-1].startswith("Están otra vez en la línea de tiempo 3 de 3 archivos.")
     assert pe.NO_SE_COPIA in ofrecidos[vistos] and pe.NO_SE_COPIA in ofrecidos[-1]
     assert (perdido / "proyecto.json").is_file() and not r.sucio and r.proyecto["nombre"] == "mi video (recuperado)"
-    assert [c["tipo"] for c in r.proyecto["capas"]] == ["video"] and [a["tipo"] for a in r.proyecto["audios"]] == ["voz"]
+    assert [Path(c["archivo"]).name for c in r.proyecto["capas"]] == ["grabacion-1.mp4", "avatar-1.mp4"]
+    assert [a["tipo"] for a in r.proyecto["audios"]] == ["voz"]
     assert edicion.sin_guardar() == []  # ya es un video guardado: no se vuelve a ofrecer
     # Si guardar el video rehecho falla (disco lleno, un permiso), sigue sin guardar: su copia automática, su marca y
     # la pregunta al cerrar, nunca «no recuperar»
@@ -801,6 +805,24 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     s_._empezar(edicion.nuevo(), None)
     assert not (tirado / "cache").exists() and (tirado / "voces" / "voz-1.wav").is_file()
     assert edicion.sin_guardar() == []
+    # Lo mismo con un avatar de un audio de fuera («Audio…»): ya pagado, se queda en avatares/ y la pregunta dice dónde
+    claves.guardar({"proveedor": "modal", "clave": "ak-1 as-2", "usos": ["video"]})
+    pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(foto), ""))
+    s_.elegir_foto_avatar()
+    pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(musica), ""))
+    s_.elegir_audio_avatar()
+    esperar(lambda: not s_.tareas)
+    s_.avatar_btn.click()  # «Antes de gastar»: Sí
+    esperar(lambda: not s_.tareas)
+    pagado, tirado, preguntas = Path(s_.proyecto["capas"][-1]["archivo"]), s_.carpeta, []
+    QMessageBox.question = staticmethod(lambda padre, titulo, texto, *a, **k: preguntas.append(texto) or
+                                        QMessageBox.Discard)
+    assert s_._descartar_ok()
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    s_._empezar(edicion.nuevo(), None)
+    assert pagado.is_file() and pagado.parent.name == "avatares" and str(tirado / "avatares") in preguntas[-1]
+    assert not (tirado / "cache").exists() and edicion.sin_guardar() == []
+    claves.borrar("modal")
 
     # ---------- Subtítulos de 60 min: la línea de tiempo pinta solo las palabras que se ven ----------
     larga = pe.LineaTiempo()
@@ -861,6 +883,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             (panel, ed.paneles.width())
         assert dentro.minimumSizeHint().width() <= ancho, (b.text(), dentro.minimumSizeHint(), ancho)
         assert not pagina.verticalScrollBar().maximum() and not pagina.horizontalScrollBar().maximum(), b.text()
+    ed.herramientas["avatar"].click()
+    app.processEvents()
+    vista = ed.paneles.currentWidget().viewport()
+    for w in (ed.avatar_costo, ed.avatar_btn):  # lo que cuesta y «Crear mi avatar», a la vista sin desplazar el panel
+        assert vista.rect().contains(QRect(w.mapTo(vista, QPoint(0, 0)), w.size())), (w.mapTo(vista, QPoint(0, 0)),
+                                                                                       vista.size())
     # La copia automática falló con una ruta larga: el aviso junto al título se acorta con «…» (entero en la ayuda),
     # la página no se ensancha y «Exportar» sigue a la vista
     ed._fallo_copia = "[Errno 13] Acceso denegado: '" + "C:\\Users\\Usuario\\AppData\\Local\\Programs\\Ráfaga " \

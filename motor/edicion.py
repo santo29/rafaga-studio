@@ -790,7 +790,8 @@ def sin_guardar() -> list[dict]:
                 continue  # una copia rota no se ofrece: lo guardado sigue ahí
             hallados.append({"carpeta": carpeta, "nombre": nombre, "fecha": copia, "copia": True})
         elif guardado is None and not copia:
-            grabaciones, voces = _sueltos(carpeta, "grabaciones"), _sueltos(carpeta, "voces")
+            grabaciones, voces = _sueltos(carpeta, "grabaciones") + _sueltos(carpeta, "avatares"), \
+                _sueltos(carpeta, "voces")  # un avatar (ui: Avatar IA) cuenta como una grabación de cámara
             fotos = _sueltos(carpeta, "imagenes", seguro.IMAGENES)
             fecha = max((_fecha(f) or 0 for f in grabaciones + voces + fotos), default=0)
             if fecha > descartado:
@@ -801,14 +802,14 @@ def sin_guardar() -> list[dict]:
 
 def recuperar(carpeta: Path) -> dict:
     """Rehace un video que se cerró sin guardar y sin copia automática con lo que sigue en su carpeta: las grabaciones
-    de Grabarte y las voces IA, de la más vieja a la más nueva, cada una detrás de la anterior en su pista (las de
-    cámara, como capa en la esquina; las de solo voz y las voces IA, como audios «voz» desde el principio) y las
-    fotos encima del video (imagenes/), centradas y de IMAGEN segundos cada una, como al añadirlas. Lo importado a la
-    línea de tiempo (videos, fotos, música) nunca se copia a la carpeta: eso no se puede recuperar.
+    de Grabarte, los avatares y las voces IA, de la más vieja a la más nueva, cada una detrás de la anterior en su pista
+    (las de cámara y los avatares, como capa en la esquina; las de solo voz y las voces IA, como audios «voz» desde el
+    principio) y las fotos encima del video (imagenes/), centradas y de IMAGEN segundos cada una, como al añadirlas. Lo
+    importado a la línea de tiempo (videos, fotos, música) nunca se copia a la carpeta: eso no se puede recuperar.
     {"proyecto", "errores"}: lo que no entró, con su motivo."""
     carpeta = diseno._local(carpeta)
     p, errores, fin = nuevo(t("{nombre} (recuperado)", nombre=_nombre_de(carpeta))), [], {"capas": 0.0, "audios": 0.0}
-    for archivo in _sueltos(carpeta, "grabaciones") + _sueltos(carpeta, "voces"):
+    for archivo in _sueltos(carpeta, "grabaciones") + _sueltos(carpeta, "avatares") + _sueltos(carpeta, "voces"):
         try:
             real = str(seguro.archivo_medio(str(archivo), seguro.VIDEOS | seguro.AUDIOS, t("grabación")))
             pista = "capas" if _medir(real)[1] and archivo.suffix.lower() in seguro.VIDEOS else "audios"

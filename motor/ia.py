@@ -36,6 +36,25 @@ def _imagen_real(datos: bytes) -> bytes:
     return datos
 
 
+def guardar_imagen(datos: bytes, destino: Path) -> Path:
+    """La imagen en `destino` con el formato que dice su nombre: Pollinations, Gemini o el Space gratis dan JPEG o
+    WEBP aunque se guarde como .png (otros programas lo abren mal). Si no coincide, se convierte (de pie, como en el
+    móvil); un nombre de otro tipo se guarda tal cual."""
+    firma = {".png": b"\x89PNG", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff"}.get(destino.suffix.lower(), b"")
+    if datos.startswith(firma):
+        destino.write_bytes(datos)
+        return destino
+    from PySide6.QtCore import QBuffer
+    from PySide6.QtGui import QImageReader
+    memoria = QBuffer()  # en una variable: el lector no lo mantiene vivo
+    memoria.setData(datos)
+    lector = QImageReader(memoria)
+    lector.setAutoTransform(True)
+    if not lector.read().save(str(destino)):  # una imagen que no se pudo leer (nula) tampoco se guarda
+        raise RuntimeError(t("No se pudo guardar la imagen en {destino}.", destino=destino))
+    return destino
+
+
 def _clip_real(datos: bytes, destino: Path) -> Path:
     if not seguro.es_video(datos[:16]):
         raise RuntimeError(t("no devolvió un video"))
@@ -802,7 +821,7 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
         if gemini:
             datos = _imagen_gemini(c, pedido, ancho, alto, foto, calidad=calidad, cobrado=True)
             respondio = True
-            destino.write_bytes(datos)
+            guardar_imagen(datos, destino)
             actividad.anotar("imagen", "gemini", _modelo_gemini_usado(c["clave"]), precio())
             return destino
         if c["proveedor"] == "openai":
@@ -820,8 +839,8 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
                                  codigo=r.status_code, detalle=motivo(r)))
         respondio = c["proveedor"] == "openai"
         d = r.json()["data"][0]
-        destino.write_bytes(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
-                                         else seguro.descargar(d["url"])))
+        guardar_imagen(_imagen_real(base64.b64decode(d["b64_json"]) if d.get("b64_json")
+                                    else seguro.descargar(d["url"])), destino)
     except Exception as e:
         cobrado = respondio or isinstance(e, Cobrado)
         actividad.anotar("imagen", c["proveedor"], _modelo_gemini_usado(c["clave"]) if gemini else modelo,
@@ -1067,8 +1086,7 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
             (todas.get(p) or {}).get("modelo_imagen") or (ESPACIO_IMAGEN if p == "huggingface" else "")
         return modelo, PRECIO_IMAGEN.get(p, 0.0)
     datos, _ = nubes.rotar("imagen", tareas, que_fue=que_fue)
-    destino.write_bytes(datos)
-    return destino
+    return guardar_imagen(datos, destino)
 
 
 def cloudflare_partes(clave: str) -> tuple[str, str]:
@@ -1387,8 +1405,9 @@ def _video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | 
             _borrar(f"{API_GEMINI}/interactions/{interaccion}", cabecera)
 
 
-def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
-    """Narra con ElevenLabs y devuelve los tiempos por palabra (vienen por letra y se agrupan)."""
+def voz_elevenlabs(texto: str, voice_id: str, destino: Path, velocidad: float = 1.0) -> list[dict]:
+    """Narra con ElevenLabs y devuelve los tiempos por palabra (vienen por letra y se agrupan). velocidad: de 0,7 a
+    1,2 (su rango); solo se manda si cambia, para no tocar los ajustes que la voz tiene guardados."""
     c = claves.cargar().get("elevenlabs")
     if not c:
         raise SinClave(t("Conecta tu clave de ElevenLabs para usar sus voces."))
@@ -1397,7 +1416,8 @@ def voz_elevenlabs(texto: str, voice_id: str, destino: Path) -> list[dict]:
     try:
         r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
                        params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": c["clave"]}, timeout=300,
-                       json={"text": texto, "model_id": modelo})
+                       json={"text": texto, "model_id": modelo,
+                             **({"voice_settings": {"speed": velocidad}} if velocidad != 1 else {})})
         if r.is_error:  # su motivo en claro (p. ej. «quota_exceeded»), no el texto de httpx en inglés
             raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio="ElevenLabs",
                                  codigo=r.status_code, detalle=motivo(r)))

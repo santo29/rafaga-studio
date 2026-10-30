@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         # ---------- La voz y sus subtítulos: solo palabras ----------
         oido = []
 
-        async def voz_falsa(texto, voz_id, destino):
+        async def voz_falsa(texto, voz_id, destino, velocidad=1.0):
             oido.append(texto)
             return [{"palabra": w, "inicio": 0, "fin": 0} for w in texto.split()]
         desde_prompt._voz = voz_falsa

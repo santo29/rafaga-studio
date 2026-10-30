@@ -209,7 +209,7 @@ r = Reproductor()
 botones = [b.text() for b in r.findChildren(QPushButton)]
 assert botones.count("Abrir carpeta") == 1 and "Descargar" in botones, botones  # «Abrir carpeta» pasó a las acciones
 lay = r.layout()
-assert lay.indexOf(r.lista) + 1 == lay.indexOf(r.acciones) == lay.indexOf(r.pantalla) - 1  # entre lista y video
+assert lay.indexOf(r.lista) + 1 == lay.indexOf(r.acciones) == lay.indexOf(r.vista) - 1  # entre lista y video
 assert r.acciones.isHidden()  # sin resultados, nada que descargar
 
 # Crear con IA: un video

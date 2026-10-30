@@ -232,11 +232,13 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         {"archivo": str(video), "titulo": "Lugares de RD", "descripcion": "Tres sitios", "hashtags": ["rd", "#viaje"]},
         {"archivo": str(d / "cancion.mp3"), "titulo": "Una canción", "descripcion": "", "hashtags": []}]}),
         encoding="utf-8")
-    publicar.HISTORIAL.write_text(json.dumps([{"hora": "2030-01-01T10:00:00Z", "titulo": "Viejo", "id": "A1"}]))
+    publicar.HISTORIAL.write_text(json.dumps([{"hora": "2030-01-15T12:00:00Z", "titulo": "Viejo", "id": "A1"}]))
     pagina = pagina_publicar.PaginaPublicar()
     pagina.recargar()
     assert pagina.videos.count() == 1 and "Conectado" in pagina.estado.text()
     assert "youtu.be/A1" in pagina.programados.item(0).text()
+    # La fecha, como se escribe en el idioma de la app (en inglés sería 1/15/30): antes, siempre día/mes
+    assert pagina.programados.item(0).text().startswith("15/1/30 ") and pagina.hora.text().count("/") == 2
     assert pagina.hora.dateTime().toSecsSinceEpoch() > time.time() + 15 * 60
     pagina.videos.setCurrentRow(0)
     assert pagina.titulo.text() == "Lugares de RD" and pagina.hashtags.text() == "#rd #viaje"

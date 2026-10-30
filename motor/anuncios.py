@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import ia, memoria, nubes, seguro, video
-from .desde_prompt import FALTAS, PALABRAS_POR_SEGUNDO, idioma_codigo, idioma_de, montar, relanzar_con_gasto
+from .desde_prompt import FALTAS, idioma_codigo, idioma_de, montar, palabras_por_segundo, relanzar_con_gasto
 from .idioma import t
 from .shorts import PROYECTOS
 
@@ -75,7 +75,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
     plan = ia.texto_json(INSTRUCCIONES, (
         f"Producto: {producto}\nDetalles: {detalles}\nPúblico: {publico}\nOferta y llamada a la acción: {oferta}\n"
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
-        f"(~{int(segundos * PALABRAS_POR_SEGUNDO)} palabras, {max(3, round(segundos / 5))} escenas)."
+        f"(~{int(segundos * palabras_por_segundo(voz))} palabras, {max(3, round(segundos / 5))} escenas)."
         f"\nVariantes: {variantes}"
         + idioma_de(voz)
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")

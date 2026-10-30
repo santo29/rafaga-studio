@@ -1,6 +1,8 @@
 """Función mágica: pega el enlace de un video largo y saca los mejores shorts."""
+import base64
 import json
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable
@@ -8,7 +10,7 @@ from typing import Callable
 import yt_dlp
 
 from . import claves, ia, memoria, seguro, video
-from .idioma import actual, IDIOMAS, porcentaje, t
+from .idioma import actual, IDIOMAS, porcentaje, t, texto_de_error
 
 PROYECTOS = Path(__file__).resolve().parent.parent / "datos" / "proyectos"
 
@@ -119,10 +121,11 @@ def _elegir(clips: list[dict], cantidad: int, dur_min: float, dur_max: float, pa
     return elegidos
 
 
-def momentos_visuales(original: Path, total: float, dur_min: float, dur_max: float, titulo: str) -> list[dict]:
+def momentos_visuales(original: Path, total: float, dur_min: float, dur_max: float) -> list[dict]:
     """Para un video sin voz (pasó con Big Buck Bunny: «No se encontró voz»): los tramos con más cambios de escena
     (la detección de escenas de FFmpeg, a 5 fotogramas por segundo y en pequeño para que sea rápida), que empiezan y
-    acaban en un corte. La puntuación son los cortes por minuto: más cortes, más acción."""
+    acaban en un corte. La puntuación son los cortes por minuto (más cortes, más acción): solo ordena, no es una nota
+    de 0 a 100. Título, descripción y hashtags, después (_textos_sin_voz)."""
     salida = video._leer_ffmpeg("-i", original, "-an", "-vf", "fps=5,scale=160:-2,select='gt(scene,0.3)',showinfo",
                                 "-f", "null", "-")
     cortes = sorted({round(float(x), 2) for x in re.findall(r"pts_time:([\d.]+)", salida)})
@@ -136,9 +139,70 @@ def momentos_visuales(original: Path, total: float, dur_min: float, dur_max: flo
         fin = fines[-1] if fines else min(s + dur_max, total)
         dentro = sum(s < c < fin for c in cortes)
         clips.append({"inicio": s, "fin": fin, "puntuacion": round(60 * dentro / max(fin - s, 1)),
-                      "titulo": f"{ia.recortar(titulo, 60)} · {int(s // 60)}:{int(s % 60):02d}",
-                      "descripcion": titulo, "hashtags": [], "motivo": t("Muchos cambios de escena")})
+                      "motivo": t("Muchos cambios de escena")})
     return clips
+
+
+INSTRUCCIONES_SIN_VOZ = """Eres editor experto en contenido viral para Shorts, TikTok y Reels.
+Recibes el título de un video sin voz y 3 fotogramas de cada momento elegido para un short, en orden.
+Para cada momento, en el mismo orden, escribe: un título corto que diga lo que se ve en ESE momento (distinto en cada
+uno y sin copiar el título del video), una descripción de una o dos frases y de 3 a 6 hashtags.
+Describe solo lo que se ve en los fotogramas, sin inventar. Escribe todo en el idioma del título del video."""
+_TEXTOS = {"titulo": {"type": "string"}, "descripcion": {"type": "string"},
+           "hashtags": {"type": "array", "items": {"type": "string"}}}
+ESQUEMA_SIN_VOZ = {"type": "object", "properties": {"momentos": {"type": "array", "items": {
+    "type": "object", "properties": _TEXTOS, "required": list(_TEXTOS), "additionalProperties": False}}},
+    "required": ["momentos"], "additionalProperties": False}
+INSTRUCCIONES_TITULO = """Recibes el título de un video sin voz. Escribe una descripción corta (una o dos frases) para
+publicar sus shorts y de 3 a 6 hashtags, sacadas SOLO del título (no se sabe qué se ve en cada momento). Escribe todo
+en el idioma del título."""
+ESQUEMA_TITULO = {"type": "object", "properties": {k: _TEXTOS[k] for k in ("descripcion", "hashtags")},
+                  "required": ["descripcion", "hashtags"], "additionalProperties": False}
+
+
+def _fotogramas(original: Path, clips: list[dict], titulo: str) -> list[dict]:
+    """El pedido para Claude: el título y 3 fotogramas pequeños (JPEG, 512 px como mucho) de cada momento."""
+    contenido = [{"type": "text", "text": f"Título del video: {titulo}"}]
+    with tempfile.TemporaryDirectory() as carpeta:
+        for n, c in enumerate(clips, 1):
+            contenido.append({"type": "text", "text": f"Momento {n}:"})
+            for k in (1, 2, 3):  # a 1/4, 1/2 y 3/4 del momento
+                foto = Path(carpeta) / f"{n}_{k}.jpg"
+                video.ffmpeg("-ss", f"{c['inicio'] + (c['fin'] - c['inicio']) * k / 4:.2f}", "-i", original,
+                             "-frames:v", "1", "-vf", "scale=512:512:force_original_aspect_ratio=decrease",
+                             "-q:v", "5", foto)
+                contenido.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                              "data": base64.b64encode(foto.read_bytes()).decode()}})
+    return contenido
+
+
+def _textos_sin_voz(original: Path, clips: list[dict], titulo: str, avisos: list) -> None:
+    """Título, descripción y hashtags de cada short de un video sin voz (salían los cinco con el título del video y
+    la hora). Con Claude, que ve imágenes: de lo que se ve en 3 fotogramas de cada momento. Si no: numerados en el
+    orden del video («Momento 2 de 5: …»), con la descripción y los hashtags que salen del título."""
+    c = claves.para("texto")
+    if c and c.get("clave") and c["proveedor"] == "anthropic":  # las demás IA de texto conectadas no ven imágenes
+        try:
+            hechos = ia._pedir(c, f"{INSTRUCCIONES_SIN_VOZ}\n\n{ia.TEXTO_PLANO}", _fotogramas(original, clips, titulo),
+                               ESQUEMA_SIN_VOZ)["momentos"]
+        except Exception as error:  # noqa: BLE001  sin saldo, sin red…: los shorts salen igual, numerados
+            if isinstance(error, ia.SinServicio):  # _texto_con deja apuntar el «no atendió» a quien llama
+                ia._no_atendio(c, error, "")
+            hechos = []
+            avisos.append(t("Claude no pudo ver los momentos ({causa}): los shorts van numerados.",
+                            causa=texto_de_error(error)))
+        if len(hechos) == len(clips) and len({h["titulo"].strip().lower() for h in hechos}) == len(hechos):
+            for clip, h in zip(clips, hechos):
+                clip.update(titulo=h["titulo"], descripcion=h["descripcion"], hashtags=h["hashtags"])
+            return
+    try:  # la IA de texto (o la gratis) solo con el título: la misma descripción y hashtags para todos
+        datos = ia.texto_json(INSTRUCCIONES_TITULO, f"Título del video: {titulo}", ESQUEMA_TITULO, rapido=True)
+    except Exception:  # noqa: BLE001  sin IA que responda: la descripción es el título
+        datos = {"descripcion": titulo, "hashtags": []}
+    corto = ia.recortar(re.split(r"(?<=[.!?…])\s+|\s+[|·–—-]\s+", titulo.strip())[0], 60)  # su primera frase
+    for n, clip in enumerate(sorted(clips, key=lambda x: x["inicio"]), 1):
+        clip.update(titulo=t("Momento {n} de {total}: {titulo}", n=n, total=len(clips), titulo=corto),
+                    descripcion=datos["descripcion"], hashtags=list(datos["hashtags"]))
 
 
 LIMITE_DESCARGA = 4 * 1024 ** 3  # 4 GB: protege el disco
@@ -258,12 +322,17 @@ def generar(url: str, formato: str = "9:16", modo: str = "recortar", cantidad: i
         clips = [_ajustar(c, palabras, total) for c in clips if 0 <= c["inicio"] < c["fin"] <= total + 1]
     else:  # sin voz (música, animación, deporte): los momentos con más cambios de escena, sin subtítulos
         aviso(t("El video no tiene voz: buscando los momentos con más acción…"), 0.5)
-        clips = momentos_visuales(original, total, dur_min, dur_max, titulo)
-        avisos.append(t("El video no tiene voz: los momentos se eligieron por los cambios de escena y van sin "
-                        "subtítulos."))
+        clips = momentos_visuales(original, total, dur_min, dur_max)
+        avisos.append(t("El video no tiene voz: los momentos se eligieron por los cambios de escena (primero, los que "
+                        "más tienen) y van sin subtítulos."))
     clips = _elegir(clips, cantidad, dur_min, dur_max, palabras, total)
     if not clips:
         raise RuntimeError(t("No se encontró ningún momento que sirva como short en este video."))
+    if not palabras:  # los cortes por minuto solo ordenan: como «11/100» parecía una nota (y muy mala)
+        for c in clips:
+            c.pop("puntuacion")
+        aviso(t("Escribiendo el título de cada momento…"), 0.53)
+        _textos_sin_voz(original, clips, titulo, avisos)
     if not _a_medida(clips[0], dur_min, dur_max):  # solo si el video entero es más corto que lo pedido
         avisos.append(t("Ningún momento del video duraba entre {minimo} y {maximo} s: estos shorts tienen otra "
                         "duración.", minimo=dur_min, maximo=dur_max))

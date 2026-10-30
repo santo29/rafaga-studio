@@ -515,8 +515,7 @@ def _atempo(v: float) -> str:
 _SIN_TRAMO = ("id", "transicion", "duracion_transicion")  # no cambian el tramo: se aplican al montar
 # Todos los tramos con los mismos datos de color (una foto JPG viene en rango completo; un móvil, en BT.709 o sin
 # decir): van seguidos en una sola entrada y, si cambian a mitad, ffmpeg reinicia el montaje y se pierden fotogramas
-_COLOR = ("scale=out_range=tv:out_color_matrix=bt709,format=yuv420p,"
-          "setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709")
+_COLOR = video.COLOR
 
 
 def _salida_tramo(final: bool) -> list:

@@ -13,7 +13,7 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle,
-                               QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
+                               QStackedWidget, QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
 
 from motor import claves, desde_prompt, guardia, ia, seguro
 from motor.idioma import dinero, t, texto_de_error
@@ -598,10 +598,20 @@ class Reproductor(QFrame):
         self.pantalla = QVideoWidget()
         self.pantalla.setMinimumHeight(360)
         self.pantalla.setStyleSheet("background: black; border-radius: 10px;")
+        # Un archivo que no se puede reproducir se dice ahí mismo, en lugar del video: antes quedaba todo en negro
+        self.sin_video = etiqueta("")
+        self.sin_video.setAlignment(Qt.AlignCenter)
+        self.sin_video.setStyleSheet("background: black; border-radius: 10px; color: #FFB454; padding: 24px;")
+        self.vista = QStackedWidget()  # su alto mínimo es el de la pantalla (Dibujos animados lo baja a 250)
+        self.vista.addWidget(self.pantalla)
+        self.vista.addWidget(self.sin_video)
         self.player = QMediaPlayer(self)
         self.sonido = QAudioOutput(self)
         self.player.setAudioOutput(self.sonido)
         self.player.setVideoOutput(self.pantalla)
+        self.player.errorOccurred.connect(lambda error, _detalle: self._no_se_ve(error))
+        self.player.mediaStatusChanged.connect(  # InvalidMedia a veces llega sin errorOccurred
+            lambda estado: estado == QMediaPlayer.MediaStatus.InvalidMedia and self._no_se_ve(self.player.error()))
         self.barra = QSlider(Qt.Horizontal)
         self.barra.sliderMoved.connect(self.player.setPosition)
         self.player.durationChanged.connect(lambda d: self.barra.setRange(0, d))
@@ -628,7 +638,7 @@ class Reproductor(QFrame):
         fila.addStretch()
         lay.addWidget(etiqueta(t("Resultados"), "sub"))
         lay.addWidget(self.lista)
-        lay.addWidget(self.pantalla, 1)
+        lay.addWidget(self.vista, 1)
         lay.addWidget(self.barra)
         lay.addLayout(fila)
         lay.addWidget(self.avisos_txt)
@@ -645,7 +655,11 @@ class Reproductor(QFrame):
         self.lista.clear()
         self.lista.blockSignals(False)
         for i, r in enumerate(self.resultados, 1):
-            extra = f"  ·  {r['fin'] - r['inicio']:.0f}s  ·  {r['puntuacion']}/100" if "puntuacion" in r else ""
+            # Un short: dónde empieza en el video, lo que dura y, si la IA lo puntuó (con voz), su nota. Los sin voz
+            # guardados antes llevan los cortes por minuto como «puntuacion»: no es una nota
+            nota = "puntuacion" in r and r.get("motivo") != t("Muchos cambios de escena")
+            extra = (f"  ·  {int(r['inicio'] // 60)}:{int(r['inicio'] % 60):02d}  ·  {r['fin'] - r['inicio']:.0f}s"
+                     + (f"  ·  {r['puntuacion']}/100" if nota else "")) if "inicio" in r else ""
             # t(): la Cabina guarda sus títulos en español; los demás (de la IA o del usuario) quedan igual
             self.lista.addItem(QListWidgetItem(f"{i}. {t(r['titulo'])}{extra}"))
         if self.resultados:
@@ -655,12 +669,22 @@ class Reproductor(QFrame):
         if fila < 0:
             return
         r = self.resultados[fila]
+        self.vista.setCurrentWidget(self.pantalla)
         self.player.setSource(QUrl.fromLocalFile(r["archivo"]))
         # sin_markdown: los proyectos de antes guardan la descripción con el Markdown de la IA
         titulo, descripcion = ia.sin_markdown(t(r["titulo"]), "linea"), ia.sin_markdown(r["descripcion"])
         self.info.setPlainText(f"{titulo}\n\n{descripcion}\n\n" + " ".join(map(ia.hashtag, r["hashtags"])))
         self.player.play()
         poner(self.play, f"⏸  {t('Pausar')}")
+
+    def _no_se_ve(self, error):
+        causa = {QMediaPlayer.Error.ResourceError: t("no se pudo abrir el archivo; quizá se movió o se borró"),
+                 QMediaPlayer.Error.AccessDeniedError: t("Windows no deja leer el archivo")}.get(
+            error, t("este reproductor no entiende su formato"))
+        self.sin_video.setText(t("No se puede reproducir este video aquí: {causa}. Prueba a abrirlo desde «Abrir "
+                                 "carpeta».", causa=causa))
+        self.vista.setCurrentWidget(self.sin_video)
+        poner(self.play, f"▶  {t('Reproducir')}")
 
     def _alternar(self):
         if self.player.playbackState() == QMediaPlayer.PlayingState:

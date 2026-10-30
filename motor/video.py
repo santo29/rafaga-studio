@@ -17,6 +17,12 @@ FORMATOS = {
     "4:5": (1080, 1350),    # Feed Instagram/Facebook
 }
 
+# Al final de cada video que hace el estudio: H.264 estándar, yuv420p en rango limitado («tv») y BT.709 dicho en el
+# archivo (ffmpeg pasa al MP4 los datos de color del fotograma). Una imagen JPEG (rango completo, BT.601) daba
+# «yuvj420p(pc, bt470bg)»: en el reproductor de la app y en Windows se veía negro, y móviles y redes no siempre lo leen
+COLOR = ("scale=out_range=tv:out_color_matrix=bt709,format=yuv420p,"
+         "setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709")
+
 
 # Formatos que ffmpeg puede abrir como entrada: solo audio, video e imagen. Sin esta lista, un archivo que por dentro
 # es un manifiesto de streaming (DASH), aunque empiece como un MP3 de verdad, hace que ffmpeg pida las URLs que trae,
@@ -201,7 +207,7 @@ def recortar(origen: Path, inicio: float, fin: float, formato: str, modo: str,
     ass = subtitulos_ass(tramo, formato, destino.with_suffix(".ass"))
     # ffmpeg en Windows se lía con rutas absolutas dentro de un filtro: se usa el nombre relativo con cwd.
     ffmpeg("-ss", inicio, "-to", fin, "-i", origen.resolve(),
-           "-vf", f"{filtro_formato(formato, modo)},ass={ass.name}",
+           "-vf", f"{filtro_formato(formato, modo)},ass={ass.name},{COLOR}",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino
@@ -227,7 +233,7 @@ def escena_de_imagen(imagen: Path, audio: Path, formato: str, palabras: list[dic
     ffmpeg("-loop", "1", "-i", imagen.resolve(), "-i", audio.resolve(),
            "-vf", f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},"
                   f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={cuadros}:s={w}x{h}:fps=30,"
-                  f"setsar=1,ass={ass.name}",
+                  f"setsar=1,ass={ass.name},{COLOR}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
     return destino
@@ -238,7 +244,7 @@ def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], 
     seg = duracion(audio) + 0.25
     ass = subtitulos_ass(palabras, formato, destino.with_suffix(".ass"))
     ffmpeg("-stream_loop", "-1", "-i", clip.resolve(), "-i", audio.resolve(), "-map", "0:v", "-map", "1:a",
-           "-vf", f"{filtro_formato(formato, 'recortar')},fps=30,ass={ass.name}",
+           "-vf", f"{filtro_formato(formato, 'recortar')},fps=30,ass={ass.name},{COLOR}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
     return destino
@@ -257,7 +263,7 @@ def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, in
         filtro = (f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},"
                   f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(segundos * 30)}:s={w}x{h}:fps=30,"
                   "setsar=1")
-    ffmpeg(*entrada, "-vf", filtro, "-t", segundos, "-an", "-c:v", "libx264", "-preset", "veryfast",
+    ffmpeg(*entrada, "-vf", f"{filtro},{COLOR}", "-t", segundos, "-an", "-c:v", "libx264", "-preset", "veryfast",
            "-crf", "20", "-pix_fmt", "yuv420p", destino.name, cwd=destino.parent)
     return destino
 
@@ -296,7 +302,7 @@ def con_cancion(visual: Path, cancion: Path, formato: str, palabras: list[dict],
            f"[0:v]{latido}[base];"
            f"[1:a]showwaves=s={w}x{alto_ondas}:mode=cline:rate=30:colors=0xFFFFFF@0.85|0xFF4D8D@0.85,"
            f"format=rgba[ondas];[base][ondas]overlay=0:{h - alto_ondas - int(h * 0.04)}:shortest=1,"
-           f"ass={ass.name}[v]",
+           f"ass={ass.name},{COLOR}[v]",
            "-map", "[v]", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", destino.name, cwd=destino.parent)
     return destino
@@ -331,7 +337,7 @@ def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: fl
         grafo += (f";[1:v]scale={int(w * 0.62)}:{int(h * 0.42)}:force_original_aspect_ratio=decrease[foto];"
                   f"[fondo][foto]overlay=(W-w)/2:(H-h)*0.6:{desde}[con_foto]")
     ffmpeg("-i", video_in.resolve(), *(["-i", producto.resolve()] if producto else []), "-filter_complex",
-           f"{grafo};[{'con_foto' if producto else 'fondo'}]ass={ass.name}[v];[0:a]apad=pad_dur={segundos}[a]",
+           f"{grafo};[{'con_foto' if producto else 'fondo'}]ass={ass.name},{COLOR}[v];[0:a]apad=pad_dur={segundos}[a]",
            "-map", "[v]", "-map", "[a]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart", destino.name, cwd=destino.parent)

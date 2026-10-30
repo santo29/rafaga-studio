@@ -354,11 +354,11 @@ assert shorts._elegir([{"inicio": 2, "fin": 6, "puntuacion": 9}], 3, 20, 60, [],
 mudo = hacer("mudo.mp4", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=10:d=30,drawbox=x=0:y=0:w=iw:h=ih:"
              "color=white:t=fill:enable='lt(mod(t,6),3)'", "-f", "lavfi", "-i", "sine=duration=30",  # música, sin voz
              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
-momentos = shorts.momentos_visuales(mudo, 30.0, 5, 10, "Big Buck Bunny")
+momentos = shorts.momentos_visuales(mudo, 30.0, 5, 10)
 assert momentos and all(5 * 0.8 <= c["fin"] - c["inicio"] <= 10 for c in momentos), momentos
 cortes = {3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0}
 assert all(any(abs(c["fin"] - x) < 0.25 for x in cortes) or c["fin"] == 30 for c in momentos), momentos
-assert momentos[0]["titulo"] == "Big Buck Bunny · 0:00" and momentos[0]["puntuacion"] > 0
+assert momentos[0]["puntuacion"] > 0 and "titulo" not in momentos[0]  # el título, después (pruebas.compatibles)
 pedidos, opciones = [], []
 reales = shorts.descargar, video.recortar, ia.transcribir, ia.texto_json
 shorts.descargar = lambda url, carpeta, progreso: (mudo, "Big Buck Bunny")
@@ -366,11 +366,14 @@ recortes = []
 video.recortar = lambda original, ini, fin, formato, modo, palabras, destino: recortes.append((ini, fin, palabras)) \
     or destino
 ia.transcribir = lambda audio, progreso=None: progreso(1) or []
-ia.texto_json = lambda *a: pedidos.append(a) or {}
+ia.texto_json = lambda *a, **k: pedidos.append(a) or {"descripcion": "d", "hashtags": []}
 try:
     carpeta_nueva()
     r = shorts.generar("https://www.youtube.com/watch?v=aqz-KE-bpKQ", cantidad=2, dur_min=5, dur_max=10)
-    assert len(r["resultados"]) == 2 and not pedidos and "no tiene voz" in r["avisos"][0], r
+    # Sin voz no se pide elegir momentos a la IA: solo la descripción y los hashtags, desde el título del video
+    assert [p[0] for p in pedidos] == [shorts.INSTRUCCIONES_TITULO] and "no tiene voz" in r["avisos"][0], r
+    assert len(r["resultados"]) == 2 and r["resultados"][0]["titulo"].startswith("Momento "), r
+    pedidos.clear()
     assert all(not p and 4 <= fin - ini <= 10 for ini, fin, p in recortes), recortes
     (x0, x1, _), (y0, y1, _) = sorted(recortes)
     assert x1 <= y0

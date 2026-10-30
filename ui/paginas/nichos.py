@@ -1,11 +1,13 @@
 """Página «Nichos virales»: investigación de nichos con ideas listas para crear."""
+import time
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QTextEdit,
                                QVBoxLayout, QWidget)
 
 from motor import ia, idioma, nichos
 from motor.idioma import t
-from ui.comun import boton, etiqueta, mensaje_error, Tarea, tarjeta
+from ui.comun import AccionesResultado, boton, etiqueta, mensaje_error, Tarea, tarjeta
 
 # El país va en español al pedido de la IA; se enseña traducido.
 PAISES = ("Latinoamérica", "República Dominicana", "México", "Estados Unidos (hispanos)", "España", "Brasil",
@@ -45,6 +47,9 @@ class PaginaNichos(QWidget):
         self.estado = etiqueta("", "sub")
         lay.addWidget(self.progreso)
         lay.addWidget(self.estado)
+        # El informe: dónde quedó y descargarlo. Secundario: lo que sigue es «Crear este video», no el informe
+        self.acciones = AccionesResultado("secundario")
+        lay.addWidget(self.acciones)
         cuerpo = QHBoxLayout()
         self.lista = QListWidget()
         self.lista.setFixedWidth(330)
@@ -85,17 +90,37 @@ class PaginaNichos(QWidget):
                                  potencial=n["potencial"], nombre=n["nombre"], competencia=n["competencia"]))
         if self.nichos:
             self.lista.setCurrentRow(0)
+        self._guardar_informe(r)
+
+    def _guardar_informe(self, r):
+        """El informe en texto, junto al que guarda el motor (en JSON, que no se lee bien): se dice dónde quedó y se
+        puede descargar."""
+        informe = nichos.PROYECTOS.parent / "nichos" / time.strftime("%Y%m%d-%H%M%S.txt")
+        texto = "\n\n".join([r["resumen"]] + [
+            self._texto(n) + "\n\n" + "\n\n".join(t("{titulo}\nGancho: {gancho}", titulo=i["titulo"],
+                                                    gancho=i["gancho"]) for i in n["ideas"])
+            for n in self.nichos])
+        try:
+            informe.parent.mkdir(parents=True, exist_ok=True)
+            informe.write_text(texto, encoding="utf-8")
+        except OSError:  # el motor ya guardó el suyo: sin el de texto, solo no se ofrece descargarlo
+            return self.acciones.hide()
+        self.acciones.mostrar(informe, f"{t('Nichos virales')} {r.get('tema', '')}")
+
+    @staticmethod
+    def _texto(n) -> str:
+        return (t("{nombre} ({potencial}/100, competencia {competencia})\n\nPor qué es viral: {viral}\n\n"
+                  "Pruebas: {pruebas}\n\nRedes: {redes}\nFormato: {formato}\nMonetización: {monetizacion}\n\n",
+                  nombre=n["nombre"], potencial=n["potencial"], competencia=n["competencia"],
+                  viral=n["por_que_es_viral"], pruebas=n["pruebas"], redes=", ".join(n["redes"]),
+                  formato=n["formato"], monetizacion=n["monetizacion"])
+                + " ".join(map(ia.hashtag, n["hashtags"])))
 
     def _mostrar(self, fila):
         if fila < 0:
             return
         n = self.nichos[fila]
-        self.detalle.setPlainText(
-            t("{nombre} ({potencial}/100, competencia {competencia})\n\nPor qué es viral: {viral}\n\n"
-              "Pruebas: {pruebas}\n\nRedes: {redes}\nFormato: {formato}\nMonetización: {monetizacion}\n\n",
-              nombre=n["nombre"], potencial=n["potencial"], competencia=n["competencia"], viral=n["por_que_es_viral"],
-              pruebas=n["pruebas"], redes=", ".join(n["redes"]), formato=n["formato"], monetizacion=n["monetizacion"])
-            + " ".join(map(ia.hashtag, n["hashtags"])))
+        self.detalle.setPlainText(self._texto(n))
         self.ideas.clear()
         for idea in n["ideas"]:
             item = QListWidgetItem(t("{titulo}\nGancho: {gancho}", titulo=idea["titulo"], gancho=idea["gancho"]))

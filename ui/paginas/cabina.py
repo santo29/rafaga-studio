@@ -7,7 +7,8 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QSlider
 
 from motor import cabina, seguro
 from motor.idioma import t
-from ui.comun import archivo_valido, boton, campo_archivo, etiqueta, mensaje, mensaje_error, PaginaTrabajo, Tarea, tarjeta
+from ui.comun import (AccionesResultado, archivo_valido, boton, campo_archivo, etiqueta, mensaje, mensaje_error,
+                      PaginaTrabajo, Tarea, tarjeta)
 
 
 AUDIO = t("Audio ({tipos})", tipos="*.mp3 *.wav *.m4a *.ogg *.flac")
@@ -40,6 +41,11 @@ class PaginaCabina(PaginaTrabajo):
         self.form_lay.addLayout(fila)
         fila, self.voz = campo_archivo(t("La voz grabada (se llena sola al grabar, o elige una toma)"), AUDIO)
         self.form_lay.addLayout(fila)
+        self.toma = AccionesResultado("secundario")  # la toma recién grabada: dónde quedó y descargarla
+        # Solo mientras el campo tiene esa toma: con otra elegida, «Descargar» copiaría una que no es la que se ve
+        self.voz.textChanged.connect(lambda s: self.toma.setVisible(self.toma.archivo is not None
+                                                                    and str(self.toma.archivo) == s))
+        self.form_lay.addWidget(self.toma)
 
         self.form_lay.addWidget(etiqueta(t("3 · Producir"), "sub"))
         fila = QHBoxLayout()
@@ -114,6 +120,7 @@ class PaginaCabina(PaginaTrabajo):
         self.tarea.progreso.connect(lambda t, f: (self.estado.setText(t), self.progreso.setValue(int(f * 100))))
         self.tarea.listo.connect(lambda r: (self.voz.setText(r["archivo"]), self.estado.setText(
             f"✅ {t('Toma guardada. Ahora pulsa «Producir canción».')}")))
+        self.tarea.listo.connect(lambda r: self.toma.mostrar(r["archivo"]))
         self.tarea.fallo.connect(lambda e: mensaje_error(self, t("No se pudo grabar"), e))
         self.tarea.finished.connect(lambda: (self.grabar_btn.setEnabled(True), self.parar_btn.setEnabled(False),
                                              self.progreso.hide()))

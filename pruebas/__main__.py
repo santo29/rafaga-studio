@@ -473,7 +473,7 @@ print("Pruebas de guiones fieles pasadas.")
 for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "diseno_pro", "edicion", "render_edicion",
                "edicion_ui", "grabarte", "director", "estudio", "serie", "inicio", "musica", "publicar", "idioma",
                "textos", "coherencia", "video_pago", "proveedores_video", "modelo_video", "guardia", "conexiones",
-               "calidad", "visor", "rapidez", "rapidez_ia"):
+               "calidad", "visor", "descargas", "rapidez", "rapidez_ia"):
     subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

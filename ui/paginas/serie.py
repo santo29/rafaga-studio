@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLab
 
 from motor import claves, ia, nubes, serie
 from motor.idioma import t
-from ui.comun import boton, etiqueta, mensaje, mensaje_error, PaginaTrabajo, SelectorFormato, Tarea
+from ui.comun import (AccionesResultado, aviso_guardado, boton, descargar, etiqueta, mensaje, mensaje_error,
+                      PaginaTrabajo, SelectorFormato, Tarea)
 
 PLANO = QSize(240, 135)  # la viñeta de cada plano en el guion gráfico
 
@@ -102,6 +103,8 @@ class PaginaSerie(PaginaTrabajo):
                                  "video)"), "sub"))
         self.fila_personajes = QHBoxLayout()
         lay.addLayout(self.fila_personajes)
+        self.carpeta_serie = AccionesResultado()  # dónde están sus láminas y capítulos
+        lay.addWidget(self.carpeta_serie)
         self.idea_capitulo = QTextEdit()
         self.idea_capitulo.setPlaceholderText(t("Qué pasa en este capítulo (vacío: la IA sigue la historia)"))
         self.idea_capitulo.setFixedHeight(70)
@@ -214,6 +217,7 @@ class PaginaSerie(PaginaTrabajo):
             self.estudio.hide()
             return
         self.sinopsis.setText(s["sinopsis"])
+        self.carpeta_serie.mostrar(carpeta=s["carpeta"])
         _vaciar(self.fila_personajes)
         for p in s["personajes"]:
             caja, lay = _caja()
@@ -230,8 +234,13 @@ class PaginaSerie(PaginaTrabajo):
                             "border-radius: 10px; padding: 6px; font-size: 14px; } QToolButton:hover { "
                             "border-color: rgba(124, 92, 255, 0.70); border-top-color: rgba(205, 190, 255, 0.85); }")
             b.clicked.connect(lambda _, nombre=p["nombre"]: self._cambiar_lamina(nombre))
-            lay.addWidget(b)
-            if not p["lamina"]:  # no salió al crear la serie (p. ej. sin cuota): se puede volver a pedir
+            lay.addWidget(b, 0, Qt.AlignHCenter)  # sobre su botón, más ancho que la lámina
+            if p["lamina"]:
+                bajar = boton(f"⬇  {t('Descargar')}")
+                bajar.setToolTip(t("Guardar una copia donde quieras"))
+                bajar.clicked.connect(lambda _, p=p: descargar(self, p["lamina"], p["nombre"]))
+                lay.addWidget(bajar)
+            else:  # no salió al crear la serie (p. ej. sin cuota): se puede volver a pedir
                 dibujar = boton(f"✨  {t('Dibujar con IA')}")
                 dibujar.clicked.connect(lambda _, nombre=p["nombre"]: self._dibujar_lamina(nombre))
                 lay.addWidget(dibujar)
@@ -379,8 +388,9 @@ class PaginaSerie(PaginaTrabajo):
         self.estado.setText(t("Sacando los cuadros de cada plano…"))
         self.tarea_cuadros = Tarea(lambda episodio, aviso: {"carpeta": serie.exportar_cuadros(episodio)},
                                    episodio=e["carpeta"])
+        # Se dice dónde quedaron, con «Abrir carpeta» (antes se abría el Explorador solo, sin decir nada)
         self.tarea_cuadros.listo.connect(lambda r: (self.estado.setText(t("Listo: cada plano está en su carpeta.")),
-                                                    os.startfile(r["carpeta"])))
+                                                    aviso_guardado(self, t("Cuadros listos"), r["carpeta"])))
         self.tarea_cuadros.fallo.connect(lambda error: (self.estado.setText(""),
                                                         mensaje_error(self, t("No se pudo terminar"), error)))
         self.tarea_cuadros.finished.connect(lambda: self.cuadros_btn.setEnabled(True))

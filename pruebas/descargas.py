@@ -5,16 +5,17 @@ elegido (cada short, cada anuncio, cada canción…) donde se pide, sin pisar ot
 python -m pruebas.descargas"""
 import json
 import os
+import shutil
 import tempfile
 import wave
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
-from PySide6.QtCore import QStandardPaths  # noqa: E402
+from PySide6.QtCore import QPoint, QStandardPaths  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtMultimedia import QMediaPlayer  # noqa: E402
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QMessageBox, QPushButton, QScrollArea  # noqa: E402
 
 from motor import actividad, cabina, claves, diseno, edicion, marca, memoria, nichos, serie, shorts  # noqa: E402
 from motor.guardia import RAIZ  # noqa: E402
@@ -107,6 +108,25 @@ def tras_trabajo(pagina, boton, p: dict):
     esperar(lambda: not pagina.tarea.isRunning() and boton.isEnabled())
 
 
+def en_area(pagina) -> QScrollArea:
+    """Como en la app: la página en su QScrollArea, del tamaño que le queda en la pantalla del dueño (1280×720 al
+    150 %, menos el menú, la barra de título y la de tareas)."""
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    area.setWidget(pagina)
+    area.resize(1030, 650)
+    area.show()
+    return area
+
+
+def a_la_vista(area: QScrollArea, acciones) -> None:
+    """Al terminar, la página bajó sola hasta «Descargar / Guardado en»: quedaba bajo el borde."""
+    y = acciones.mapTo(area.viewport(), QPoint(0, 0)).y()
+    assert 0 <= y and y + acciones.height() <= area.viewport().height(), (y, acciones.height(),
+                                                                           area.viewport().height())
+
+
 # ---------- descargar(): dónde, con qué nombre, sin pisar y sin perder nada ----------
 lugares = {".mp4": QStandardPaths.MoviesLocation, ".webm": QStandardPaths.MoviesLocation,
            ".MP3": QStandardPaths.MusicLocation, ".wav": QStandardPaths.MusicLocation,
@@ -119,6 +139,8 @@ assert nombre_libre(bajadas, "Mi short", ".mp4").name == "Mi short (2).mp4"
 (bajadas / "Mi short (2).mp4").write_bytes(b"2")
 assert nombre_libre(bajadas, "Mi short", ".mp4").name == "Mi short (3).mp4"
 assert nombre_libre(bajadas, 'Receta: a\\b/c "rica"?', ".mp4").name == "Receta a b c rica.mp4"
+assert nombre_libre(bajadas, "aux", ".mp4").name == "Ráfaga Studio aux.mp4"  # Windows lo toma por un dispositivo
+assert nombre_libre(bajadas, "Receta · 4:29", ".mp4").name == "Receta · 4.29.mp4"  # la duración, como 4.29
 
 origen = Path(proyecto("shorts", ["short_01.mp4"], "Receta")["resultados"][0]["archivo"])
 copia = bajadas / "receta.mp4"
@@ -126,7 +148,7 @@ destinos.append(str(copia))
 assert descargar(None, origen, "Receta: pollo · 4:29") == copia
 assert copia.read_bytes() == origen.read_bytes() and origen.is_file()  # una copia: el original se queda
 assert pedidos[-1] == (str(nombre_libre(carpeta_para(".mp4"), "Receta: pollo · 4:29", ".mp4")), "MP4 (*.mp4)"), pedidos
-assert Path(pedidos[-1][0]).name.startswith("Receta pollo · 4 29")
+assert Path(pedidos[-1][0]).name.startswith("Receta pollo · 4.29")
 assert avisos[-1] == ("Descargado", f"Guardado en {copia}") and abiertas[-1] == bajadas
 assert not list(bajadas.glob("*.parcial"))
 # Escrito sin extensión: lleva la suya y, si ya hay uno con ese nombre, se pregunta antes de pisarlo
@@ -146,10 +168,28 @@ assert descargar(None, origen) is None and len(avisos) == antes
 destinos.append(str(tmp / "no-existe" / "x.mp4"))
 assert descargar(None, origen) is None and avisos[-1] == ("No se pudo descargar",
                                                           f"No se pudo guardar en {tmp / 'no-existe' / 'x.mp4'}.")
-# Si la copia falla a medias (el resultado ya no está), lo que había en el destino no se pierde
+# El resultado ya no está (se movió desde el Explorador): lo dice, sin culpar al destino ni abrir el diálogo
+antes = len(pedidos)
+borrado = origen.with_name("borrado.mp4")
+assert descargar(None, borrado) is None and len(pedidos) == antes
+assert avisos[-1] == ("No se pudo descargar", f"Ya no está en su carpeta (¿se movió o se borró?): {borrado}")
+# Si la copia falla a medias (disco lleno), lo que había en el destino no se pierde ni queda medio archivo
 copia.write_bytes(b"lo del usuario")
 destinos.append(str(copia))
-assert descargar(None, origen.with_name("borrado.mp4")) is None and copia.read_bytes() == b"lo del usuario"
+copiar_de_verdad = shutil.copyfile
+
+
+def copia_a_medias(de, a):
+    Path(a).write_bytes(b"medio vide")
+    raise OSError(28, "No queda espacio en el disco")
+
+
+shutil.copyfile = copia_a_medias
+try:
+    assert descargar(None, origen) is None and copia.read_bytes() == b"lo del usuario"
+finally:
+    shutil.copyfile = copiar_de_verdad
+assert avisos[-1] == ("No se pudo descargar", f"No se pudo guardar en {copia}.")
 assert not list(bajadas.glob("*.parcial"))
 # Un resultado en una carpeta de red no se lee (conectaría por SMB): ni se abre el diálogo
 antes = len(pedidos)
@@ -174,29 +214,31 @@ assert r.acciones.isHidden()  # sin resultados, nada que descargar
 
 # Crear con IA: un video
 crear = PaginaCrear()
-crear.show()
+area = en_area(crear)
 p = proyecto("video", ["video_final.mp4"], "Pechuga Cordon Bleu")
 tras_trabajo(crear, crear.iniciar, p)
+a_la_vista(area, crear.reproductor.acciones)
 visibles(crear.reproductor.acciones, p["carpeta"])
 hecho = bajar(crear.reproductor.acciones, "pechuga.mp4")
 assert hecho.read_bytes() == Path(p["resultados"][0]["archivo"]).read_bytes()
 assert Path(pedidos[-1][0]).parent == carpeta_para(".mp4") and "Pechuga Cordon Bleu 1" in pedidos[-1][0]
-crear.close()
+area.close()
 
 # Shorts mágicos (cada short), Anuncios (cada versión): «Descargar» copia el elegido en la lista
 for Pagina, tipo, nombres in ((PaginaShorts, "shorts", ["short_01.mp4", "short_02.mp4", "short_03.mp4"]),
                               (PaginaAnuncios, "anuncio", ["anuncio_1.mp4", "anuncio_2.mp4"])):
     pagina = Pagina()
-    pagina.show()
+    area = en_area(pagina)
     p = proyecto(tipo, nombres, tipo.capitalize())
     tras_trabajo(pagina, pagina.iniciar, p)
+    a_la_vista(area, pagina.reproductor.acciones)
     visibles(pagina.reproductor.acciones, p["carpeta"])
     for fila, nombre in enumerate(nombres):
         pagina.reproductor.lista.setCurrentRow(fila)
         hecho = bajar(pagina.reproductor.acciones, f"{tipo}-{fila}.mp4")
         assert hecho.read_bytes() == (Path(p["carpeta"]) / nombre).read_bytes(), (tipo, fila)
         assert f"{tipo.capitalize()} {fila + 1}" in pedidos[-1][0], pedidos[-1]
-    pagina.close()
+    area.close()
 
 # Música: la canción (a Música por defecto) y su video musical
 musica = PaginaMusica()
@@ -231,6 +273,11 @@ grabaciones = shorts.PROYECTOS.parent / "grabaciones"
 visibles(cab.toma, grabaciones)
 toma = Path(cab.voz.text())
 assert toma.parent == grabaciones and bajar(cab.toma, "toma.wav").read_bytes() == toma.read_bytes()
+# Con otra toma elegida, la fila se va: «Descargar» copiaría la grabada, no la que se ve; vuelve con la grabada
+cab.voz.setText(str(pista))
+assert cab.toma.isHidden()
+cab.voz.setText(str(toma))
+assert not cab.toma.isHidden()
 p = proyecto("cabina", ["cancion_master.wav"], "Mi canción")
 tras_trabajo(cab, cab.producir, p)
 visibles(cab.reproductor.acciones, p["carpeta"])

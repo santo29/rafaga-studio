@@ -42,6 +42,9 @@ class PaginaCabina(PaginaTrabajo):
         fila, self.voz = campo_archivo(t("La voz grabada (se llena sola al grabar, o elige una toma)"), AUDIO)
         self.form_lay.addLayout(fila)
         self.toma = AccionesResultado("secundario")  # la toma recién grabada: dónde quedó y descargarla
+        # Solo mientras el campo tiene esa toma: con otra elegida, «Descargar» copiaría una que no es la que se ve
+        self.voz.textChanged.connect(lambda s: self.toma.setVisible(self.toma.archivo is not None
+                                                                    and str(self.toma.archivo) == s))
         self.form_lay.addWidget(self.toma)
 
         self.form_lay.addWidget(etiqueta(t("3 · Producir"), "sub"))

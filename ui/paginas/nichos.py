@@ -47,7 +47,8 @@ class PaginaNichos(QWidget):
         self.estado = etiqueta("", "sub")
         lay.addWidget(self.progreso)
         lay.addWidget(self.estado)
-        self.acciones = AccionesResultado()  # el informe: dónde quedó y descargarlo
+        # El informe: dónde quedó y descargarlo. Secundario: lo que sigue es «Crear este video», no el informe
+        self.acciones = AccionesResultado("secundario")
         lay.addWidget(self.acciones)
         cuerpo = QHBoxLayout()
         self.lista = QListWidget()

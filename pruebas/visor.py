@@ -65,7 +65,9 @@ b = botones(visor)
 assert all(x.focusPolicy() == Qt.TabFocus for x in b.values())
 assert b["Descargar"].isDefault() and b["Descargar"].shortcut() == QKeySequence(QKeySequence.Save)
 assert all(x.toolTip() for x in (b["Descargar"], b["Editar en Diseño"], b["Animar"]))
-# Con sus botones, cabe en la pantalla (en un portátil de 1280×720 se salía por abajo)
+# Dónde está, a la vista como en cada sección
+assert f"Guardado en: {carpeta}" in [x.text() for x in visor.findChildren(QLabel)]
+# Con esa línea y sus botones, cabe en la pantalla (en un portátil de 1280×720 se salía por abajo)
 assert visor.sizeHint().height() <= visor.screen().availableGeometry().height(), visor.sizeHint()
 # Descargar: por defecto en Imágenes con el nombre del diseño (sin pisar otro); en PNG, en JPG o sin extensión (PNG)
 for nombre, cabecera in (("bajada.png", b"\x89PNG"), ("bajada.jpg", b"\xff\xd8\xff"), ("sin-extension", b"\x89PNG")):
@@ -108,6 +110,7 @@ visor.close()
 # Un ejemplo de la galería vive entre los archivos del programa: sin «Abrir carpeta» (ahí no se manda a borrar)
 visor = ver_imagen(None, Path(__file__).resolve().parent.parent / "ejemplos" / "anuncio-rafaga.jpg", "Ejemplo")
 assert visibles(visor) == ["Descargar", "Cerrar"], visibles(visor)
+assert not any(x.text().startswith("Guardado en") for x in visor.findChildren(QLabel))
 visor.close()
 
 # ---------- En la app: editar en Diseño y animar llevan a su página sin empezar nada ----------

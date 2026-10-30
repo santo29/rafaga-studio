@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QF
                                QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle,
                                QStyleFactory, QTextEdit, QVBoxLayout, QWidget)
 
-from motor import claves, desde_prompt, guardia, ia, seguro
+from motor import claves, desde_prompt, diseno, guardia, ia, seguro
 from motor.idioma import dinero, t, texto_de_error
 from ui.iconos import COLOR, icono, poner, separar
 
@@ -596,7 +596,10 @@ def carpeta_para(sufijo: str) -> Path:
 
 def nombre_libre(carpeta: Path, nombre: str, sufijo: str) -> Path:
     """<carpeta>/<nombre><sufijo> sin pisar otro: «<nombre> (2)<sufijo>»… El nombre, sin lo que Windows no admite."""
+    nombre = re.sub(r"(\d):(\d\d)", r"\1.\2", nombre)  # la duración de un short, «· 4:29», como 4.29 y no «4 29»
     limpio = re.sub(r'[\\/:*?"<>|\s]+', " ", nombre).strip(" .")[:80] or "Ráfaga Studio"
+    if limpio.split(".")[0].lower() in diseno._RESERVADOS:  # «aux.mp4» Windows lo toma por un dispositivo
+        limpio = f"Ráfaga Studio {limpio}"
     ruta, n = Path(carpeta) / f"{limpio}{sufijo}", 2
     while ruta.exists():
         ruta, n = Path(carpeta) / f"{limpio} ({n}){sufijo}", n + 1
@@ -642,6 +645,10 @@ def descargar(padre, archivo, titulo: str = "") -> Path | None:
         mensaje_error(padre, t("No se pudo descargar"), t(
             "{que}: tiene que ser un archivo de este PC, no de una carpeta de red (cópialo a tu PC o ábrelo desde una "
             "unidad con letra, como Z:): {ruta}", que=t("archivo").capitalize(), ruta=origen))
+        return None
+    if not origen.is_file():  # un proyecto viejo cuyo archivo se movió desde el Explorador: la culpa no es del destino
+        mensaje_error(padre, t("No se pudo descargar"),
+                      t("Ya no está en su carpeta (¿se movió o se borró?): {ruta}", ruta=origen))
         return None
     sugerido = nombre_libre(carpeta_para(sufijo), titulo or origen.stem, validos[0])
     filtro = "PNG (*.png);;JPG (*.jpg *.jpeg)" if imagen else f"{sufijo[1:].upper()} (*{sufijo})"
@@ -854,12 +861,15 @@ class PaginaTrabajo(QWidget):
         s = round(time.monotonic() - self._inicio)  # el temporizador salta unos ms antes: int() iba un segundo atrás
         self.estado.setText(f"{self._texto}  {s // 60}:{s % 60:02d}".strip())
 
-    def _ver_estado(self):  # el progreso va debajo de todas las tarjetas: en un portátil quedaba fuera de la vista
+    def _ver_estado(self, w=None):
+        """Baja la página hasta w (el progreso, o lo hecho al terminar): va debajo de todas las tarjetas y en un
+        portátil quedaba fuera de la vista."""
         area = self.parentWidget()
         while area and not isinstance(area, QScrollArea):
             area = area.parentWidget()
-        if area:
-            area.ensureWidgetVisible(self.estado)
+        w = w or self.estado
+        if area and w.isVisible():  # hacia algo oculto (p. ej. el reproductor tras crear una serie) no se baja
+            area.ensureWidgetVisible(w)
 
     @staticmethod
     def _herramienta(funcion) -> str | None:
@@ -931,9 +941,12 @@ class PaginaTrabajo(QWidget):
         self.tarea.progreso.connect(self._avanzar)
         for fin in (self.tarea.listo, self.tarea.fallo):  # lo primero: el reloj no pisa lo que se escriba al acabar
             fin.connect(self.reloj.stop)
-        self.tarea.listo.connect(lambda p: (self.reproductor.show(), self.reproductor.mostrar(p), p.get("avisos") and
-                                            mensaje(self, t("Terminado con avisos"),
-                                                                    resumen_avisos(p["avisos"]))))
+        # Al acabar, la página baja hasta «Descargar / Guardado en» (quedaba bajo el borde); con singleShot, después
+        # de lo que haga cada página al terminar (Serie oculta el reproductor)
+        self.tarea.listo.connect(lambda p: (self.reproductor.show(), self.reproductor.mostrar(p),
+                                            QTimer.singleShot(0, lambda: self._ver_estado(self.reproductor.acciones)),
+                                            p.get("avisos") and mensaje(self, t("Terminado con avisos"),
+                                                                        resumen_avisos(p["avisos"]))))
         self.tarea.fallo.connect(lambda e: (self.estado.setText(""), mensaje_error(self, t("No se pudo terminar"), e)))
         self.tarea.finished.connect(lambda: (boton_iniciar.setEnabled(True), self.progreso.hide()))
         self.reloj.start()
@@ -958,9 +971,9 @@ class VisorImagen(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
         imagen = QLabel()
-        # Con sus botones debajo, cabe en la pantalla (1280×720 al 150 %): a 720 px de alto la ventana se salía
+        # Con «Guardado en» y sus botones debajo, cabe en la pantalla (1280×720 al 150 %): a 720 px de alto se salía
         pantalla = (padre.screen() if padre else QGuiApplication.primaryScreen()).availableGeometry()
-        caja = QSize(min(960, pantalla.width() - 80), min(720, pantalla.height() - 190))
+        caja = QSize(min(960, pantalla.width() - 80), min(720, pantalla.height() - 215))
         imagen.setPixmap(QPixmap(str(ruta)).scaled(caja, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         imagen.setAlignment(Qt.AlignCenter)
         lay.addWidget(imagen)
@@ -987,6 +1000,8 @@ class VisorImagen(QDialog):
             fila.addWidget(b)
         fila.addStretch()
         fila.addWidget(cerrar)
+        if se_puede_abrir(self.ruta):  # como en cada sección: dónde está, a la vista (un ejemplo no se enseña)
+            lay.addWidget(etiqueta(t("Guardado en: {carpeta}", carpeta=self.ruta.parent), "sub"))
         lay.addLayout(fila)
         self.disenar.setVisible(VisorImagen.al_disenar is not None)  # por la clase: si no, Python la ataría a self
         self.animar.setVisible(VisorImagen.al_animar is not None)

@@ -20,6 +20,20 @@ First public version · Primera versión.
   (funciona, sin saldo, sin cuota, clave no válida o le falta un permiso) con el siguiente paso, y los trabajos avisan
   antes de empezar. Si la IA de texto elegida no atiende (sin saldo, sin cuota), se usa la siguiente conectada; nada se
   paga dos veces.
+- **Faster AI work, and your choice of Claude:** the niche researcher runs its YouTube searches and the web research at
+  the same time, looks up fewer upload dates (and remembers them), never waits forever and says what it left out. With
+  Claude, each job thinks only as much as it needs (Director turns and the spell check at low effort, scripts and
+  analyses at medium), and in «AI keys» you choose Opus 5.5 (best quality) or Sonnet 5.5 (faster and cheaper), with
+  its price. The trade-off: the web research (for niches and for ads) now makes up to 5 searches at low effort and
+  stops at its time limit, and the niche web summary is asked for in about 400 words; the Director at low effort has
+  not been measured with the real Claude yet.
+- **La IA trabaja más rápido, y eliges tu Claude:** el investigador de nichos hace las búsquedas de YouTube y la
+  investigación en internet a la vez, pide menos fechas de subida (y las recuerda), nunca espera sin fin y dice lo que
+  dejó fuera. Con Claude, cada trabajo piensa lo justo (los turnos del Director y la ortografía con esfuerzo bajo, los
+  guiones y los análisis con esfuerzo medio), y en «Claves de IA» eliges Opus 5.5 (la mejor calidad) o Sonnet 5.5 (más
+  rápido y más barato), con su precio. Lo que se cede: la investigación en internet (la de nichos y la de anuncios)
+  hace ahora hasta 5 búsquedas con esfuerzo bajo y se corta en su tiempo máximo, y el resumen web de nichos se pide en
+  unas 400 palabras; el Director con esfuerzo bajo aún no se midió con Claude de verdad.
 - **Better results from a real test of every tool:** ads always show your product photo; music-video karaoke shows
   your written lyrics; spelling and accents are checked before text is burned into a video; shorts respect the length
   and never overlap; videos respect the requested length; the mix never clips and the music ducks without pumping;

@@ -23,6 +23,8 @@ ORDEN = {
     "video": ["huggingface", "modal", "pollinations", "kling", "seedance"],
     # Privacidad: tus canciones y tu voz no salen de tu PC (Demucs local; ver _separar_pc).
     "separacion": ["pc"],
+    # Tu cara y tu voz: ia.avatar pasa solo una de las dos (la que elegiste), nunca una como respaldo de la otra
+    "avatar": ["modal", "huggingface"],
 }
 NOMBRES = {"huggingface": t("Hugging Face (cuota gratis)"), "modal": t("tu nube Modal"), "pollinations": "Pollinations",
            "pc": t("este PC"), "cloudflare": t("Cloudflare (gratis diario)"), "openai": "OpenAI",
@@ -38,8 +40,8 @@ def token_hf() -> str | None:
     return (claves.cargar().get("huggingface") or {}).get("clave")
 
 
-def llamar_space(espacio: str, *entradas, api_name: str, **parametros):
-    """Llama a un Space de Hugging Face con o sin token; si la cola gratis tarda demasiado, se rinde."""
+def llamar_space(espacio: str, *entradas, api_name: str, espera: int = ESPERA_HF, **parametros):
+    """Llama a un Space de Hugging Face con o sin token; si la cola gratis tarda más de `espera` segundos, se rinde."""
     from urllib.parse import urljoin, urlsplit
 
     from gradio_client import Client
@@ -64,7 +66,7 @@ def llamar_space(espacio: str, *entradas, api_name: str, **parametros):
     # página y se espera aquí, con el mismo límite que la cola.
     # ponytail: probado solo con Spaces encendidos; si uno dormido no despierta así, se agota la espera y pasa al siguiente.
     no_sirve = ("BUILDING", "NO_APP_FILE", "CONFIG_ERROR", "BUILD_ERROR", "RUNTIME_ERROR", "PAUSED")
-    actual, limite_espera, despertado = estado(), time.time() + ESPERA_HF, False
+    actual, limite_espera, despertado = estado(), time.time() + espera, False
     while not actual.startswith("RUNNING"):
         if actual in no_sirve or time.time() > limite_espera:
             raise RuntimeError(t("el Space de Hugging Face no está disponible ahora ({estado})", estado=actual))
@@ -81,10 +83,10 @@ def llamar_space(espacio: str, *entradas, api_name: str, **parametros):
     cliente = _Cliente(espacio, token=False, verbose=False, download_files=False)
     trabajo = cliente.submit(*entradas, api_name=api_name, **parametros)
     try:
-        resultado = trabajo.result(timeout=ESPERA_HF)
+        resultado = trabajo.result(timeout=espera)
     except TimeoutError:
         trabajo.cancel()
-        raise RuntimeError(t("la cola gratis de Hugging Face tardó más de {minutos} min", minutos=ESPERA_HF // 60))
+        raise RuntimeError(t("la cola gratis de Hugging Face tardó más de {minutos} min", minutos=espera // 60))
     from gradio_client import utils
     raiz, bajados = cliente.src_prefixed, []
 
@@ -168,14 +170,15 @@ def _causa(e: Exception, proveedor: str) -> str:
 
 def _apuntar(uso: str, proveedor: str, que_fue, error=None, paso_a: str = "", cobrado: bool = False) -> None:
     """Un intento de la rotación en la actividad de la IA. Lo que no se cobró (falló) cuesta 0; lo cobrado sin llegar
-    (Cobrado), lo de siempre. Lo de este PC no es un servicio de IA: no se apunta."""
-    if proveedor == "pc" or uso not in ("imagen", "video"):
+    (Cobrado), lo de siempre. Lo de este PC no es un servicio de IA: no se apunta. Un avatar es un video."""
+    if proveedor == "pc" or uso not in ("imagen", "video", "avatar"):
         return
     try:
         modelo, costo = que_fue(proveedor)
     except Exception:  # el modelo y el precio son informativos: nunca tumban la rotación
         modelo, costo = "", 0.0
-    actividad.anotar(uso, proveedor, modelo, costo if error is None or cobrado else 0.0, error, paso_a)
+    actividad.anotar("video" if uso == "avatar" else uso, proveedor, modelo, costo if error is None or cobrado else 0.0,
+                     error, paso_a)
 
 
 def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[str, float], None] = lambda t, f: None,

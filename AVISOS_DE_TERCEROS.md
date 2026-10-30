@@ -43,6 +43,8 @@ licencia.
 | Z-Image Turbo (Alibaba Tongyi) | Imágenes con tu cuenta gratis de Pollinations | Apache 2.0 |
 | FLUX.1 Kontext [pro] (Black Forest Labs) | Anuncios con tu producto real, con Pollinations | Modelo cerrado: se aplican las condiciones de Pollinations y Black Forest Labs |
 | Wan 2.2 (Alibaba) | Animar imágenes: TI2V-5B en tu nube Modal; en Hugging Face, un Space público de terceros (zerogpu-aoti) con Wan 2.2; y Pollinations (wan-2.2-fast) | Apache 2.0 |
+| EchoMimicV3-Flash (Ant Group), con Wan2.1-Fun-V1.1-1.3B-InP (Alibaba PAI) y chinese-wav2vec2-base (Tencent) | Avatar IA (tu foto habla con tu voz) en tu nube Modal | Apache 2.0 (EchoMimicV3 y Wan2.1-Fun); MIT (chinese-wav2vec2-base) |
+| Wan 2.2 S2V (Alibaba) | Avatar IA gratis, solo si lo marcas: el Space oficial de Wan en Hugging Face, que usa un modelo destilado en la API de Alibaba Cloud | Servicio de Alibaba Cloud Model Studio: sus condiciones |
 | Gemini Flash Image «Nano Banana» (Google) | Imágenes, solo si eliges Gemini para las imágenes (de pago); la app usa el más nuevo de precio conocido de tu clave | Modelo cerrado: condiciones de la API de Gemini |
 | Gemini Omni (Google) | Video animado con voz, con tu clave de Gemini (de pago); la app usa el más capaz que ofrezca tu clave | Modelo cerrado: condiciones de la API de Gemini |
 | Kling (Kuaishou) | Animar escenas y escenas que hablan, solo si eliges Kling en «Claves de IA» (de pago); la app usa el mejor modelo que permita tu cuenta | Modelo cerrado: condiciones de la API de Kling AI (Kling AI Pte. Ltd.) |

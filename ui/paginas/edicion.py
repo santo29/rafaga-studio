@@ -1,9 +1,10 @@
 """Página «✂️ Editor de video»: edición a mano como en CapCut. Arriba, la barra de herramientas (medios, audio,
-grabarte, texto, stickers, efectos, transiciones, subtítulos, filtros, ajustes y plantillas) y, a la izquierda, el
-panel de la elegida; en el centro, la vista previa (el fotograma del video con las capas encima, que se mueven y
-cambian de tamaño como en el editor de diseño; las capas de video, con su fotograma en el cursor); a la derecha, las
-propiedades de lo elegido; abajo, a todo lo ancho, la línea de tiempo (ui/linea_tiempo.py). «Grabarte»
-(ui/grabarte.py) graba tu cara o tu voz mientras el video suena y la pone en el cursor.
+grabarte, texto, stickers, efectos, transiciones, subtítulos, filtros, ajustes, plantillas y avatar IA) y, a la
+izquierda, el panel de la elegida; en el centro, la vista previa (el fotograma del video con las capas encima, que se
+mueven y cambian de tamaño como en el editor de diseño; las capas de video, con su fotograma en el cursor); a la
+derecha, las propiedades de lo elegido; abajo, a todo lo ancho, la línea de tiempo (ui/linea_tiempo.py). «Grabarte»
+(ui/grabarte.py) graba tu cara o tu voz mientras el video suena y la pone en el cursor; «Avatar IA» hace hablar una
+foto con una voz en tu nube Modal (motor/ia.avatar) y la pone igual que una toma de Grabarte.
 
 El proyecto es el dict de motor/edicion.py y nunca se cambia por dentro: cada cambio hace uno nuevo validado, así el
 deshacer es una pila de proyectos. Lo lento (medir archivos, fotogramas, vista previa, exportar, subtítulos, voz) va
@@ -28,8 +29,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCh
                                QListView, QListWidget, QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSlider,
                                QSplitter, QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
-from motor import diseno, edicion, marca, recursos, seguro, video
-from motor.idioma import t
+from motor import claves, diseno, edicion, guardia, ia, marca, nube, recursos, seguro, video
+from motor.idioma import dinero, t
 from ui.comun import (archivo_valido, aviso_guardado, boton, ComboCorto, etiqueta, mensaje, mensaje_error,
                       NOMBRES_FORMATO, REFLEJO_FINO, SelectorVoz, Tarea, tarjeta)
 from ui import iconos
@@ -194,6 +195,21 @@ def _leer_foto(ruta, carpeta, aviso):
     if imagen is None:
         raise ValueError(t("No se pudo leer la imagen."))
     return {"archivo": archivo, "ancho": imagen.width(), "alto": imagen.height()}  # ya girada según el EXIF
+
+
+def _avatar(foto, voz, formato, carpeta, space, aviso):
+    """En un hilo: el tramo de la voz (lo que suena en la línea de tiempo), a un WAV, y el avatar (ia.avatar) en
+    avatares/ de la carpeta del video."""
+    destino = Path(carpeta) / "avatares" / f"avatar-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
+    destino.parent.mkdir(exist_ok=True)
+    tramo = destino.with_suffix(".wav")
+    aviso(t("Creando tu avatar: tarda unos minutos…"), 0.1)
+    try:
+        video.ffmpeg("-ss", voz["desde"], "-t", voz["hasta"] - voz["desde"], "-i", voz["archivo"], "-vn", tramo)
+        ia.avatar(Path(foto), tramo, formato, destino, space=space)
+    finally:
+        tramo.unlink(missing_ok=True)
+    return {"archivo": str(destino)}
 
 
 def _abrir(carpeta, aviso):
@@ -437,7 +453,8 @@ class PaginaEdicion(QWidget):
                 ("subtitulos", "captions", t("Subtítulos"), self._desplazable(self._panel_subtitulos())),
                 ("filtros", "aperture", t("Filtros"), self._panel_lista(edicion.FILTROS, "filtro")),
                 ("ajustes", "sliders-horizontal", t("Ajustes"), self._desplazable(self._panel_ajustes())),
-                ("plantillas", "layout-template", t("Plantillas"), self._desplazable(self._panel_plantillas())))):
+                ("plantillas", "layout-template", t("Plantillas"), self._desplazable(self._panel_plantillas())),
+                ("avatar", "scan-face", t("Avatar IA"), self._desplazable(self._panel_avatar())))):
             b = self.herramientas[clave] = QToolButton()
             b.setText(texto)
             b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
@@ -640,6 +657,36 @@ class PaginaEdicion(QWidget):
             tarjetas.append(caja)
         return self._panel(etiqueta(t("Ponen en todo el video un filtro, un efecto, transiciones, el estilo de los "
                                       "subtítulos y un título. Tus videos y fotos no se tocan."), "sub"), *tarjetas)
+
+    def _panel_avatar(self):
+        """«Avatar IA»: tu foto habla con tu voz (ia.avatar). Lo que cuesta, lo que queda hoy y por qué aún no se
+        puede, a la vista antes de pulsar (_avatar_listo, al abrir la pestaña y con cada cambio)."""
+        # "foto" (Path) y "voz": {"id"} de un audio de la línea de tiempo o el archivo elegido con su tramo
+        self._avatar, self._avatar_en_marcha = {}, False
+        foto, de_la_linea, audio = boton(f"🖼️  {t('Elegir foto')}"), boton(t("Voz de la línea de tiempo")), \
+            boton(t("Elegir audio…"))
+        de_la_linea.setToolTip(t("La voz elegida en la línea de tiempo o, si no eliges ninguna, la última"))
+        foto.clicked.connect(self.elegir_foto_avatar)
+        de_la_linea.clicked.connect(self.voz_de_la_linea)
+        audio.clicked.connect(self.elegir_audio_avatar)
+        # Los nombres de archivo, en una línea y acortados con «…» (enteros en la ayuda): uno largo ensanchaba el panel
+        self.avatar_foto, self.avatar_voz = _Estado(Qt.ElideMiddle, Qt.AlignLeft), _Estado(Qt.ElideMiddle, Qt.AlignLeft)
+        self.avatar_costo, self.avatar_falta = etiqueta(""), etiqueta("", "sub")
+        fila, self.avatar_space = casilla(t("Gratis con el Space público de Wan: tu foto y tu voz se suben a Alibaba "
+                                            "Cloud y se guardan 24 h. Se pide cada vez."))
+        self.avatar_space.toggled.connect(lambda _: self._avatar_listo())
+        self.avatar_btn = boton(f"✨  {t('Crear mi avatar')}", "principal")
+        self.avatar_btn.setEnabled(False)  # hasta que haya foto y voz
+        self.avatar_btn.clicked.connect(self.crear_avatar)
+        # Como en Grabarte: lo de cada avatar arriba, a la vista a 1280×720 (lo que falta ya pide una foto con
+        # permiso); la casilla y la explicación entera, debajo
+        return self._panel(foto, self.avatar_foto, de_la_linea, audio, self.avatar_voz, self.avatar_costo,
+                           self.avatar_falta, self.avatar_btn, fila, etiqueta(t(
+                               "Tu foto habla con tu voz. Se hace en tu nube Modal: unos {costo} de tu crédito gratis "
+                               "por avatar de hasta {n} s (como mucho {tope}) y cuenta como 1 clip del cupo de hoy. "
+                               "Usa solo fotos tuyas o de alguien que te dio permiso, y marca el video como hecho con "
+                               "IA al publicarlo.", costo=dinero(nube.PRECIO_AVATAR), n=nube.MAX_AVATAR,
+                               tope=dinero(nube.HASTA_AVATAR)), "sub"))
 
     def _centro(self):
         self.escena = QGraphicsScene(self)
@@ -1372,6 +1419,8 @@ class PaginaEdicion(QWidget):
         if self.paneles.currentWidget().isAncestorOf(self.stickers) and not self.stickers.count() and \
                 not self.buscar_sticker.text().strip():
             self._llenar_stickers()  # al abrirla y no al arrancar: dibujar 280 stickers tarda
+        if self.paneles.currentWidget().isAncestorOf(self.avatar_btn):
+            self._avatar_listo()  # el cupo de hoy pudo cambiar (otro trabajo, el MCP) y la voz, borrarse
 
     def voz_ia(self):
         texto = self.texto_voz.toPlainText().strip()
@@ -1466,11 +1515,12 @@ class PaginaEdicion(QWidget):
         self.sonido.setMuted(False)
         self.parar()
 
-    def toma_lista(self, ruta, inicio, en_hilo=True, desde=0.0):
-        """Una grabación (de Grabarte o importada) al video en el segundo `inicio`, con la disposición y la forma
-        elegidas en el panel y el borde del color de tu marca: una capa de video o, si es solo voz, un audio «voz».
-        `desde`: lo que sobra al principio del archivo (lo grabado antes de que arrancara el video). Se mide en el hilo
-        (en_hilo=False: aquí mismo, al cerrar la app) y entra en un solo «deshacer»."""
+    def toma_lista(self, ruta, inicio, en_hilo=True, desde=0.0, quitar=None):
+        """Una grabación (de Grabarte o importada, o un avatar) al video en el segundo `inicio`, con la disposición y la
+        forma elegidas en el panel y el borde del color de tu marca: una capa de video o, si es solo voz, un audio
+        «voz». `desde`: lo que sobra al principio del archivo (lo grabado antes de que arrancara el video). `quitar`: el
+        id de un audio que sale en el mismo paso (la voz que el avatar ya lleva dentro: sonaría doble). Se mide en el
+        hilo (en_hilo=False: aquí mismo, al cerrar la app) y entra en un solo «deshacer»."""
         cual, forma = self.grabarte.disposicion()
         formato, carpeta = self.proyecto["formato"], self.carpeta
         datos = {"ruta": str(ruta), "inicio": round(min(max(0.0, inicio), edicion.MAX_DURACION), 3), "cual": cual,
@@ -1484,8 +1534,8 @@ class PaginaEdicion(QWidget):
             return {"nuevo": ("capas", q["capas"][-1]) if q["capas"] else ("audios", q["audios"][-1])}
 
         def no_entro(error):
-            # Una toma de Grabarte no se pierde: sigue en grabaciones/ y se puede volver a meter
-            tuya = carpeta is not None and Path(ruta).parent == carpeta / "grabaciones"
+            # Una toma de Grabarte (o un avatar, ya pagado) no se pierde: sigue en su carpeta y se puede volver a meter
+            tuya = carpeta is not None and Path(ruta).parent in (carpeta / "grabaciones", carpeta / "avatares")
             mensaje_error(self, t("No se pudo añadir la grabación"), f"{error}\n\n" + t(
                 "El archivo sigue en {ruta}: cuando haya sitio, añádelo con «Importar grabación».", ruta=ruta)
                           if tuya else error)
@@ -1496,7 +1546,7 @@ class PaginaEdicion(QWidget):
             if "error" in r:
                 return no_entro(r["error"])
             clave, e = r["nuevo"]
-            p = self.proyecto
+            p = {**self.proyecto, "audios": [a for a in self.proyecto["audios"] if a["id"] != quitar]}
             try:
                 limpio = edicion.validar({**p, clave: p[clave] + [{**e, "id": None}]})  # validar le da un id nuevo
             except ValueError as error:
@@ -1580,6 +1630,111 @@ class PaginaEdicion(QWidget):
         if r["errores"]:
             texto += "\n\n" + t("No entraron:") + "\n" + "\n".join(r["errores"][:5])
         mensaje(self, t("Video recuperado"), texto)
+
+    # ---------- Avatar IA ----------
+
+    def elegir_foto_avatar(self):
+        ruta = QFileDialog.getOpenFileName(self, t("Elegir foto"), QStandardPaths.writableLocation(
+            QStandardPaths.PicturesLocation), pd.FILTRO_IMAGENES)[0]
+        real = ruta and archivo_valido(self, ruta, seguro.IMAGENES, t("imagen"))
+        if real:
+            self._avatar["foto"] = real
+            self._avatar_listo()
+
+    def voz_de_la_linea(self):
+        """La voz elegida en la línea de tiempo o, si no hay ninguna elegida, la última que entró."""
+        grupo, e = self._seleccion()
+        voces = [a for a in self.proyecto["audios"] if a["tipo"] == "voz"]
+        voz = e if grupo == "audios" and e["tipo"] == "voz" else voces[-1] if voces else None
+        if voz is None:
+            return mensaje(self, t("Falta la voz"), t("No hay ninguna voz en la línea de tiempo: grábala en "
+                                                      "«Grabarte», hazla con «Voz IA» (en Audio) o elige un audio."))
+        self._avatar["voz"] = {"id": voz["id"]}
+        self._avatar_listo()
+
+    def elegir_audio_avatar(self):
+        ruta = QFileDialog.getOpenFileName(self, t("Elegir audio…"), QStandardPaths.writableLocation(
+            QStandardPaths.MusicLocation), FILTRO_AUDIOS)[0]
+        if ruta:  # se valida y se mide en el hilo, como al importar
+            self._trabajo(_medir, self._audio_avatar, rutas=[ruta], audio=True)
+
+    def _audio_avatar(self, r):
+        if r["errores"]:
+            return mensaje_error(self, t("Revisa el archivo"), r["errores"][0])
+        audio = r["nuevos"][0][1]
+        self._avatar["voz"] = {"archivo": audio["archivo"], "desde": 0.0, "hasta": audio["hasta"]}
+        self._avatar_listo()
+
+    def _voz_avatar(self) -> dict | None:
+        """La voz del avatar tal como está ahora: el audio de la línea de tiempo (con su tramo y su momento; None si ya
+        no está) o el archivo elegido, en el cursor."""
+        voz = self._avatar.get("voz")
+        if voz and "id" in voz:
+            return next((a for a in self.proyecto["audios"] if a["id"] == voz["id"]), None)
+        return voz and {**voz, "inicio": self.cursor}
+
+    def _avatar_listo(self):
+        """Lo que dice el panel «Avatar IA» (foto, voz, lo que cuesta, lo que queda hoy y lo que falta) y si «Crear mi
+        avatar» se puede pulsar: solo con foto y voz y, en Modal, con cupo."""
+        foto, voz, space = self._avatar.get("foto"), self._voz_avatar(), self.avatar_space.isChecked()
+        quedan, tope = max(nube.limite() - nube.usados_hoy(), 0), nube.limite()
+        segundos = voz and voz["hasta"] - voz["desde"]
+        self.avatar_foto.setText(t("Foto: {nombre}", nombre=foto.name) if foto else "")
+        self.avatar_voz.setText(t("Voz: {nombre} · {s} s", nombre=Path(voz["archivo"]).name, s=f"{segundos:.1f}")
+                                if voz else "")
+        self.avatar_costo.setText(t("Gratis con el Space de Wan: no gasta tu crédito.") if space else t(
+            "Unos {costo} · hasta {tope} · hoy quedan {n} de {m}", costo=dinero(nube.PRECIO_AVATAR),
+            tope=dinero(nube.HASTA_AVATAR), n=quedan, m=tope))
+        falta = (t("Elige una foto tuya o de alguien que te dio permiso.") if not foto else
+                 t("Elige la voz: grábala en «Grabarte», hazla con «Voz IA» (en Audio) o elige un audio.") if not voz
+                 else nube.voz_larga(segundos, ia.MAX_AVATAR_SPACE if space else nube.MAX_AVATAR))
+        if not falta and not space:
+            falta = (t("Conecta tu nube Modal en «Claves de IA» o marca el Space gratis.")
+                     if "modal" not in claves.cargar() else
+                     t("La nube Modal está apagada (tope de 0 clips al día en «Claves de IA»).") if tope <= 0 else
+                     t("Ya se usaron los {n} clips de nube de hoy (para no pasar del crédito gratis).", n=tope)
+                     if not quedan else "")
+        self.avatar_falta.setText(falta)
+        self.avatar_falta.setVisible(bool(falta))
+        self.avatar_btn.setEnabled(not falta and not self._avatar_en_marcha)
+
+    def crear_avatar(self):
+        """Pregunta lo que cuesta (con el Space, nada) y hace el avatar en un hilo. Va a avatares/ de la carpeta del
+        video y entra con la disposición de Grabarte en el momento de la voz; si la voz era de la línea de tiempo, sale
+        en el mismo «deshacer» (va dentro del avatar)."""
+        voz, space = self._voz_avatar(), self.avatar_space.isChecked()
+        if voz is None:
+            self._avatar_listo()
+            return mensaje(self, t("Falta la voz"), t("Esa voz ya no está en la línea de tiempo: vuelve a elegirla."))
+        if not space:
+            if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: nada de pago empieza
+                return mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
+            if QMessageBox.question(self, t("Antes de gastar"), t(
+                    "{que}\n\nCuesta {costo}. ¿Seguir?", que=t("Tu avatar, en tu nube Modal: cuenta como 1 clip del "
+                                                               "cupo de hoy."),
+                    costo=t("unos {costo} de tu crédito de Modal, como mucho {tope}", costo=dinero(nube.PRECIO_AVATAR),
+                            tope=dinero(nube.HASTA_AVATAR)))) != QMessageBox.Yes:
+                return self.estado.setText(t("Cancelado: no se gastó nada."))
+        carpeta = self._carpeta()
+        self._avatar_en_marcha = True
+        self.avatar_space.setChecked(False)  # el Space se pide cada vez: no se recuerda (y repinta el panel)
+        self._avatar_listo()
+        self._trabajo(_avatar, lambda r: self._avatar_hecho(r, carpeta, voz), al_fallar=lambda _e: self._avatar_fin(),
+                      foto=str(self._avatar["foto"]), voz=voz, formato=self.proyecto["formato"], carpeta=carpeta,
+                      space=space)
+
+    def _avatar_fin(self):
+        self._avatar_en_marcha = False
+        self._avatar_listo()
+
+    def _avatar_hecho(self, r, carpeta, voz):
+        self._avatar_fin()
+        if self.carpeta != carpeta:  # se abrió otro video mientras tanto: a Videos (la carpeta de aquel se puede borrar)
+            destino = destino_libre(Path(r["archivo"]).stem)
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            return aviso_guardado(self, t("Avatar IA"), shutil.move(r["archivo"], destino))
+        ahora = next((a for a in self.proyecto["audios"] if a["id"] == voz.get("id")), voz)  # por si la moviste
+        self.toma_lista(r["archivo"], ahora["inicio"], quitar=voz.get("id"))
 
     # ---------- Trabajos en segundo plano ----------
 

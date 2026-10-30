@@ -1150,6 +1150,33 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     return resultado
 
 
+ESPACIO_AVATAR = "Wan-AI/Wan2.2-S2V"  # el oficial de Wan (Alibaba): sube foto y voz a Alibaba Cloud y las guarda 24 h
+MAX_AVATAR_SPACE = 18  # segundos: el Space acepta menos de 20
+ESPERA_AVATAR_SPACE = 900  # Alibaba dice que su tarea tarda unos 5-10 min: con la espera de siempre (5) no llegaba
+
+
+def avatar(foto: Path, audio: Path, formato: str, destino: Path, space: bool = False) -> Path:
+    """Tu foto habla con tu voz (un MP4 con la voz dentro). En tu nube Modal (nube.avatar: del crédito gratis, 1 clip
+    del cupo del día) o, solo si lo marcas esa vez (space=True), gratis en el Space oficial de Wan. Solo se prueba el
+    elegido: tu cara y tu voz nunca van por detrás a un Space público, y lo de pago nunca entra si falla lo gratis."""
+    from . import nube, nubes, video
+
+    def huggingface():
+        from gradio_client import handle_file
+        error = nube.voz_larga(video.medir(audio)[0], MAX_AVATAR_SPACE)
+        if error:
+            raise ValueError(error)
+        # Sin token (llamar_space): el Space llama a la API de Alibaba con la clave de su dueño
+        salida = nubes.llamar_space(ESPACIO_AVATAR, handle_file(str(foto)), handle_file(str(audio)), "480P",
+                                    api_name="/predict", espera=ESPERA_AVATAR_SPACE)
+        return _clip_real(nubes.archivo_del_space(salida), destino)
+
+    def que_fue(p):  # el modelo y lo que cuesta, para la actividad de la IA
+        return ("EchoMimicV3-Flash", nube.PRECIO_AVATAR) if p == "modal" else (ESPACIO_AVATAR, 0.0)
+    tareas = {"huggingface": huggingface} if space else {"modal": lambda: nube.avatar(foto, audio, formato, destino)}
+    return nubes.rotar("avatar", tareas, que_fue=que_fue)[0]
+
+
 API_GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 OMNI = "gemini-omni-1.1-flash"  # si la API no dice cuál hay. Sustituye a Veo, que Google apagó el 22-10-2026
 PRECIO_OMNI = 0.10  # US$ por segundo de video 720p según Google (sin cuota gratis)

@@ -7,6 +7,7 @@ import ctypes
 import functools
 import inspect
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 ORIGEN = os.getcwd()
 APP = Path(__file__).resolve().parent
 os.chdir(APP)
+# stdout es el canal del protocolo con Claude: los avisos del motor van a stderr, y un «→» en una consola cp1252 no
+# puede tumbar un trabajo
+if sys.stderr:
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def _ruta(ruta: str) -> str:

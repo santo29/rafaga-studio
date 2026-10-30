@@ -81,7 +81,7 @@ class PaginaNichos(QWidget):
         self.tarea.start()
 
     def _listo(self, r):
-        self.estado.setText(r["resumen"])
+        self.estado.setText("\n".join([*r.get("avisos", []), r["resumen"]]))  # p. ej. «la web tardó demasiado»
         self.nichos = r["nichos"]
         self.lista.clear()
         for n in self.nichos:

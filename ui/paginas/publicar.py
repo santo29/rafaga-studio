@@ -3,12 +3,12 @@ PC esté apagado. TikTok, Instagram y Facebook, más adelante."""
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, Qt, QUrl
+from PySide6.QtCore import QDateTime, QLocale, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDateTimeEdit, QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QProgressBar,
                                QTextEdit, QVBoxLayout, QWidget)
 
-from motor import claves, ia, publicar, seguro, shorts
+from motor import claves, ia, idioma, publicar, seguro, shorts
 from motor.idioma import t
 from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 
@@ -69,7 +69,9 @@ class PaginaPublicar(QWidget):
         self.hashtags.setPlaceholderText(t("#hashtags separados por espacios"))
         self.hora = QDateTimeEdit()
         self.hora.setCalendarPopup(True)
-        self.hora.setDisplayFormat("dd/MM/yyyy HH:mm")
+        # La fecha como se escribe en el idioma de la app (como en Inicio): en inglés, 30/10 se leía como el mes 30
+        self.hora.setLocale(QLocale(idioma.actual()))
+        self.hora.setDisplayFormat(self.hora.locale().dateTimeFormat(QLocale.ShortFormat))
         self.programar = boton(f"📅  {t('Programar en YouTube')}", "principal")
         self.programar.clicked.connect(self._programar)
         abajo = QHBoxLayout()
@@ -122,7 +124,8 @@ class PaginaPublicar(QWidget):
         self.programados.clear()
         for h in publicar.historial():
             try:
-                hora = datetime.fromisoformat(h["hora"]).astimezone().strftime("%d/%m/%Y %H:%M")
+                hora = self.hora.locale().toString(QDateTime.fromSecsSinceEpoch(
+                    int(datetime.fromisoformat(h["hora"]).timestamp())), QLocale.ShortFormat)
             except (KeyError, TypeError, ValueError):
                 hora = "?"
             self.programados.addItem(f"{hora} · YouTube · {str(h.get('titulo', ''))[:70]} · youtu.be/{h.get('id', '')}")

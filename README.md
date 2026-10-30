@@ -16,15 +16,16 @@ Ask for a video in one sentence and get the script, the scenes, the voice, the s
 [![MCP server](https://img.shields.io/badge/MCP-17%20tools-7c5cff)](#-drive-it-from-claude-mcp)
 [![Languages](https://img.shields.io/badge/UI-ES%20%C2%B7%20EN%20%C2%B7%20PT%20%C2%B7%20FR-f59e0b)](idiomas)
 
-[**▶ Watch the demo**](ejemplos/presentacion-app.mp4) ·
+[**▶ Watch the demo**](ejemplos/presentacion-app-en.mp4) ·
 [**▶ Watch the ad**](ejemplos/anuncio-rafaga-en.mp4) ·
 [**🇪🇸 Leer en español**](README.es.md)
 
-<a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="640" alt="Ráfaga Studio demo"></a>
+<a href="ejemplos/presentacion-app-en.mp4"><img src="ejemplos/presentacion-app-en.gif" width="640" alt="Ráfaga Studio demo"></a>
 
-<sub>This demo was edited by Ráfaga Studio's own video editor. Claude wrote the script as the studio's Director.</sub>
+<sub>This demo (<a href="ejemplos/presentacion-app.mp4">Spanish version</a>) was edited by Ráfaga Studio's own video
+editor. Claude wrote the script as the studio's Director.</sub>
 
-<a href="ejemplos/anuncio-rafaga-en.mp4"><img src="ejemplos/anuncio-rafaga.gif" width="640" alt="Ráfaga Studio ad: Your PC. Your studio."></a>
+<a href="ejemplos/anuncio-rafaga-en.mp4"><img src="ejemplos/anuncio-rafaga-en.gif" width="640" alt="Ráfaga Studio ad: Your PC. Your studio."></a>
 
 <sub>The brand ad (<a href="ejemplos/anuncio-rafaga.mp4">Spanish version</a>), in 4K, also made with the studio: the
 people and their voices are fictional, made with AI, with the real app on their screens, and the music is a song

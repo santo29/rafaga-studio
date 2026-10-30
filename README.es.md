@@ -22,7 +22,8 @@ Pides un video en una frase y te entrega el guion, las escenas, la voz, los subt
 
 <a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="640" alt="Video de presentación de Ráfaga Studio"></a>
 
-<sub>Esta demo la montó el propio editor de Ráfaga Studio. El guion lo escribió Claude como Director del estudio.</sub>
+<sub>Esta demo (<a href="ejemplos/presentacion-app-en.mp4">en inglés</a>) la montó el propio editor de Ráfaga Studio. El
+guion lo escribió Claude como Director del estudio.</sub>
 
 <a href="ejemplos/anuncio-rafaga.mp4"><img src="ejemplos/anuncio-rafaga.gif" width="640" alt="Anuncio de Ráfaga Studio: Tu PC. Tu estudio."></a>
 

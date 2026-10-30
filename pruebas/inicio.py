@@ -307,6 +307,27 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert vistas["Director IA"].e["id"] == "mascota-rafa" and vistas["Shorts mágicos"].e == {}
     assert vistas["Editor de video"].e == {"id": "presentacion-app"} and vistas["Anuncios"].e == {}
     assert vistas["Editor de video"].fuente() is None and vistas["Editor de video"].alto_util == 1  # quieta, entera
+    # En otro idioma que no sea el español, la presentación y el anuncio salen en inglés ({id}-en.*: llevan voz y letras
+    # en pantalla) si está esa versión; sin ella, la española
+    en_ingles = [ej / "presentacion-app-en.jpg", ej / "leyenda-ia-en.gif", ej / "leyenda-ia-en.mp4"]
+    for archivo in en_ingles:
+        archivo.write_bytes(b"x")
+    actual = pagina_director.idioma.actual
+    try:
+        for lengua, sufijo in (("es", ""), ("en", "-en"), ("fr", "-en")):
+            pagina_director.idioma.actual = lambda lengua=lengua: lengua
+            assert pagina_director.foto({"id": "presentacion-app"}).name == f"presentacion-app{sufijo}.jpg", lengua
+            vista = pagina_director.Vista(videos[1])
+            assert (vista.ruta.name, vista.gif.name, vista.video.name) == (
+                "leyenda-ia.jpg", f"leyenda-ia{sufijo}.gif", f"leyenda-ia{sufijo}.mp4"), lengua
+            assert pagina_director.proyecto_ejemplo(videos[1])["resultados"][0]["archivo"].endswith(
+                f"leyenda-ia{sufijo}.mp4")
+            assert pagina_director.video(videos[0]).name == "manzana-habla.mp4"  # sin versión en inglés
+            vista.deleteLater()
+    finally:
+        pagina_director.idioma.actual = actual
+        for archivo in en_ingles:
+            archivo.unlink()
     # De los videos se ve solo lo de arriba (sus subtítulos quemados quedaban bajo el título de la tarjeta)
     assert vistas["Crear video"].alto_util == car.piezas[0].alto_util == pagina_director.RECORTE_SUBTITULOS
     assert car.piezas[3].alto_util == 1 and car.piezas[0].foco == 0.4

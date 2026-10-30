@@ -64,20 +64,27 @@ def disenos() -> list[dict]:
     return [e for e in lista if isinstance(e, dict) and (ruta := foto(e)) and ruta.is_file()]
 
 
+def del_idioma(ruta: Path) -> Path:
+    """En otro idioma que no sea el español, la versión en inglés de un archivo de ejemplo ({id}-en.mp4, .gif o .jpg)
+    si la hay: el video de presentación y el anuncio llevan voz y letras en pantalla."""
+    ingles = ruta.with_name(f"{ruta.stem}-en{ruta.suffix}")
+    return ingles if idioma.actual() != "es" and ingles.is_file() else ruta
+
+
 def foto(e: dict) -> Path | None:
-    """La imagen fija de un ejemplo: ejemplos/{id}.jpg o, si la trae, «imagen», una ruta dentro de la app (Rafa, la
-    mascota, vive en assets/ con su marca). Una ruta que se sale de la app no vale (None)."""
+    """La imagen fija de un ejemplo: ejemplos/{id}.jpg (o su versión en inglés, ver del_idioma) o, si la trae,
+    «imagen», una ruta dentro de la app (Rafa, la mascota, vive en assets/ con su marca). Una ruta que se sale de la app
+    no vale (None)."""
     if not e.get("imagen"):
-        return EJEMPLOS / f"{e.get('id')}.jpg"
+        return del_idioma(EJEMPLOS / f"{e.get('id')}.jpg")
     raiz = EJEMPLOS.parent.resolve()
     ruta = (raiz / str(e["imagen"])).resolve()
     return ruta if ruta.is_relative_to(raiz) else None
 
 
 def video(e: dict) -> Path:
-    """El MP4 de un ejemplo: en otro idioma que no sea el español, su versión en inglés ({id}-en.mp4) si la hay."""
-    ingles = EJEMPLOS / f"{e['id']}-en.mp4"
-    return ingles if idioma.actual() != "es" and ingles.is_file() else EJEMPLOS / f"{e['id']}.mp4"
+    """El MP4 de un ejemplo (o su versión en inglés, ver del_idioma)."""
+    return del_idioma(EJEMPLOS / f"{e['id']}.mp4")
 
 
 def proyecto_ejemplo(e: dict) -> dict:
@@ -310,7 +317,7 @@ class _Lienzo:
         self.e, self.leyenda, self.vacio = e or {}, leyenda, vacio
         self.ruta = foto(self.e) if e else None
         self.proporcion = _proporcion(self.ruta) if self.ruta else 16 / 9
-        gif, mp4 = (EJEMPLOS / f"{self.e['id']}.gif", video(self.e)) if e else (None, None)
+        gif, mp4 = (del_idioma(EJEMPLOS / f"{self.e['id']}.gif"), video(self.e)) if e else (None, None)
         self.gif = gif if gif and gif.is_file() else None
         self.video = mp4 if mp4 and mp4.is_file() else None
         self.es_video = self.video is not None  # aunque su MP4 falle luego: su sitio en la tarjeta no cambia

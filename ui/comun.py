@@ -484,7 +484,22 @@ class SelectorFormato(Segmentos):
 
 class ComboCorto(QComboBox):
     """Un desplegable que, en un panel estrecho, acorta lo elegido con «…» (Qt lo cortaba a media letra) y abre su
-    lista tan ancha como la opción más larga. Para que no ensanche el panel: AdjustToMinimumContentsLengthWithIcon."""
+    lista tan ancha como la opción más larga. Para que no ensanche el panel: AdjustToMinimumContentsLengthWithIcon.
+    Lo elegido, entero, va en la ayuda, tras el nombre del control si tiene («Micrófono: Microphone (Realtek(R)…)»)."""
+    def __init__(self):
+        super().__init__()
+        self._ayuda = ""
+        self.currentIndexChanged.connect(self._poner_ayuda)
+
+    def setToolTip(self, texto):
+        self._ayuda = texto
+        self._poner_ayuda()
+
+    def _poner_ayuda(self, *_):
+        elegido = self.currentText()
+        super().setToolTip(t("{nombre}: {elegido}", nombre=self._ayuda, elegido=elegido) if self._ayuda and elegido
+                           else self._ayuda or elegido)
+
     def showPopup(self):
         self.view().setMinimumWidth(self.view().sizeHintForColumn(0) + 32)
         super().showPopup()

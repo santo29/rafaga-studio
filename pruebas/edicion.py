@@ -562,11 +562,24 @@ with tempfile.TemporaryDirectory() as d:
     for n, f in enumerate((toma1, toma2, perdido / "voces" / "voz-1.m4a")):
         os.utime(f, (time.time() - 30 + n,) * 2)
     [h] = edicion.sin_guardar()
-    assert (h["carpeta"], h["nombre"], h["copia"], h["grabaciones"], h["voces"]) == (perdido, "mi video", False, 2, 1)
+    assert (h["carpeta"], h["nombre"], h["copia"], h["grabaciones"], h["voces"], h["fotos"]) == \
+        (perdido, "mi video", False, 2, 1, 0)
+    # Las fotos encima del video sí se copian a imagenes/: también vuelven, centradas y sin deformar
+    shutil.copy(d / "foto.png", perdido / "imagenes" / "imagen-1.png")
+    (perdido / "imagenes" / "imagen-2.png").write_bytes(b"no es una foto")
+    os.utime(perdido / "imagenes" / "imagen-1.png", (time.time() - 40,) * 2)
+    assert edicion.sin_guardar()[0]["fotos"] == 2
     r = edicion.recuperar(perdido)
     p = r["proyecto"]
-    assert r["errores"] == [] and p["nombre"] == "mi video (recuperado)" and p["formato"] == "9:16"
-    [cara] = p["capas"]
+    assert len(r["errores"]) == 1 and r["errores"][0].startswith("imagen-2.png: ")
+    (perdido / "imagenes" / "imagen-2.png").unlink()
+    assert p["nombre"] == "mi video (recuperado)" and p["formato"] == "9:16"
+    cara, foto = p["capas"]
+    assert (foto["tipo"], foto["archivo"], foto["inicio"], foto["duracion"]) == ("imagen", "imagen-1.png", 0,
+                                                                               edicion.IMAGEN)
+    ancho, alto = video.FORMATOS["9:16"]
+    assert foto["ancho"] == foto["alto"] == round(ancho * 0.6) and foto["x"] == round((ancho - foto["ancho"]) / 2)
+    assert foto["y"] == round((alto - foto["alto"]) / 2)
     assert cara["tipo"] == "video" and cara["archivo"] == str(toma1.resolve()) and cara["inicio"] == 0
     assert [(a["tipo"], a["archivo"]) for a in p["audios"]] == [("voz", str(toma2.resolve())),
                                                                 ("voz", str((perdido / "voces" / "voz-1.m4a").resolve()))]
@@ -576,10 +589,26 @@ with tempfile.TemporaryDirectory() as d:
     (perdido / "grabaciones" / "grabacion-3.mp4").write_bytes(b"no es un video")
     r = edicion.recuperar(perdido)
     assert len(r["errores"]) == 1 and r["errores"][0].startswith("grabacion-3.mp4: ")
-    assert len(r["proyecto"]["capas"]) == 1 and len(r["proyecto"]["audios"]) == 2
+    assert len(r["proyecto"]["capas"]) == 2 and len(r["proyecto"]["audios"]) == 2
     # Descartado a propósito: no se vuelve a ofrecer (y nada se borra)
     (perdido / edicion.NO_RECUPERAR).touch()
     assert edicion.sin_guardar() == [] and toma1.is_file()
+    # ... pero esa marca vale solo para lo que había entonces: una voz nueva (días después, otro cierre de golpe), sí
+    os.utime(perdido / edicion.NO_RECUPERAR, (time.time() - 10,) * 2)
+    shutil.copy(voz, perdido / "voces" / "voz-2.m4a")
+    os.utime(perdido / "voces" / "voz-2.m4a", (time.time() - 5,) * 2)
+    [h] = edicion.sin_guardar()
+    assert h["carpeta"] == perdido and h["voces"] == 2
+    # Y una copia automática más nueva que la marca, también (la de antes, no)
+    marcada = edicion.nueva_carpeta("marcada")
+    edicion.guardar(base, marcada)
+    edicion.guardar({**base, "nombre": "Marcada"}, marcada, edicion.AUTOGUARDADO)
+    (marcada / edicion.NO_RECUPERAR).touch()
+    for archivo, hace in (("proyecto.json", 60), (edicion.AUTOGUARDADO, 30), (edicion.NO_RECUPERAR, 20)):
+        os.utime(marcada / archivo, (time.time() - hace,) * 2)
+    assert [h["carpeta"] for h in edicion.sin_guardar()] == [perdido]
+    edicion.guardar({**base, "nombre": "Marcada"}, marcada, edicion.AUTOGUARDADO)
+    assert [(h["carpeta"], h["copia"]) for h in edicion.sin_guardar()] == [(marcada, True), (perdido, False)]
     falla(edicion.recuperar, r"\\atacante.example\s\video")
 
 print("Pruebas del editor de video (modelo) pasadas.")

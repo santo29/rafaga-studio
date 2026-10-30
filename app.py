@@ -259,20 +259,24 @@ class Ventana(QMainWindow):
     def closeEvent(self, e):
         # Grabándote en el editor: la toma se para, se guarda y entra en el video antes de preguntar si guardarlo
         self.edicion.parar_grabacion()
-        # un diseño o un video sin guardar se perdería al cerrar
-        if not (self.diseno._descartar_ok() and self.edicion._descartar_ok()):
-            return e.ignore()
+        # Primero lo que está trabajando y después lo que no se guardó: un «No» aquí tras «No guardar» dejaba la app
+        # abierta con los cambios a la vista, pero ya dados por guardados y sin su copia automática
         if self.director.ocupado() and QMessageBox.question(
                 self, t("Está trabajando"), t("El Director está haciendo un trabajo. Si cierras, se pierde lo que "
                                               "lleva. ¿Cerrar igual?")) != QMessageBox.Yes:
             return e.ignore()
+        # cerrar a medias dejaría ffmpeg exportando solo y un «tmp-…mp4» en Videos
+        if self.edicion.tareas and QMessageBox.question(
+                self, t("Está trabajando"), t("El editor de video está exportando o preparando algo. ¿Cancelarlo y "
+                                              "cerrar?")) != QMessageBox.Yes:
+            return e.ignore()
+        # un diseño o un video sin guardar se perdería al cerrar
+        if not (self.diseno._descartar_ok() and self.edicion._descartar_ok()):
+            return e.ignore()
         if self.director.ocupado() and hasattr(r := render(), "cancelar"):
             r.cancelar()  # el ffmpeg del editor que esté usando el Director: así su trabajo termina enseguida
         self.director.cerrar()
-        if self.edicion.tareas:  # cerrar a medias dejaría ffmpeg exportando solo y un «tmp-…mp4» en Videos
-            if QMessageBox.question(self, t("Está trabajando"), t("El editor de video está exportando o preparando "
-                                                                  "algo. ¿Cancelarlo y cerrar?")) != QMessageBox.Yes:
-                return e.ignore()
+        if self.edicion.tareas:
             for tarea in self.edicion.tareas:
                 tarea.blockSignals(True)  # que no salga «No se pudo terminar» al cerrar
             if hasattr(r := render(), "cancelar"):  # las pruebas lo cambian por uno simulado

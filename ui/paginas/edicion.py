@@ -15,10 +15,11 @@ import os
 import re
 import shutil
 import time
+from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSize, QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut, QTransform
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut, QTransform
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCh
                                QListView, QListWidget, QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSlider,
                                QSplitter, QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
-from motor import diseno, edicion, marca, seguro, video
+from motor import diseno, edicion, marca, recursos, seguro, video
 from motor.idioma import t
 from ui.comun import (archivo_valido, boton, ComboCorto, etiqueta, mensaje, mensaje_error, NOMBRES_FORMATO,
                       REFLEJO_FINO, SelectorVoz, Tarea, tarjeta)
@@ -83,29 +84,49 @@ VIOLETA = "#D2C6FF"  # la herramienta elegida: violeta claro, que se lea sobre s
 AJUSTES = {"brillo": (-100, 100), "contraste": (-100, 100), "saturacion": (-100, 100), "temperatura": (-100, 100),
            "vineta": (0, 100), "nitidez": (0, 100)}  # campo del clip: (mínimo, máximo); «Restablecer» los pone a 0
 AUTOGUARDAR_MS = 2000  # la copia automática, tras este rato sin cambios: arrastrar un deslizador no escribe 60 veces
-NO_SE_COPIA = t("Lo que importaste (videos, fotos y música) no se copia a la carpeta del video: vuelve a añadirlo "
-                "con «Importar».")
+NO_SE_COPIA = t("Los videos, fotos y música de la línea de tiempo no se copian a la carpeta del video: vuelve a "
+                "añadirlos con «Importar».")  # las fotos encima del video sí: van a imagenes/ y se recuperan
 
 
-def _ns(archivo: Path) -> int | None:
-    """Cuándo se escribió el archivo (None si no está): uno que esta ventana no leyó ni escribió no se pisa."""
+def _firma(archivo: Path) -> tuple | None:
+    """(fecha, st_ino, tamaño) del archivo, o None si no está: uno que esta ventana no leyó ni escribió no se pisa. La
+    fecha sola no basta: en Windows avanza a saltos de ~15 ms y dos escrituras seguidas salen con la misma; la
+    escritura atómica (os.replace) pone un archivo nuevo, con otro st_ino."""
     try:
-        return archivo.stat().st_mtime_ns
+        s = archivo.stat()
     except OSError:
         return None
+    return s.st_mtime_ns, s.st_ino, s.st_size
+
+
+@lru_cache(maxsize=512)
+def _dibujo_emoji(emoji: str) -> QIcon:
+    """Un emoji de la rejilla de stickers dibujado a 56 px. En caché: cada búsqueda los volvía a dibujar todos."""
+    dibujo = QPixmap(72, 72)
+    dibujo.fill(Qt.transparent)
+    p = QPainter(dibujo)
+    fuente = QFont()
+    fuente.setFamilies(recursos.FUENTE_EMOJI)
+    fuente.setPixelSize(56)
+    p.setFont(fuente)
+    p.drawText(dibujo.rect(), Qt.AlignCenter, emoji)
+    p.end()
+    return QIcon(dibujo)
 
 
 class _Estado(QLabel):
     """Lo que está pasando («Importando 2 de 5…», «💾 Guardado en …», un aviso), en una línea junto al título y
     acortado con «…» si no cabe; entero, al pasar el ratón. Partida en líneas en la barra, una ruta larga ensanchaba la
-    página y «Exportar» y las propiedades quedaban fuera de la pantalla. text() da el texto entero."""
-    def __init__(self):
+    página y «Exportar» y las propiedades quedaban fuera de la pantalla. text() da el texto entero. Vacía, se oculta:
+    así la otra de la cabecera tiene todo el ancho."""
+    def __init__(self, acortar=Qt.ElideMiddle, alinear=Qt.AlignRight):
         super().__init__()
         self.setObjectName("sub")
         self.setTextFormat(Qt.PlainText)  # avisos y errores vienen de fuera: nunca como HTML
-        self.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.setAlignment(alinear | Qt.AlignVCenter)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._texto = ""
+        self._texto, self._modo = "", acortar
+        self.hide()
 
     def text(self):
         return self._texto
@@ -113,6 +134,7 @@ class _Estado(QLabel):
     def setText(self, texto):
         self._texto = str(texto)
         self.setToolTip(self._texto)
+        self.setVisible(bool(self._texto))
         self._acortar()
 
     def resizeEvent(self, e):
@@ -120,8 +142,8 @@ class _Estado(QLabel):
         self._acortar()
 
     def _acortar(self):
-        # por el medio: queda qué pasó (el principio) y el archivo (el final)
-        super().setText(self.fontMetrics().elidedText(self._texto, Qt.ElideMiddle, max(0, self.width() - 2)))
+        # El estado, por el medio: queda qué pasó (el principio) y el archivo (el final)
+        super().setText(self.fontMetrics().elidedText(self._texto, self._modo, max(0, self.width() - 2)))
 
 
 class _Columna(QVBoxLayout):
@@ -177,12 +199,18 @@ def _leer_foto(ruta, carpeta, aviso):
 def _abrir(carpeta, aviso):
     """En un hilo: el proyecto validado (puede venir de otro PC) y sus fotos ya leídas en la caché. Si quedó una copia
     automática más nueva (la app se cerró sin guardar), también esa, validada igual ("copia"; None si no hay, o si
-    está rota y hay proyecto). "guardado" y "copia_ns": cuándo se escribieron, para no pisar luego otros más nuevos."""
+    está rota y hay proyecto); con proyecto.json roto, la copia. "guardado" y "copia_firma": sus _firma, para no
+    pisar luego lo que otro escriba."""
     carpeta = diseno._local(carpeta)  # antes de mirar el disco: una carpeta de red ya conectaría con ese servidor
-    guardado, copia_ns = _ns(carpeta / "proyecto.json"), _ns(carpeta / edicion.AUTOGUARDADO)
-    proyecto = edicion.abrir(carpeta) if guardado or not copia_ns else None  # sin ninguno: «No encuentro…»
+    guardado, copia_firma = _firma(carpeta / "proyecto.json"), _firma(carpeta / edicion.AUTOGUARDADO)
+    try:
+        proyecto = edicion.abrir(carpeta) if guardado or not copia_firma else None  # sin ninguno: «No encuentro…»
+    except ValueError:
+        if not copia_firma:
+            raise
+        proyecto = None  # lo guardado no pasa la validación: queda la copia automática
     copia = None
-    if copia_ns and copia_ns > (guardado or 0):
+    if copia_firma and (proyecto is None or copia_firma[0] > guardado[0]):
         try:
             copia = edicion.abrir(carpeta, edicion.AUTOGUARDADO)
         except ValueError:
@@ -192,7 +220,7 @@ def _abrir(carpeta, aviso):
     for c in (proyecto or {"capas": []})["capas"] + (copia or {"capas": []})["capas"]:
         if c["tipo"] == "imagen":
             diseno._imagen(carpeta, c["archivo"])
-    return {"proyecto": proyecto, "copia": copia, "guardado": guardado, "copia_ns": copia_ns}
+    return {"proyecto": proyecto, "copia": copia, "guardado": guardado, "copia_firma": copia_firma}
 
 
 def _musica(proyecto) -> list[dict]:
@@ -299,7 +327,7 @@ class PaginaEdicion(QWidget):
         self._foto_en_curso = self._foto_pendiente = False
         self._fotos_pip, self._pips_pedidos = {}, set()  # fotogramas de las capas de video: hechos y pedidos al hilo
         # proyecto.json y la copia automática tal como esta ventana los leyó o escribió: otro más nuevo no se pisa
-        self._guardado_ns = self._copia_ns = None
+        self._firma_guardado = self._firma_copia = None
         self._copia_hora = self._fallo_copia = ""  # a qué hora se escribió la copia, o por qué no se pudo
         self._recuperar_visto = False  # lo que quedó sin guardar se ofrece una vez por sesión, al abrir el editor
         self._autoguardado = QTimer(self)
@@ -314,16 +342,15 @@ class PaginaEdicion(QWidget):
         cabecera = QHBoxLayout()  # el título, si hay cambios sin guardar y, a la derecha, lo que está pasando
         cabecera.setSpacing(16)
         cabecera.addWidget(etiqueta(t("Editor de video"), "titulo"))
-        self.marca_guardado = etiqueta("", "sub")
-        self.marca_guardado.setWordWrap(False)
-        self.marca_guardado.setToolTip(t("Mientras no guardes, el editor guarda solo una copia de tus cambios: si la "
-                                         "app se cierra de golpe, al volver al editor te ofrece recuperarlos."))
+        # Acortada con «…» como el estado: un fallo con una ruta larga ensanchaba la página y sacaba «Exportar»
+        # (por la derecha: lo que se lee es por qué no se pudo hacer la copia)
+        self.marca_guardado = _Estado(Qt.ElideRight, Qt.AlignLeft)
         self.estado, self.progreso = _Estado(), QProgressBar()
         self.progreso.setRange(0, 100)
         self.progreso.setFixedWidth(120)
         self.progreso.hide()
         self._ultimo_aviso = ""
-        for w, estira in ((self.marca_guardado, 0), (self.estado, 1), (self.progreso, 0)):
+        for w, estira in ((self.marca_guardado, 1), (self.estado, 1), (self.progreso, 0)):
             cabecera.addWidget(w, estira)
         lay.addLayout(cabecera)
         lay.addLayout(self._barra())
@@ -497,7 +524,12 @@ class PaginaEdicion(QWidget):
     def _panel_stickers(self):
         self.buscar_sticker = QLineEdit()
         self.buscar_sticker.setPlaceholderText(t("Buscar en inglés: fire, heart, star…"))
-        self.buscar_sticker.textChanged.connect(lambda t: self._llenar_stickers(t.strip()))
+        # Rellenar dibuja hasta 280 stickers: se busca al dejar de escribir, no en cada tecla
+        self._buscar_stickers = QTimer(self)
+        self._buscar_stickers.setSingleShot(True)
+        self._buscar_stickers.setInterval(150)
+        self._buscar_stickers.timeout.connect(lambda: self._llenar_stickers(self.buscar_sticker.text().strip()))
+        self.buscar_sticker.textChanged.connect(lambda _: self._buscar_stickers.start())
         self.stickers = QListWidget()
         self.stickers.setViewMode(QListView.IconMode)
         self.stickers.setResizeMode(QListView.Adjust)
@@ -523,8 +555,6 @@ class PaginaEdicion(QWidget):
         # cortaba a 1280 px: se acorta con «…» y el nombre entero va en la ayuda
         self.voz.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.voz.setMinimumContentsLength(12)
-        self.voz.currentIndexChanged.connect(lambda _: self.voz.setToolTip(self.voz.currentText()))
-        self.voz.setToolTip(self.voz.currentText())
         self.voz_btn = boton(f"🎙️  {t('Voz IA')}")
         self.voz_btn.clicked.connect(self.voz_ia)
         fila, self.bajar_musica = casilla(t("Bajar la música cuando hablas"))
@@ -1020,6 +1050,8 @@ class PaginaEdicion(QWidget):
         """Con cambios sin guardar, la copia automática se escribe AUTOGUARDAR_MS después del último cambio."""
         self._sucio = valor
         self._autoguardado.start() if valor else self._autoguardado.stop()
+        if valor and self.estado.text().startswith("💾"):
+            self.estado.setText("")  # «Guardado en …» junto a «Cambios sin guardar» se contradicen
         self._poner_marca()
 
     def _algo(self) -> bool:
@@ -1037,6 +1069,9 @@ class PaginaEdicion(QWidget):
         else:
             texto = f"● {t('Cambios sin guardar')}"
         self.marca_guardado.setText(texto)
+        self.marca_guardado.setToolTip(texto and texto + "\n\n" + t(
+            "Mientras no guardes, el editor guarda solo una copia de tus cambios: si la app se cierra de golpe, al "
+            "volver al editor te ofrece recuperarlos."))
 
     def autoguardar(self):
         """La copia automática de lo que aún no guardaste (edicion.AUTOGUARDADO, en la carpeta del video): tras cada
@@ -1047,10 +1082,10 @@ class PaginaEdicion(QWidget):
             return
         archivo = self._carpeta() / edicion.AUTOGUARDADO
         try:
-            if _ns(archivo) not in (None, self._copia_ns):
+            if _firma(archivo) not in (None, self._firma_copia):
                 raise ValueError(t("otra ventana guardó después una copia de este video"))
             edicion.guardar(self.proyecto, self.carpeta, edicion.AUTOGUARDADO)
-            self._copia_ns, self._copia_hora, self._fallo_copia = _ns(archivo), time.strftime("%H:%M"), ""
+            self._firma_copia, self._copia_hora, self._fallo_copia = _firma(archivo), time.strftime("%H:%M"), ""
         except (ValueError, OSError) as e:
             self._fallo_copia = str(e)
         self._poner_marca()
@@ -1318,15 +1353,7 @@ class PaginaEdicion(QWidget):
                 if tipo == "emoji":
                     # En la rejilla el texto va debajo del hueco del dibujo y un emoji de 30 px no cabía: salía «…».
                     # Se dibuja como icono, igual que los iconos
-                    dibujo = QPixmap(72, 72)
-                    dibujo.fill(Qt.transparent)
-                    p = QPainter(dibujo)
-                    fuente = item.font()
-                    fuente.setPixelSize(56)
-                    p.setFont(fuente)
-                    p.drawText(dibujo.rect(), Qt.AlignCenter, item.text())
-                    p.end()
-                    item.setIcon(QIcon(dibujo))
+                    item.setIcon(_dibujo_emoji(item.text()))
                 else:  # el nombre en inglés no cabe bajo el dibujo: va de ayuda al pasar el ratón
                     item.setToolTip(item.text())
                 item.setData(Qt.AccessibleTextRole, item.text())  # sin texto a la vista, el lector de pantalla lo dice
@@ -1514,8 +1541,9 @@ class PaginaEdicion(QWidget):
                           "¿Recuperarlos?", nombre=h["nombre"], fecha=fecha)
             else:
                 texto = t("«{nombre}» se cerró sin guardar ({fecha}), pero en su carpeta siguen tus grabaciones "
-                          "({grabaciones}) y voces IA ({voces}). ¿Rehacer el video con ellas en la línea de tiempo?",
-                          nombre=h["nombre"], fecha=fecha, grabaciones=h["grabaciones"], voces=h["voces"])
+                          "({grabaciones}), voces IA ({voces}) y fotos encima del video ({fotos}). ¿Rehacer el video "
+                          "con ellas en la línea de tiempo?", nombre=h["nombre"], fecha=fecha,
+                          grabaciones=h["grabaciones"], voces=h["voces"], fotos=h["fotos"])
                 texto += "\n\n" + NO_SE_COPIA
             caja = QMessageBox(QMessageBox.Question, t("Video sin guardar"), texto, QMessageBox.NoButton, self)
             caja.setTextFormat(Qt.PlainText)
@@ -1539,13 +1567,14 @@ class PaginaEdicion(QWidget):
             return
 
     def _recuperado(self, r, carpeta):
-        """El video rehecho con sus grabaciones y voces: se guarda ya (sale en «Abrir» y no se vuelve a ofrecer) y se
-        dice qué volvió y qué no."""
+        """El video rehecho con sus grabaciones, voces y fotos: se guarda ya (sale en «Abrir» y no se vuelve a
+        ofrecer) y se dice qué volvió y qué no."""
         self._empezar(r["proyecto"], carpeta)
+        self.sucio = True  # si guardar falla: su copia automática, la marca y la pregunta al cerrar (no «no recuperar»)
         if not self.guardar():
             return
         p = self.proyecto
-        n = len([c for c in p["capas"] if c["tipo"] == "video"]) + len(p["audios"])
+        n = len(p["capas"]) + len(p["audios"])  # solo trae grabaciones, voces IA y fotos
         texto = t("Están otra vez en la línea de tiempo {n} de {total} archivos.", n=n, total=n + len(r["errores"]))
         texto += "\n\n" + NO_SE_COPIA
         if r["errores"]:
@@ -1601,7 +1630,7 @@ class PaginaEdicion(QWidget):
         if carpeta is None:  # al abrir, _abrir ya vació la caché y dejó leídas las fotos del proyecto nuevo
             diseno._leer_imagen.cache_clear()  # las fotos del proyecto anterior no se quedan en memoria
         self.proyecto, self.carpeta, self.sel, self.cursor = proyecto, carpeta, "", 0.0
-        self._guardado_ns = self._copia_ns = None
+        self._firma_guardado = self._firma_copia = None
         self._copia_hora = self._fallo_copia = ""
         self.deshacer_pila, self.rehacer_pila, self._ultima, self.sucio, self._previa = [], [], None, False, None
         self._siguiente = None
@@ -1650,10 +1679,20 @@ class PaginaEdicion(QWidget):
             return self.guardar()
         if respuesta != QMessageBox.Discard:
             return False
-        if self.carpeta:  # descartado a propósito: su copia no se ofrece al volver ni se reescribe al ocultar la página
-            (self.carpeta / edicion.AUTOGUARDADO).unlink(missing_ok=True)
+        self._quitar_copia()  # descartado a propósito: su copia no se ofrece al volver ni se reescribe al ocultar
         self.sucio = False
         return True
+
+    def _quitar_copia(self):
+        """Borra la copia automática. Si el antivirus o OneDrive la tiene abierta, se queda, y eso no rompe «Guardar»
+        ni «No guardar»: tras guardar es más vieja que proyecto.json (no se ofrece) y sigue siendo de esta ventana
+        (la próxima copia la pisa); tras descartar, a lo sumo se ofrece recuperarla."""
+        if self.carpeta:
+            try:
+                (self.carpeta / edicion.AUTOGUARDADO).unlink(missing_ok=True)
+                self._firma_copia = None
+            except OSError:
+                pass
 
     def editar_video(self, ruta, formato="9:16") -> bool:
         """«✂️ Editar» de un resultado: un proyecto nuevo con ese archivo. False si no se quieren perder los cambios."""
@@ -1668,19 +1707,19 @@ class PaginaEdicion(QWidget):
         (otra ventana, o Dibujos animados al rehacer el episodio), pregunta antes de pisarlo. Lo guardado ya no
         necesita su copia automática."""
         archivo = self._carpeta() / "proyecto.json"
-        if _ns(archivo) not in (None, self._guardado_ns) and QMessageBox.question(
+        if _firma(archivo) not in (None, self._firma_guardado) and QMessageBox.question(
                 self, t("Guardar"), t("Este video se cambió fuera del editor después de abrirlo. ¿Reemplazarlo por lo "
                                       "que ves aquí?")) != QMessageBox.Yes:
             return False
         try:
             edicion.guardar(self.proyecto, self.carpeta)
-            self._guardado_ns = _ns(archivo)
+            self._firma_guardado = _firma(archivo)
             self._miniatura().save(str(self.carpeta / "miniatura.png"))
-            (self.carpeta / edicion.AUTOGUARDADO).unlink(missing_ok=True)
         except (ValueError, OSError) as e:
             mensaje_error(self, t("No se pudo guardar"), e)
             return False
-        self._copia_ns, self._copia_hora, self._fallo_copia = None, "", ""
+        self._quitar_copia()
+        self._copia_hora = self._fallo_copia = ""
         self.sucio = False
         self.estado.setText(f"💾 {t('Guardado en {carpeta}', carpeta=self.carpeta)}")
         return True
@@ -1724,7 +1763,7 @@ class PaginaEdicion(QWidget):
                                               "antes. ¿Abrir esos cambios? Si no, se abre lo último que guardaste.",
                                               nombre=r["copia"]["nombre"])) == QMessageBox.Yes)
         self._empezar(r["copia"] if usar else r["proyecto"], carpeta)
-        self._guardado_ns, self._copia_ns = r["guardado"], r["copia_ns"]
+        self._firma_guardado, self._firma_copia = r["guardado"], r["copia_firma"]
         if usar:
             self.sucio = True
         self._avisar_faltan()

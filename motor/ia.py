@@ -892,6 +892,8 @@ def _con_referencia(pedido: str, foto: Path, ancho: int, alto: int, destino: Pat
                            files={"image": (foto.name, f, "image/png" if foto.suffix.lower() == ".png" else "image/jpeg")},
                            data={"model": modelo, "prompt": pedido, "size": size, "n": "1", **extra})
         if r.is_error:
+            if claves.clasificar(r.status_code, motivo(r)) == "sin_saldo":  # la escena siguiente ya no lo espera
+                claves.recordar(c["proveedor"], r.status_code, motivo(r))
             raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio=claves.nombre(c["proveedor"]),
                                  codigo=r.status_code, detalle=motivo(r)))
         respondio = c["proveedor"] == "openai"
@@ -950,30 +952,78 @@ def editar_imagen(foto: Path, instruccion: str, destino: Path, calidad: str = "1
 
 def imagen_con_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path, realista: bool = True,
                         avisos: list | None = None, respaldo: bool = True) -> Path:
-    """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene;
-    si no, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza foto).
-    Si la edición con referencia falla (sin saldo, servicio caído), la escena se hace igual como sin ella (fondo y foto
+    """Escena con el producto real de la foto. Usa edición con referencia si la IA de imágenes la tiene (salvo si ya
+    dijo «sin saldo»: claves.recordar) y, si no sale, Cloudflare FLUX.2 (gratis) la redibuja con el producto de la
+    foto; solo si tampoco, crea el fondo y coloca encima la foto del producto. realista=False: para dibujos (no fuerza
+    foto). Si la edición con referencia falla (sin saldo, servicio caído), la escena se hace igual (fondo y foto
     encima) en vez de quedarse sin imagen y repetir la anterior; se dice en `avisos`, una vez. respaldo=False: el error
     sube (los dibujos animados se dibujan entonces sin su lámina: ver serie._dibujar). Si la edición ya se cobró
     (Cobrado), no hay respaldo: la otra imagen se pagaría dos veces."""
     # Sirve igual para productos que para personas, personajes o lugares de la foto de referencia.
     pedido = (f"{prompt}. Keep the subject from the reference image identical (same face, shape, colors, "
               "label and logo)." + (" Photorealistic." if realista else ""))
+    intentos, errores = [], []
     if puede_referencia():
+        elegida = (claves.para("imagen") or {}).get("proveedor")
+        if malo := claves._vigente(elegida, claves.BLOQUEA):  # cada escena esperaba su 402
+            errores.append(RuntimeError(claves.frase(elegida, malo["estado"])))
+        else:
+            intentos.append(lambda: _con_referencia(pedido, foto, ancho, alto, destino))
+    if "cloudflare" in claves.cargar():
+        intentos.append(lambda: _referencia_cloudflare(pedido, foto, ancho, alto, destino))
+    for intento in intentos:
         try:
-            return _con_referencia(pedido, foto, ancho, alto, destino)
+            return intento()
         except Cobrado:  # ya se pagó: otra imagen lo pagaría dos veces
             raise
         except Exception as error:
-            if not respaldo:
-                raise
-            hecha = pegar_producto(prompt, foto, ancho, alto, destino)  # la nota, solo si el respaldo salió
-            nota = t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto encima de "
-                     "un fondo nuevo.", causa=texto_de_error(error))
-            if avisos is not None and nota not in avisos:  # con 5 escenas que fallan igual, una sola nota
-                avisos.append(nota)
-            return hecha
-    return pegar_producto(prompt, foto, ancho, alto, destino)
+            errores.append(error)
+    if errores and not respaldo:
+        raise errores[0]
+    hecha = pegar_producto(prompt, foto, ancho, alto, destino)  # la nota, solo si el respaldo salió
+    if errores:
+        nota = t("La edición con la imagen de referencia falló ({causa}): la escena se hizo con la foto encima de "
+                 "un fondo nuevo.", causa=texto_de_error(errores[0]))
+        if avisos is not None and nota not in avisos:  # con 5 escenas que fallan igual, una sola nota
+            avisos.append(nota)
+    return hecha
+
+
+FLUX2 = "flux-2-klein-4b"  # con fotos de referencia; ~110 de las 10.000 neuronas gratis al día
+LADO_REFERENCIA_FLUX2 = 496  # Cloudflare: cada foto de referencia, de menos de 512×512
+
+
+def _referencia_cloudflare(pedido: str, foto: Path, ancho: int, alto: int, destino: Path) -> Path:
+    """Cloudflare FLUX.2 [klein] (gratis, de la cuota diaria) dibuja `pedido` con el sujeto de la foto dentro de la
+    escena, en vez de pegarlo encima. En la actividad de la IA, como las demás imágenes."""
+    from PySide6.QtCore import QBuffer, Qt
+    from PySide6.QtGui import QImageReader
+    lector = QImageReader(str(foto))
+    lector.setAutoTransform(True)  # la foto de móvil, derecha
+    imagen = lector.read()
+    if imagen.isNull():
+        raise ValueError(t("No se pudo leer la imagen."))
+    memoria = QBuffer()
+    memoria.open(QBuffer.WriteOnly)
+    imagen.scaled(LADO_REFERENCIA_FLUX2, LADO_REFERENCIA_FLUX2, Qt.KeepAspectRatio,
+                  Qt.SmoothTransformation).save(memoria, "PNG")
+    escala = min(1, 1920 / max(ancho, alto))  # su tamaño va de 256 a 1920 px por lado
+    w, h = (max(256, int(lado * escala)) // 16 * 16 for lado in (ancho, alto))
+    try:
+        cuenta, token = cloudflare_partes(claves.cargar()["cloudflare"]["clave"])
+        r = httpx.post(f"https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/black-forest-labs/{FLUX2}",
+                       timeout=300, headers={"Authorization": f"Bearer {token}"},
+                       data={"prompt": pedido[:2048], "width": str(w), "height": str(h)},
+                       files={"input_image_0": ("referencia.png", bytes(memoria.data()), "image/png")})
+        if r.is_error:  # su código y su «message», sin la URL (lleva el ID de la cuenta)
+            raise RuntimeError(t("{servicio} respondió {codigo}: {detalle}", servicio="Cloudflare",
+                                 codigo=r.status_code, detalle=motivo(r)))
+        guardar_imagen(_imagen_real(base64.b64decode(r.json()["result"]["image"])), destino)
+    except Exception as e:
+        actividad.anotar("imagen", "cloudflare", FLUX2, error=e)
+        raise
+    actividad.anotar("imagen", "cloudflare", FLUX2)
+    return destino
 
 
 def pegar_producto(prompt: str, foto: Path, ancho: int, alto: int, destino: Path) -> Path:
@@ -1055,6 +1105,19 @@ def investigar_web(pregunta: str, plazo: float = 300) -> str | None:
     return ("\n".join(b.text for b in r.content if b.type == "text") or None) if r else None
 
 
+# Lo que el filtro de Cloudflare toma por «NSFW» en pedidos inocentes (comida, dibujos): fuera en su único reintento
+# («hot» sí, salvo en comidas: sin él, «hot dog» quedaba «dog»)
+_DUDOSAS = re.compile(r"\b(?:juicy|moist|wet|dripping|oozing|stretchy|creamy|thick|tender|pink|flesh\w*|skin\w*|naked|"
+                      r"nude|bare|sexy|seductive|sensual|hot(?![ -]?(?:dogs?|sauces?|wings?|pot|chocolate|cocoa|soup|"
+                      r"tea|coffee|peppers?|chil[il]\w*)\b)|steamy|curvy|busty|lick\w*|suck\w*|kiss\w*|"
+                      r"bod(?:y|ies))\b", re.I)
+
+
+def _neutro(prompt: str) -> str:
+    """El mismo pedido dicho neutro, para reintentar tras un falso «NSFW» de Cloudflare."""
+    return "Family-friendly, safe for work image. " + " ".join(_DUDOSAS.sub("", prompt).split())
+
+
 def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K") -> Path:
     """Genera una imagen y la guarda en `destino`, probando primero lo gratis (ver nubes.ORDEN["imagen"]).
     calidad (1K, 2K o 4K, ver PRECIO_IMAGEN_GEMINI): solo la usa Gemini; las demás IA dan su tamaño de siempre."""
@@ -1066,10 +1129,14 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
     def cloudflare():
         # 10.000 "neuronas" gratis al día: ~100 imágenes FLUX schnell. Sale cuadrada; el montaje la recorta al formato.
         cuenta, token = cloudflare_partes(todas["cloudflare"]["clave"])
-        r = httpx.post(f"https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/black-forest-labs/"
-                       "flux-1-schnell", headers={"Authorization": f"Bearer {token}"}, timeout=300,
-                       # sin «seed»: desde 2026 Cloudflare rechaza (400) cualquier campo que no sea prompt o steps
-                       json={"prompt": prompt[:2048], "steps": 8})
+        for pedido in (prompt, _neutro(prompt)):
+            r = httpx.post(f"https://api.cloudflare.com/client/v4/accounts/{cuenta}/ai/run/@cf/black-forest-labs/"
+                           "flux-1-schnell", headers={"Authorization": f"Bearer {token}"}, timeout=300,
+                           # sin «seed»: desde 2026 Cloudflare rechaza (400) cualquier campo que no sea prompt o steps
+                           json={"prompt": pedido[:2048], "steps": 8})
+            # Su filtro ve «NSFW» en comida y dibujos inocentes («juicy… pink ham… stretchy»): una vez, dicho neutro
+            if not (r.status_code == 400 and "nsfw" in r.text.lower()):
+                break
         r.raise_for_status()
         return base64.b64decode(r.json()["result"]["image"])
 
@@ -1088,17 +1155,12 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
         return seguro.descargar(url, cabeceras)
 
     def huggingface():
-        c = todas.get("huggingface")
-        if not c:  # sin token: el Space gratis de FLUX schnell (cuota anónima de ZeroGPU; el prompt llega a un Space público)
-            escala = min(1, 1280 / max(ancho, alto))  # lado largo de 1280: rápido y gasta poca cuota; el montaje escala
-            salida = nubes.llamar_space(ESPACIO_IMAGEN, prompt[:2000], semilla, False, int(ancho * escala) // 16 * 16,
-                                        int(alto * escala) // 16 * 16, 4, api_name="/infer")
-            return nubes.archivo_del_space(salida[0] if isinstance(salida, (list, tuple)) else salida)
-        r = httpx.post(f"https://router.huggingface.co/hf-inference/models/{c['modelo_imagen']}", timeout=300,
-                       headers={"Authorization": f"Bearer {c['clave']}"},
-                       json={"inputs": prompt, "parameters": {"width": ancho // 16 * 16, "height": alto // 16 * 16}})
-        r.raise_for_status()
-        return r.content
+        # El Space oficial de FLUX schnell, sin token (cuota anónima de ZeroGPU; el prompt llega a un Space público).
+        # Con el token iba a hf-inference, que ya no sirve ese modelo (410 Gone)
+        escala = min(1, 1280 / max(ancho, alto))  # lado largo de 1280: rápido y gasta poca cuota; el montaje escala
+        salida = nubes.llamar_space(ESPACIO_IMAGEN, prompt[:2000], semilla, False, int(ancho * escala) // 16 * 16,
+                                    int(alto * escala) // 16 * 16, 4, api_name="/infer")
+        return nubes.archivo_del_space(salida[0] if isinstance(salida, (list, tuple)) else salida)
 
     def replicate():
         guardia.sin_bloqueo()  # de pago: bloqueado, rotar pasa a la siguiente opción (la gratis)
@@ -1139,8 +1201,8 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
     def que_fue(p):  # el modelo y lo que cuesta, para la actividad de la IA
         if p == "gemini":
             return _modelo_gemini_usado(todas["gemini"]["clave"]), precio_imagen_gemini(todas["gemini"]["clave"], calidad)
-        modelo = {"cloudflare": "flux-1-schnell", "gratis_sin_clave": "flux"}.get(p) or \
-            (todas.get(p) or {}).get("modelo_imagen") or (ESPACIO_IMAGEN if p == "huggingface" else "")
+        modelo = {"cloudflare": "flux-1-schnell", "gratis_sin_clave": "flux", "huggingface": ESPACIO_IMAGEN}.get(p) \
+            or (todas.get(p) or {}).get("modelo_imagen") or ""
         return modelo, PRECIO_IMAGEN.get(p, 0.0)
     datos, _ = nubes.rotar("imagen", tareas, que_fue=que_fue)
     return guardar_imagen(datos, destino)
@@ -1154,17 +1216,73 @@ def cloudflare_partes(clave: str) -> tuple[str, str]:
     return cuenta, token
 
 
+# Un movimiento de cámara dicho como lo entiende Wan 2.2 (y Kling, Seedance, Omni), AL EMPEZAR la frase: «the patty
+# sizzles in the pan» o «el pan se tuesta» son lo que pasa, no la cámara (se perdían)
+_CAMARA = re.compile(r"(?:(?:the|camera|slow(?:ly)?|smooth(?:ly)?|gentle|gently|quick(?:ly)?|fast|subtle|steady|very|"
+                     r"cinematic)[\s:,]+)*(?:dolly|push(?:es|ing)?[ -]in|pull(?:s|ing)?[ -](?:back|out)|zoom\w*|"
+                     r"pan(?:s|ning)?\s+(?:left|right|across|up|down|over|from|to)|tilt(?:s|ing)?\s+(?:up|down)|"
+                     r"orbit\w*|(?:crane|jib)(?:\s+(?:shot|up|down)|s?\s+(?:up|down))|tracking|"
+                     r"truck(?:s|ing)?\s+(?:left|right)|arc(?:s|ing)?\s+(?:shot|around|left|right)|hand-?held|static|"
+                     r"locked[ -]off|macro|(?:drone|aerial)\s+(?:shot|view)|fpv)\b", re.I)
+# Los movimientos con nombre para animar una foto (como los de Higgsfield): el nombre, y cómo se le pide a la IA
+CAMARAS = {"acercar": (t("Acercar"), "Slow dolly in toward the subject"),
+           "alejar": (t("Alejar"), "Slow dolly out, pulling back to reveal the scene"),
+           "orbita": (t("Órbita"), "Smooth orbit around the subject"),
+           "paneo": (t("Paneo"), "Slow pan from left to right across the scene"),
+           "grua": (t("Grúa"), "Crane shot rising up over the subject"),
+           "mano": (t("Cámara en mano"), "Handheld camera with subtle natural shake, following the subject")}
+
+
+def direccion_video(prompt: str) -> str:
+    """Lo que se pide a la IA de video: la cámara primero y una sola por plano, luego lo que hace el sujeto y el
+    ambiente (la línea «movimiento» de cada escena ya viene así). Sin cámara (p. ej. lo que muestra la imagen), un
+    acercamiento lento: antes iba la descripción quieta de la imagen con «cinematic motion» al final, y salía casi
+    quieta."""
+    frases = [f.strip(" ,") for f in re.split(r"[.;\n]+", str(prompt)) if f.strip(" ,")]
+    camara = next((f for f in frases if _CAMARA.match(f)), CAMARAS["acercar"][1])
+    return "; ".join([camara, *(f for f in frases if not _CAMARA.match(f))]) + \
+        ". One continuous shot with smooth, natural motion; the subject keeps its exact look."
+
+
+def orden_foto() -> list[str]:
+    """Quién anima UNA foto que pidió mover el usuario (Solo animar): los de las escenas (nubes.orden), salvo
+    Pollinations, que hace el clip solo con el texto y no ve la foto (elegido, no hay nadie). Con «No usar» guardado,
+    nubes.orden no la sube al Space público: solo tu nube Modal. Vacío: foto_sin_animar() dice por qué."""
+    from . import nubes
+    if claves.ajustes().get("video") == "pollinations":
+        return []
+    return [p for p in nubes.orden("video") if p != "pollinations"]
+
+
+def foto_sin_animar() -> str:
+    """Por qué nadie anima la foto (orden_foto() vacío), dicho para el usuario."""
+    if claves.ajustes().get("video") == "pollinations":
+        return t("Pollinations hace el clip solo con el texto, sin tu foto: para animarla, elige otro modelo de video.")
+    return t("Para animar tu foto, elige «Hugging Face» (gratis: se sube a su Space público) o conecta tu nube Modal "
+             "(privada). Con «No usar» en «Claves de IA», el estudio no la sube a un Space público por su cuenta.")
+
+
 def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: float, destino: Path,
-                       pago: str | None = None) -> Path | None:
-    """Anima una imagen con IA de video, probando primero lo gratis (ver nubes.ORDEN; Hugging Face va incluso sin
-    clave). None solo si el usuario eligió «No usar» IA de video.
+                       pago: str | None = None, forzar: bool = False) -> Path | None:
+    """Anima una imagen con IA de video: tu nube Modal primero si la tienes y, si no, lo gratis (ver nubes.ORDEN;
+    Hugging Face va incluso sin clave). prompt: la línea «movimiento» de la escena (o lo que muestra la imagen), que
+    direccion_video ordena. None solo si el usuario eligió «No usar» IA de video.
     pago: el video de pago (video_de_pago) que se preguntó al empezar el trabajo; solo ese se puede usar. Si el
-    usuario elige otro a mitad del trabajo, esa escena no se paga (falla y va con zoom suave): vale para el siguiente."""
+    usuario elige otro a mitad del trabajo, esa escena no se paga (falla y va con zoom suave): vale para el siguiente.
+    Gemini Omni (solo con una foto, video_de_pago(un_clip=True)): sin respaldo, un fallo nunca se paga dos veces.
+    forzar: el usuario pidió animar ESTA imagen (Solo animar): «No usar» guardado no la deja quieta, pero entonces solo
+    la mueve tu nube Modal (nubes.orden: nunca el Space público); Pollinations nunca, que no ve la foto (orden_foto).
+    SinClave si no hay quien."""
     from . import nube, nubes
-    if claves.ajustes().get("video") == "ninguno":
+    if not forzar and claves.ajustes().get("video") == "ninguno":
         return None
     todas = claves.cargar()
-    movimiento = f"{prompt}, cinematic motion, smooth camera movement"
+    movimiento = direccion_video(prompt)
+    if pago == "gemini":  # su propio sonido de ambiente; el montaje lo deja mudo
+        return video_hablado(f"Animate this exact image as the first frame. {movimiento} No dialogue, no voice-over, "
+                             "no music: only natural ambient sound.", formato, destino, imagen_png, "gemini")
+    if forzar and not orden_foto():  # antes de subir nada
+        raise SinClave(foto_sin_animar())
 
     def huggingface():
         from gradio_client import handle_file
@@ -1176,7 +1294,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     def pollinations():
         c = todas["pollinations"]
         relacion = "9:16" if formato in ("9:16", "4:5") else "16:9"
-        url = (f"https://gen.pollinations.ai/video/{_ruta_url(prompt)}"
+        url = (f"https://gen.pollinations.ai/video/{_ruta_url(movimiento)}"
                f"?model={urllib.parse.quote(c['modelo_video'], safe='')}&duration={min(max(round(segundos), 2), 5)}"
                f"&aspectRatio={relacion}&audio=false&private=true")
         return _clip_real(seguro.descargar(url, {"Authorization": f"Bearer {c['clave']}"}, tope=VIDEO_MAXIMO, plazo=900),
@@ -1201,7 +1319,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     resultado, _ = nubes.rotar("video", {
         "huggingface": huggingface,
         "modal": lambda: nube.animar(imagen_png, movimiento, formato, segundos, destino),
-        "pollinations": pollinations,
+        **({} if forzar else {"pollinations": pollinations}),  # sin la foto: con forzar, su clip no sería esa foto
         **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO if p == pago},  # solo el que se preguntó
     }, que_fue=que_fue)
     return resultado
@@ -1214,7 +1332,7 @@ ESPERA_AVATAR_SPACE = 900  # Alibaba dice que su tarea tarda unos 5-10 min: con 
 
 def avatar(foto: Path, audio: Path, formato: str, destino: Path, space: bool = False) -> Path:
     """Tu foto habla con tu voz (un MP4 con la voz dentro). En tu nube Modal (nube.avatar: del crédito gratis, 1 clip
-    del cupo del día) o, solo si lo marcas esa vez (space=True), gratis en el Space oficial de Wan. Solo se prueba el
+    del cupo del mes) o, solo si lo marcas esa vez (space=True), gratis en el Space oficial de Wan. Solo se prueba el
     elegido: tu cara y tu voz nunca van por detrás a un Space público, y lo de pago nunca entra si falla lo gratis."""
     from . import nube, nubes, video
 
@@ -1259,9 +1377,13 @@ _elegidos = {}  # modelo elegido por clave y por uso, una vez por sesión
 _cerrojo_modelos = threading.Lock()  # clips_hablados hace 3 videos a la vez y cada uno puede guardar su modelo
 
 
-def video_de_pago() -> str | None:
+def video_de_pago(un_clip: bool = False) -> str | None:
     """Kling o Seedance si el usuario lo eligió para animar escenas y su clave está conectada (nubes.orden lo usa
-    entonces solo a él): cada escena animada se paga. None si la animación es gratis o está apagada."""
+    entonces solo a él): cada escena animada se paga. None si la animación es gratis o está apagada.
+    un_clip: UNA foto que el usuario pidió animar (Solo animar). Con Gemini Omni elegido en «Modelo de video» de ese
+    trabajo, la anima Gemini (de pago, con su pregunta); en un video entero Gemini solo hace lo que habla."""
+    if un_clip and getattr(claves._trabajo, "ajustes", {}).get("video_voz") == "gemini" and "gemini" in claves.cargar():
+        return "gemini"
     elegido = claves.ajustes().get("video")
     return elegido if elegido in claves.SOLO_ELIGIENDO["video"] and elegido in claves.cargar() else None
 
@@ -1274,12 +1396,13 @@ def nombre_video(proveedor: str) -> str:
 def precio_video(proveedor: str, segundos: float | None = None, voz: bool = False) -> float:
     """Lo más que cuesta un clip de video de pago (US$), el mismo número en todas las preguntas y notas de gasto.
     Kling y Seedance: lo calcula su módulo con la clave (sus respaldos pueden ser más caros); sin segundos, un clip
-    como los pide el estudio. Gemini Omni (solo con voz): PRECIO_OMNI por segundo, y sus clips duran hasta 10 s."""
+    como los pide el estudio. Gemini Omni (hable o anime una foto): PRECIO_OMNI por segundo, y sus clips duran hasta
+    10 s."""
     if proveedor in claves.VIDEO_DE_PAGO:
         modulo = claves.modulo_video(proveedor)
         segundos = segundos or (modulo.SEGUNDOS_VOZ if voz else modulo.SEGUNDOS_CLIP)
         return modulo.estimar(claves.cargar().get(proveedor) or {}, segundos, voz)
-    return (segundos or 10) * PRECIO_OMNI if proveedor == "gemini" and voz else 0.0
+    return (segundos or 10) * PRECIO_OMNI if proveedor == "gemini" else 0.0
 
 
 def nota_pago(proveedor: str, clips: int) -> str:
@@ -1418,7 +1541,12 @@ def video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | N
         actividad.anotar("video", quien or "gemini", modelo(), precio_video(quien or "gemini", voz=True)
                          if isinstance(e, Cobrado) else 0.0, error=e)
         raise
-    actividad.anotar("video", quien or "gemini", modelo(), precio_video(quien or "gemini", voz=True))
+    segundos = None
+    if (quien or "gemini") == "gemini":  # Google cobra los segundos que salen: un clip de 8 s no se apunta como de 10
+        from . import video
+        with contextlib.suppress(Exception):
+            segundos = video.duracion(hecho)
+    actividad.anotar("video", quien or "gemini", modelo(), precio_video(quien or "gemini", segundos, voz=True))
     return hecho
 
 
@@ -1450,6 +1578,11 @@ def _video_hablado(prompt: str, formato: str, destino: Path, referencia: Path | 
         "store": True,  # sin esto Omni responde 400 («store=true is required»): lo guardado se borra en el finally
         "response_format": {"type": "video", "aspect_ratio": "16:9" if formato in ("16:9", "1:1") else "9:16",
                             "resolution": "720p", "delivery": "uri"}})
+    detalle = motivo(r) if r.is_error else ""
+    if claves.clasificar(r.status_code, detalle) == "sin_saldo" and re.search(r"\bspend", detalle, re.I):
+        # El tope de gasto mensual del proyecto llega como 429: no es «espera un rato», y cada escena lo repetía
+        raise SinSaldo(t("Gemini llegó al tope de gasto mensual de tu proyecto: no hizo el video y no se cobró nada. "
+                         "Súbelo en AI Studio (aistudio.google.com → tu proyecto → Spend) o espera al mes que viene."))
     if r.status_code == 402:  # sin saldo prepago (pasó): dicho claro, con lo que cuesta, y sin cobrar nada
         raise SinSaldo(t("Gemini no tiene saldo: no hizo el video que habla y no se cobró nada. Cada escena que habla "
                          "cuesta hasta unos {costo}. Recarga en AI Studio: aistudio.google.com → tu proyecto → Billing, "

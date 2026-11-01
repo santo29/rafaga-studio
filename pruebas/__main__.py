@@ -183,9 +183,11 @@ with tempfile.TemporaryDirectory() as d:
     assert "gratis_sin_clave" in nubes.orden("imagen")  # eligió lo gratis: sigue habiendo opción sin clave
     assert "openai" not in nubes.orden("imagen")  # ni siquiera si lo gratis falla: eligió gratis
     assert nubes.orden("imagen")[-1] == "gratis_sin_clave"  # el modo sin clave (baja calidad) va al final
-    # Eligió su nube Modal para animar: si falla, su foto no se sube por detrás al Space público de Hugging Face
+    # Con su nube Modal (en Automático o elegida): si falla, su foto no se sube por detrás al Space público; sin
+    # ella, Automático usa el Space gratis
+    assert nubes.orden("video") == ["huggingface"]
     claves.guardar({"proveedor": "modal", "clave": "ak-a as-b", "usos": ["video"]})
-    assert "huggingface" in nubes.orden("video")
+    assert nubes.orden("video") == ["modal"]
     claves.elegir_por_defecto("video", "modal")
     assert nubes.orden("video") == ["modal"]
     claves.borrar("modal")
@@ -199,7 +201,7 @@ with tempfile.TemporaryDirectory() as d:
     import modal.exception
     from motor import nube
     nube.USO = Path(d) / "uso_nube.json"
-    claves.elegir_por_defecto("limite_nube_diario", 2)
+    claves.elegir_por_defecto("limite_nube_mensual", 2)
 
     class MotorFalso:
         def __init__(self, existe):
@@ -216,8 +218,8 @@ with tempfile.TemporaryDirectory() as d:
             nube.usar_gpu(motor, llamada)
         except Exception:
             pass
-    assert nube.usados_hoy() == 1  # «App not found» no gastó cupo; el que se pasó de tiempo cuenta
-    claves.elegir_por_defecto("limite_nube_diario", 0)
+    assert nube.usados_mes() == 1  # «App not found» no gastó cupo; el que se pasó de tiempo cuenta
+    claves.elegir_por_defecto("limite_nube_mensual", 0)
     try:
         nube.usar_gpu(MotorFalso(True), lambda: None)
         raise AssertionError("con tope 0 no debe usar la GPU")

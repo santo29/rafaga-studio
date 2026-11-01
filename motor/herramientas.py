@@ -32,7 +32,8 @@ def _json(datos) -> str:
 # El modelo de video de UN trabajo (el selector «Modelo de video» de la app): va al final de la ayuda de cada
 # herramienta que anima escenas. Empieza por su nombre: el Director no lo ve (lo pone el código, ver director._usar)
 AYUDA_MODELO = """modelo_video (opcional): con qué IA se animan las escenas, solo en este trabajo (no cambia
-«Claves de IA»): auto (lo elegido en «Claves de IA», gratis primero), ninguno (sin animar: fotos con movimiento),
+«Claves de IA»): auto (lo elegido en «Claves de IA»; de fábrica, la nube Modal del usuario si la conectó y si no, el
+Space público de Hugging Face), ninguno (sin animar: fotos con movimiento),
 huggingface (gratis, cupo diario), modal (la nube del usuario, gratis con su crédito), pollinations, kling o seedance
 (de pago: la app pregunta antes el costo) o gemini (Gemini Omni, de pago: solo escenas que hablan, con animado true en
 crear_video). Solo valen los conectados: ver "modelos_video" en listar_opciones."""
@@ -60,8 +61,9 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     formato: 9:16, 16:9, 1:1 o 4:5. voz: el id de una de estas: {voces} (o una de ElevenLabs de listar_opciones).
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube
-    a la IA de video: en Automático, primero a un Space público y gratis de Hugging Face; solo si el usuario eligió
-    otra en Claves de IA («Mi nube Modal», o Kling o Seedance, de pago), únicamente a esa.
+    a la IA de video: en Automático, a la nube Modal del usuario si la conectó y si no, a un Space público y gratis de
+    Hugging Face (con «No usar» en Claves de IA, nunca al Space: sin Modal, falla sin subir nada); si eligió Kling o
+    Seedance (de pago), únicamente a esa. Pollinations no anima fotos (no la ve).
     Devuelve la ruta del video y el texto para publicar. Tarda varios minutos.
 
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:

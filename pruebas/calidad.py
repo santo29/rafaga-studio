@@ -491,9 +491,10 @@ assert len(larga) == 1 and larga[0]["hasta"] == 43.6 and larga[0]["salida"] == 2
 avisos = []
 foto_animar = hacer("animar.png", "-f", "lavfi", "-i", "color=c=blue:s=64x64", "-frames:v", "1")
 real = ia.video_desde_imagen
-ia.video_desde_imagen = lambda *a, **k: None
+ia.video_desde_imagen = lambda *a, **k: (_ for _ in ()).throw(ia.SinClave("x"))  # se para ahí: cuenta el aviso
 try:
-    for elegido, esperado in ((None, "gratis primero"), ("modal", "tu nube Modal")):
+    # Automático con tu nube Modal conectada: va a ella (no al Space público), y lo dice
+    for elegido, esperado in ((None, "gratis primero"), ("modal", "tu nube Modal"), ("auto", "tu nube Modal")):
         if elegido:
             claves.guardar({"proveedor": "modal", "clave": "ak-a as-b", "usos": ["video"]})
             claves.elegir_por_defecto("video", "modal")
@@ -503,7 +504,7 @@ try:
             desde_prompt.animar_imagen(str(foto_animar), "que baile", aviso=lambda texto, f: avisos.append(texto))
         except ia.SinClave:
             pass
-        assert esperado in avisos[0] and ("gratis" in avisos[0]) == (elegido is None), avisos
+        assert esperado in avisos[0] and ("gratis" in avisos[0]) == (elegido is None), (elegido, avisos)
 finally:
     ia.video_desde_imagen = real
     claves.borrar("modal")

@@ -260,12 +260,13 @@ try:
     # quedaron con zoom, en este trabajo nuevo)
     notas.clear()
     desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, notas=notas, pago="kling")
-    assert len(kling.llamadas) == 20 and {ll[3].split(",")[0] for ll in kling.llamadas[15:]} == {
+    # (sin cámara en lo que muestra la imagen, ia.direccion_video pone delante un acercamiento lento)
+    assert len(kling.llamadas) == 20 and {ll[3].split("; ")[1].split(".")[0] for ll in kling.llamadas[15:]} == {
         f"scene {i}" for i in range(15, 20)} and any("Kling hizo clips de video (5)" in n for n in notas), notas
     # Un plano redibujado (más nuevo que su clip viejo) sí se anima de nuevo: es otra imagen
     os.utime(carpeta / "video_final_imagen_03.png", (time.time() + 60, time.time() + 60))
     desde_prompt.montar(guion, carpeta, "9:16", VOZ, lambda *a: None, crear_imagen=dibujar, pago="kling")
-    assert len(kling.llamadas) == 21 and kling.llamadas[-1][3].startswith("scene 3,")
+    assert len(kling.llamadas) == 21 and "; scene 3." in kling.llamadas[-1][3]
     # Varios montajes de un mismo trabajo (anuncios: uno por variante) comparten el tope; lo cobrado sin llegar cuenta
     kling.llamadas.clear()
     pagados, notas = {"clips": 0}, []
@@ -325,7 +326,7 @@ try:
             # la 1ª escena con foto arranca en la foto (con su formato); sin foto, en su imagen
             assert habladas[0][2].read_bytes() == foto.read_bytes() if imagen else \
                 habladas[0][2].name == "video_final_imagen_00.png"
-            mudas = [ll[3].split(",")[0] for ll in kling.llamadas if ll[0] == "animar"]
+            mudas = [ll[3].split("; ")[1].split(".")[0] for ll in kling.llamadas if ll[0] == "animar"]
             assert mudas == (["scene 1"] if falla_voz else []), mudas
             if falla_voz:
                 assert any("Kling hizo escenas animadas con voz (2)" in a for a in r["avisos"]), r["avisos"]

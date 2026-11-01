@@ -690,7 +690,7 @@ class PaginaEdicion(QWidget):
         return self._panel(elegir, de_la_linea, self.avatar_costo, self.avatar_btn, self.avatar_falta,
                            self.avatar_foto, self.avatar_voz, fila, etiqueta(t(
                                "Tu foto habla con tu voz. Se hace en tu nube Modal: unos {costo} de tu crédito gratis "
-                               "por avatar de hasta {n} s (como mucho {tope}) y cuenta como 1 clip del cupo de hoy. "
+                               "por avatar de hasta {n} s (como mucho {tope}) y cuenta como 1 clip del cupo del mes. "
                                "Usa solo fotos tuyas o de alguien que te dio permiso, y marca el video como hecho con "
                                "IA al publicarlo.", costo=dinero(nube.PRECIO_AVATAR), n=nube.MAX_AVATAR,
                                tope=dinero(nube.HASTA_AVATAR)), "sub"))
@@ -1427,7 +1427,7 @@ class PaginaEdicion(QWidget):
                 not self.buscar_sticker.text().strip():
             self._llenar_stickers()  # al abrirla y no al arrancar: dibujar 280 stickers tarda
         if self.paneles.currentWidget().isAncestorOf(self.avatar_btn):
-            self._avatar_listo()  # el cupo de hoy pudo cambiar (otro trabajo, el MCP) y la voz, borrarse
+            self._avatar_listo()  # el cupo del mes pudo cambiar (otro trabajo, el MCP) y la voz, borrarse
 
     def voz_ia(self):
         texto = self.texto_voz.toPlainText().strip()
@@ -1681,16 +1681,16 @@ class PaginaEdicion(QWidget):
         return voz and {**voz, "inicio": self.cursor}
 
     def _avatar_listo(self):
-        """Lo que dice el panel «Avatar IA» (foto, voz, lo que cuesta, lo que queda hoy y lo que falta) y si «Crear mi
-        avatar» se puede pulsar: solo con foto y voz y, en Modal, con cupo."""
+        """Lo que dice el panel «Avatar IA» (foto, voz, lo que cuesta, lo que queda este mes y lo que falta) y si «Crear
+        mi avatar» se puede pulsar: solo con foto y voz y, en Modal, con cupo."""
         foto, voz, space = self._avatar.get("foto"), self._voz_avatar(), self.avatar_space.isChecked()
-        quedan, tope = max(nube.limite() - nube.usados_hoy(), 0), nube.limite()
+        quedan, tope = max(nube.limite() - nube.usados_mes(), 0), nube.limite()
         segundos = voz and voz["hasta"] - voz["desde"]
         self.avatar_foto.setText(t("Foto: {nombre}", nombre=foto.name) if foto else "")
         self.avatar_voz.setText(t("Voz: {nombre} · {s} s", nombre=Path(voz["archivo"]).name, s=f"{segundos:.1f}")
                                 if voz else "")
         self.avatar_costo.setText(t("Gratis con el Space de Wan: no gasta tu crédito.") if space else t(
-            "Unos {costo} · hasta {tope} · hoy quedan {n} de {m}", costo=dinero(nube.PRECIO_AVATAR),
+            "Unos {costo} · hasta {tope} · quedan {n} de {m} este mes", costo=dinero(nube.PRECIO_AVATAR),
             tope=dinero(nube.HASTA_AVATAR), n=quedan, m=tope))
         falta = (t("Elige una foto tuya o de alguien que te dio permiso.") if not foto else
                  t("Elige la voz: grábala en «Grabarte», hazla con «Voz IA» (en Audio) o elige un audio.") if not voz
@@ -1698,8 +1698,8 @@ class PaginaEdicion(QWidget):
         if not falta and not space:
             falta = (t("Conecta tu nube Modal en «Claves de IA» o marca el Space gratis.")
                      if "modal" not in claves.cargar() else
-                     t("La nube Modal está apagada (tope de 0 clips al día en «Claves de IA»).") if tope <= 0 else
-                     t("Ya se usaron los {n} clips de nube de hoy (para no pasar del crédito gratis).", n=tope)
+                     t("La nube Modal está apagada (tope de 0 clips al mes en «Claves de IA»).") if tope <= 0 else
+                     t("Ya se usaron los {n} clips de nube de este mes (para no pasar del crédito gratis).", n=tope)
                      if not quedan else "")
         self.avatar_falta.setText(falta)
         self.avatar_falta.setVisible(bool(falta))
@@ -1718,8 +1718,8 @@ class PaginaEdicion(QWidget):
                 return mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
             if QMessageBox.question(self, t("Antes de gastar"), t(
                     "{que}\n\nCuesta {costo}. ¿Seguir?", que=t(
-                        "Tu avatar, en tu nube Modal: cuenta como 1 clip del cupo de hoy. Si Modal interrumpe su GPU a "
-                        "medias (pasa pocas veces), lo repite solo y ese intento se cobra aparte."),
+                        "Tu avatar, en tu nube Modal: cuenta como 1 clip del cupo del mes. Si Modal interrumpe su GPU "
+                        "a medias (pasa pocas veces), lo repite solo y ese intento se cobra aparte."),
                     costo=t("unos {costo} de tu crédito de Modal, como mucho {tope}", costo=dinero(nube.PRECIO_AVATAR),
                             tope=dinero(nube.HASTA_AVATAR)))) != QMessageBox.Yes:
                 return self.estado.setText(t("Cancelado: no se gastó nada."))

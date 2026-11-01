@@ -690,12 +690,14 @@ try:
     e = falla(ia.imagen_con_producto, "a cat", foto, 64, 64, tmp / "e.png", respaldo=False, error=RuntimeError)
     assert str(e) == "Pollinations respondió 402: Payment Required" and "mozilla" not in str(e), e
     assert actividad.ultimas(1)[0]["resultado"] == "fallo" and "402" in actividad.ultimas(1)[0]["motivo"]
+    # Su «sin saldo» queda recordado: las escenas siguientes ya no lo esperan (ni la rotación de imágenes)
+    assert claves.estados()["pollinations"]["estado"] == "sin_saldo" and nubes.orden("imagen")[-1] == "pollinations"
     # Con respaldo (Crear con foto, Anuncios): la escena sale igual, con la foto sobre un fondo nuevo, y se dice una
     # sola vez aunque fallen varias escenas igual
     from motor import anuncios, video  # noqa: E402
-    fondos, avisos = [], []
-    NOTA = ("La edición con la imagen de referencia falló (Pollinations respondió 402: Payment Required): la escena se "
-            "hizo con la foto encima de un fondo nuevo.")
+    fondos, avisos, ediciones[:] = [], [], []
+    NOTA = ("La edición con la imagen de referencia falló (Pollinations no tiene saldo): la escena se hizo con la foto "
+            "encima de un fondo nuevo.")
     imagen_real, ffmpeg_real, cierre_real = ia.imagen, video.ffmpeg, video.cierre
     montar_real, proyectos_real = anuncios.montar, anuncios.PROYECTOS
     ia.imagen = lambda p, w, h, d, calidad="1K": fondos.append(p) or d
@@ -703,7 +705,7 @@ try:
     try:
         for n in (2, 3):
             assert ia.imagen_con_producto("a cat", foto, 64, 64, tmp / f"e{n}.png", avisos=avisos) == tmp / f"e{n}.png"
-        assert len(fondos) == 2 and avisos == [NOTA], avisos
+        assert len(fondos) == 2 and avisos == [NOTA] and not ediciones, (avisos, ediciones)
         # Anuncios también lo dice (antes la escena salía con la foto pegada y solo quedaba en la actividad)
 
         def montar_falso(v, carpeta, formato, voz, aviso, nombre, crear_imagen, **k):
@@ -769,6 +771,77 @@ try:
     assert sin_lamina == {"motivo": "Pollinations respondió 402: Payment Required", "planos": [6, 7]}, sin_lamina
 finally:
     httpx.post = sin_red
+
+# ---------- Imágenes: un 402 se recuerda, un falso «NSFW» se reintenta, nada va a hf-inference (410), y el producto
+# se redibuja con Cloudflare FLUX.2 (gratis) en vez de pegarse encima ----------
+HF = {"proveedor": "huggingface", "clave": "hf_" + "a" * 34, "usos": ["imagen", "video"],
+      "modelo_imagen": "black-forest-labs/FLUX.1-schnell"}
+conectar({"proveedor": "cloudflare", "clave": "0123456789abcdef0123456789abcdef " + "T" * 40, "usos": ["imagen"]},
+         POLLI, HF, imagen="pollinations")
+PNG_MIN = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+intentos = []
+
+
+def polli_402():
+    intentos.append("pollinations")
+    raise RuntimeError("el servicio respondió con el error 402")  # así lo dice seguro.descargar
+
+
+assert nubes.rotar("imagen", {"pollinations": polli_402, "cloudflare": lambda: intentos.append("cloudflare") or
+                              PNG_MIN})[1] == "cloudflare" and claves.estados()["pollinations"]["estado"] == "sin_saldo"
+intentos.clear()
+nubes.rotar("imagen", {"pollinations": polli_402, "cloudflare": lambda: intentos.append("cloudflare") or PNG_MIN})
+assert intentos == ["cloudflare"], intentos  # la imagen siguiente ya no espera su 402
+pedidos = []
+
+
+def cloudflare_post(url, **k):
+    pedidos.append((url, k))
+    if "flux-1-schnell" in url and len(pedidos) == 1:
+        return respuesta(400, {"errors": [{"message": "AiError: Input prompt contains NSFW content"}]}, "POST", url)
+    return respuesta(200, {"result": {"image": base64.b64encode(PNG_MIN).decode()}}, "POST", url)
+
+
+claves.elegir_por_defecto("imagen", "cloudflare")
+httpx.post = cloudflare_post
+espacios, llamar_real = [], nubes.llamar_space
+nubes.llamar_space = lambda espacio, *a, **k: espacios.append(espacio) or PNG_MIN
+try:
+    ia.imagen("a juicy cordon bleu with pink ham and stretchy cheese", 64, 64, tmp / "cb.png")
+    assert len(pedidos) == 2 and pedidos[1][1]["json"]["prompt"].startswith("Family-friendly"), pedidos
+    assert not {"juicy", "pink", "stretchy"} & set(pedidos[1][1]["json"]["prompt"].split()), pedidos[1]
+    # El plato no cambia: «hot» sale de «a hot girl», no de «hot dog» ni de «hot sauce» (quedaba «a dog»)
+    assert ia._neutro("Close-up of a juicy hot dog with hot sauce, a hot girl") == ("Family-friendly, safe for work "
+                                                                                     "image. Close-up of a hot dog "
+                                                                                     "with hot sauce, a girl")
+    assert actividad.ultimas(1)[0]["proveedor"] == "cloudflare" and actividad.ultimas(1)[0]["resultado"] == "ok"
+    # Hugging Face con token: el Space oficial de FLUX (hf-inference ya no sirve el modelo: 410 Gone)
+    claves.elegir_por_defecto("imagen", "huggingface")
+    httpx.post = sin_red
+    ia.imagen("a cat", 64, 64, tmp / "hf.png")
+    assert espacios == [ia.ESPACIO_IMAGEN] and actividad.ultimas(1)[0]["proveedor"] == "huggingface", espacios
+    # El producto de la foto, redibujado en la escena con FLUX.2 [klein] (gratis): no se pega encima
+    from PySide6.QtGui import QColor, QImage  # noqa: E402
+    producto = tmp / "producto.png"
+    lienzo = QImage(1000, 800, QImage.Format_RGB32)
+    lienzo.fill(QColor("red"))
+    assert lienzo.save(str(producto))
+    claves.elegir_por_defecto("imagen", "cloudflare")
+    httpx.post, pedidos[:], notas = cloudflare_post, [(None, None)], []  # sin el «NSFW» de la primera
+    assert not ia.puede_referencia()  # Cloudflare no edita como Gemini u OpenAI; FLUX.2 sí, con su foto
+    hecha = ia.imagen_con_producto("The product on a marble table", producto, 1080, 1920, tmp / "esc.png", avisos=notas)
+    url, envio = pedidos[-1]
+    assert hecha == tmp / "esc.png" and hecha.read_bytes() == PNG_MIN and not notas
+    assert url.endswith("/ai/run/@cf/black-forest-labs/flux-2-klein-4b"), url
+    assert envio["data"]["prompt"].startswith("The product on a marble table. Keep the subject"), envio["data"]
+    assert (envio["data"]["width"], envio["data"]["height"]) == ("1072", "1920"), envio["data"]
+    referencia = QImage.fromData(envio["files"]["input_image_0"][1])
+    assert max(referencia.width(), referencia.height()) == ia.LADO_REFERENCIA_FLUX2 < 512, referencia.size()
+    ultima = actividad.ultimas(1)[0]
+    assert (ultima["proveedor"], ultima["modelo"], ultima["resultado"], ultima["costo"]) == ("cloudflare", ia.FLUX2,
+                                                                                            "ok", 0.0), ultima
+finally:
+    httpx.post, nubes.llamar_space = sin_red, llamar_real
 print("Imágenes y su respaldo: bien.")
 
 # ---------- Música: Gemini sin saldo (402) pasa a ElevenLabs en automático, con su costo, y sin cobrar dos veces ----------
@@ -855,8 +928,28 @@ try:
 finally:
     ia.video_hablado = hablado_real
 assert hechos == {} and 1 <= len(pedidas) <= 3, len(pedidas)  # como mucho las 3 que iban a la vez; las otras, no
-assert notas == ["Las escenas 1, 2, 3, 4, 5, 6 no salieron animadas con voz (Gemini no tiene saldo). Se hicieron con "
-                 "imagen y narración."], notas
+# Sin decir «fotos»: con tu nube Modal esas escenas se mueven igual (claves.por_trabajo)
+assert notas == ["Las escenas 1, 2, 3, 4, 5, 6 no salieron animadas con voz (Gemini no tiene saldo). Van con su "
+                 "imagen y narración, movidas con la IA de video si está activa."], notas
+# El tope de gasto mensual de Gemini llega como 429: es «sin saldo», no «espera un rato». Se dice en claro y en
+# español, sin cobrar, una sola petición, y el trabajo siguiente ni empieza (con cómo subir el tope)
+TOPE = {"error": {"code": 429, "message": "Your project has exceeded its monthly spending cap. Please go to AI Studio "
+                                          "at https://ai.studio/spend to manage your project spend cap."}}
+assert claves.clasificar(429, TOPE["error"]["message"]) == "sin_saldo" and claves.clasificar(429, "rate") == "sin_cuota"
+conectar(GEMINI)
+omni.clear()
+httpx.post = lambda url, **k: omni.append(url) or respuesta(429, TOPE, "POST", url)
+try:
+    e = falla(ia.video_hablado, "una manzana dice hola", "9:16", tmp / "omni2.mp4", error=ia.SinSaldo)
+finally:
+    httpx.post = sin_red
+assert str(e) == ("Gemini llegó al tope de gasto mensual de tu proyecto: no hizo el video y no se cobró nada. Súbelo "
+                  "en AI Studio (aistudio.google.com → tu proyecto → Spend) o espera al mes que viene."), e
+assert len(omni) == 1 and claves.estados()["gemini"]["estado"] == "sin_saldo"
+assert claves.estados()["gemini"]["paso"].startswith("Sube el tope de gasto mensual en AI Studio")
+assert (actividad.ultimas(1)[0]["resultado"], actividad.ultimas(1)[0]["costo"]) == ("fallo", 0.0)
+no = claves.impide(["video_voz"])
+assert "Sube el tope de gasto mensual en AI Studio" in no and no.endswith("No se cobró nada."), no
 print("Video que habla sin saldo: bien.")
 
 # ---------- La página «Claves de IA»: estados, «Comprobar conexiones» y la actividad ----------

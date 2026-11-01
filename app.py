@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
+from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTimer, QTranslator
 from PySide6.QtGui import QColor, QFont, QIcon, QImageReader, QKeySequence, QPalette, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame,
                                QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
@@ -354,8 +354,10 @@ if __name__ == "__main__":
                             "--disable-pip-version-check", "--only-binary", ":all:",
                             "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
     ventana = Ventana()
-    ventana.director.restaurar()  # la conversación de la última vez (aquí y no en la ventana: las pruebas no la leen)
     ventana.show()
+    # La conversación de la última vez (aquí y no en la ventana: las pruebas no la leen), con la ventana ya abierta:
+    # rehacer 100 mensajes con sus tarjetas tarda más de un segundo
+    QTimer.singleShot(0, ventana.director.restaurar)
     # Cada servicio conectado, comprobado en segundo plano al abrir (aquí y no en la ventana: las pruebas la crean sin
     # red): así un trabajo avisa ANTES de empezar si Gemini se quedó sin saldo, y «Claves de IA» enseña su estado
     ventana.claves.comprobar_ahora(al_abrir=True)

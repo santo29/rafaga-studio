@@ -454,6 +454,19 @@ try:
     quitar = [b for b in pagina.caja_adjuntos.findChildren(QPushButton) if b.accessibleName() == "Quitar encargo.txt"]
     quitar[0].click()
     assert pagina.adjuntos == [str(foto)]
+    # Soltado en la caja (o pegado con Ctrl+V): se adjunta con su ficha, no se escribe «file:///…»; un enlace web, sí
+    from PySide6.QtCore import QMimeData, QUrl  # noqa: E402
+    soltado = QMimeData()
+    soltado.setUrls([QUrl.fromLocalFile(str(brief))])
+    assert pagina.pedido.canInsertFromMimeData(soltado)
+    pagina.pedido.insertFromMimeData(soltado)
+    assert pagina.pedido.text() == "" and pagina.adjuntos == [str(foto), brief.as_posix()]
+    assert pagina.fila_adjuntos.count() == 3  # sus dos fichas y el relleno
+    web = QMimeData()
+    web.setUrls([QUrl("https://ejemplo.com/foto")])
+    web.setText("https://ejemplo.com/foto")
+    pagina.pedido.insertFromMimeData(web)
+    assert pagina.pedido.text() == "https://ejemplo.com/foto" and len(pagina.adjuntos) == 2
     pagina.pedido.setText("hazme un post")
     pagina.enviar()
     assert not pagina.enviar_btn.isEnabled() and pagina.pedido.text() == "" and pagina.caja_adjuntos.isHidden()
@@ -462,18 +475,21 @@ try:
     for _ in range(20):
         app.processEvents()
     assert usadas == ["crear_diseno"] and pagina.enviar_btn.isEnabled() and pagina.nueva.isEnabled()
-    assert recibido["adjuntos"] == [str(foto)] and str(foto).replace("\\", "\\\\") in recibido["pedido"]
+    assert recibido["adjuntos"] == [str(foto), brief.as_posix()]
+    assert str(foto).replace("\\", "\\\\") in recibido["pedido"]
+    # Lo que dice el texto adjunto le llega al Director (no solo su nombre), después de la lista de rutas
+    assert recibido["pedido"].endswith("Texto de encargo.txt:\nHamburguesa con queso, para Instagram")
     texto = pagina.chat.toPlainText()
     assert "Hecho <b>sin HTML</b>" in texto and "foto.png" in texto  # lo de la IA se ve tal cual, nunca como HTML
-    assert "Archivos que te doy" not in texto  # la lista de rutas es para la IA, no para la burbuja
+    assert "Archivos que te doy" not in texto and "Hamburguesa" not in texto  # es para la IA, no para la burbuja
     assert pagina.historial[0]["rol"] == "usuario" and "foto.png" in pagina.historial[0]["texto"]
-    assert pagina.historial[0]["adjuntos"] == [str(foto)]
+    assert pagina.historial[0]["adjuntos"] == [str(foto), brief.as_posix()]
     assert {k: v for k, v in pagina.historial[-1].items() if k != "resultados"} == {
         "rol": "director", "texto": "Hecho <b>sin HTML</b>", "hechas": ["editar_video"]}
     assert [x["titulo"] for x in pagina.historial[-1]["resultados"]] == ["Mi video"]
     # La foto adjunta, en tu burbuja; lo hecho, en el chat (en su tarjeta), y la portada con la galería ya no está
     tuyo, suyo = pagina.chat.mensajes()[-2:]
-    assert tuyo.tuyo and [v.ruta for v in tuyo.findChildren(pagina_director.Miniatura)] == [foto]
+    assert tuyo.tuyo and [v.ruta for v in tuyo.findChildren(pagina_director.Miniatura)] == [foto, None]
     assert [t.findChild(QLabel, "resultado_titulo").text() for t in suyo.findChildren(
         pagina_director.TarjetaResultado)] == ["Mi video"]
     assert pagina.adjuntos == [] and not pagina.galeria.isVisible() and not pagina.vigia.isActive()
@@ -748,13 +764,19 @@ try:
     comun.mensaje = lambda padre, titulo, texto, *a, **k: dichos.append(texto)
     botones(video_t)["Descargar"].click()
     assert destino.read_bytes() == salida.read_bytes() and dichos == [f"Guardado en {destino}"]
-    # «Animar» se lo pide al Director con la imagen adjunta
+    # «Animar» se lo pide al Director con la imagen adjunta, y lo que estabas escribiendo y adjuntando se queda
     director.dirigir = lambda pedido, historial, al_usar, aviso, **k: (
         recibido.update(k, pedido=pedido), {"mensaje": "Animada", "pasos": [], "formato": "1:1", "resultados": []})[-1]
+    borrador = "Un borrador largo con mis escenas:\nEscena 1, el local"
+    chat.pedido.setText(borrador)
+    chat._sumar([str(cartel)])
     botones(suelta_t)["Animar"].click()
     esperar(lambda: not chat.ocupado() and chat.enviar_btn.isEnabled())
     app.processEvents()
     assert recibido["adjuntos"] == [str(foto)] and recibido["pedido"].startswith("Anima esta imagen.")
+    assert chat.pedido.text() == borrador and chat.adjuntos == [str(cartel)] and chat.caja_adjuntos.isVisibleTo(chat)
+    chat.pedido.clear()
+    chat._quitar(str(cartel))
     # Guardada: otra página (la app abierta otra vez) rehace la conversación con sus tarjetas
     assert guardado.is_file()
     otra = PaginaDirector(abrir_diseno=disenados.append)
@@ -763,6 +785,21 @@ try:
     assert otra.chat.toPlainText() == chat.chat.toPlainText() and otra.chat.portada.isHidden()
     assert len(otra.chat.mensajes()[0].findChildren(pagina_director.TarjetaResultado)) == 5
     otra.cerrar()
+    # Una clave o una tarjeta escrita en el chat no queda en el disco (en esta sesión el Director la sigue teniendo);
+    # las rutas de los archivos, aunque lleven cifras y letras, se guardan enteras
+    clave = "sk-ant-api03-" + "Ab1" * 30
+    chat.pedido.setText(f"Conecta esta clave de Claude y hazme un post: {clave}. Mi tarjeta: 4111 1111 1111 1111")
+    chat.enviar()
+    esperar(lambda: not chat.ocupado() and chat.enviar_btn.isEnabled())
+    app.processEvents()
+    escrito = guardado.read_text(encoding="utf-8")
+    assert clave not in escrito and "Ab1Ab1" not in escrito and "1111 1111" not in escrito and "•••" in escrito
+    assert clave in chat.historial[-2]["texto"]
+    assert pagina_director.tapar(f"usa {clave}, gracias") == "usa •••, gracias"
+    assert pagina_director.tapar(r'["C:\\x\\rafaga-director-abc123def456ghi789\\2026-11-01-1234567890.mp4"]') == \
+        r'["C:\\x\\rafaga-director-abc123def456ghi789\\2026-11-01-1234567890.mp4"]'
+    assert pagina_director.cargar_conversacion(guardado)[1]["adjuntos"] == [str(foto)]
+    assert str(foto).replace("\\", "\\\\") in pagina_director.cargar_conversacion(guardado)[1]["texto"]
     # Lo guardado no se cree: roto, enorme o con tipos raros da una conversación vacía, y nunca una ruta de red
     for malo in ("{roto", json.dumps({"mensajes": "x"}), json.dumps([1, 2]), " " * 2_100_000 + "{}"):
         guardado.write_text(malo, encoding="utf-8")

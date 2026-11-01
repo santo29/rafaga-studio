@@ -5,6 +5,7 @@ Inicio: la pieza pintada con su video, el mosaico y la fila que se desplaza."""
 import atexit
 import json
 import os
+import re
 import threading
 import traceback
 from itertools import count, zip_longest
@@ -34,7 +35,12 @@ MAX_GUARDADOS = 100  # mensajes que se guardan (los de antes se olvidan)
 ANCHO_CHAT = 900  # la columna del chat y la caja del pedido: a 1920 px, líneas de 1600 px no se leían
 ARCHIVOS = "\n\nArchivos que te doy: "  # lo que sigue en el pedido es la lista JSON de adjuntos (la burbuja no lo enseña)
 # Lo que se puede adjuntar sin elegir «Todos los archivos»: lo que usan las herramientas y los textos de un encargo
-TIPOS_ADJUNTOS = "*.png *.jpg *.jpeg *.webp *.mp4 *.mov *.webm *.mp3 *.wav *.m4a *.txt *.md *.pdf"
+# (su texto va en el pedido, ver texto_adjunto; un PDF no, que leerlo pediría otra dependencia)
+TIPOS_ADJUNTOS = "*.png *.jpg *.jpeg *.webp *.mp4 *.mov *.webm *.mp3 *.wav *.m4a *.txt *.md"
+TEXTOS = {".txt", ".md"}
+# Lo que la memoria del estudio no guarda (una clave larga, un número de tarjeta) y no es parte de una ruta: así
+# director.json no lo deja escrito y los archivos de la conversación («sigue con ese video») siguen valiendo
+_SECRETO = re.compile(rf"(?<![\\/.])(?:{memoria._TOKEN.pattern}|{memoria._TARJETA.pattern})(?![\w\\/-]|\.\w)")
 ICONOS_TIPO = {"imagen": "image", "diseno": "palette", "video": "clapperboard", "audio": "music", "serie": "rabbit",
                "archivo": "file-text"}
 # Piezas que se mueven a la vez en una página (GIF o el MP4 de la elegida del carrusel): cada una es un decodificador.
@@ -981,6 +987,24 @@ def con_portadas(r: dict) -> dict:
     return r
 
 
+def tapar(texto: str) -> str:
+    """El texto con sus claves y números de tarjeta cambiados por «•••», para guardarlo en el disco.
+    ponytail: una contraseña corta no tiene formato y se queda; para taparla haría falta preguntar al escribirla."""
+    return _SECRETO.sub("•••", texto)
+
+
+def texto_adjunto(ruta: str) -> str:
+    """Lo que dice un .txt o .md adjunto (el principio), para que el Director lea el encargo y no solo su nombre. De
+    una carpeta de red o de otro tipo, nada."""
+    if Path(ruta).suffix.lower() not in TEXTOS or seguro.es_ruta_de_red(ruta):
+        return ""
+    try:
+        with open(ruta, encoding="utf-8-sig", errors="replace") as f:
+            return f"\n\nTexto de {Path(ruta).name}:\n{f.read(3000)}"
+    except OSError:
+        return ""
+
+
 def cargar_conversacion(archivo) -> list[dict]:
     """La conversación guardada (ver PaginaDirector._guardar), sin fiarse del archivo, que se puede tocar a mano: roto,
     de más de 2 MB o con tipos raros da una conversación vacía, y de cada mensaje solo queda lo que la página sabe
@@ -1136,8 +1160,10 @@ def ficha(padre, ruta: str, alto: int, quitar=None) -> QFrame:
 
 class CampoPedido(QPlainTextEdit):
     """El pedido: Intro lo manda (Mayúsculas+Intro, otra línea), Tab sale del campo y crece solo de 1 a 6 líneas (luego
-    se desplaza). Un pedido largo pegado o traído de Inicio se ve entero, con sus escenas en líneas."""
+    se desplaza). Un pedido largo pegado o traído de Inicio se ve entero, con sus escenas en líneas. Un archivo soltado
+    o pegado (Ctrl+V) se adjunta (soltados) en vez de escribirse como «file:///…»."""
     enviar = Signal()
+    soltados = Signal(list)
     LINEAS = 6
 
     def __init__(self):
@@ -1150,6 +1176,14 @@ class CampoPedido(QPlainTextEdit):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter) and not e.modifiers() & Qt.ShiftModifier:
             return self.enviar.emit()
         super().keyPressEvent(e)
+
+    def canInsertFromMimeData(self, m) -> bool:
+        return m.hasUrls() or super().canInsertFromMimeData(m)
+
+    def insertFromMimeData(self, m):
+        if rutas := [u.toLocalFile() for u in m.urls() if u.isLocalFile()]:
+            return self.soltados.emit(rutas)
+        super().insertFromMimeData(m)  # un enlace web o un texto: se escribe
 
     def text(self) -> str:  # como el campo de una línea de antes: lo usan app.py, la voz y las pruebas
         return self.toPlainText()
@@ -1653,6 +1687,7 @@ class PaginaDirector(QWidget):
         self.pedido.setPlaceholderText(t("Ej.: Hazme un anuncio de 20 segundos para mi barbería y un post para Instagram"))
         self.pedido.setAccessibleName(t("Pedido para el Director"))
         self.pedido.enviar.connect(self.enviar)
+        self.pedido.soltados.connect(self._sumar)
         dentro.addWidget(self.pedido)
         fila = QHBoxLayout()
         fila.setSpacing(8)
@@ -1759,7 +1794,11 @@ class PaginaDirector(QWidget):
         rutas, _ = QFileDialog.getOpenFileNames(
             self, t("Adjuntar archivos"), "",
             f"{t('Fotos, videos, audios y textos ({tipos})', tipos=TIPOS_ADJUNTOS)};;{t('Todos los archivos')} (*)")
-        self.adjuntos += [r for r in rutas if r not in self.adjuntos]
+        self._sumar(rutas)
+
+    def _sumar(self, rutas: list[str]):
+        """Adjunta los elegidos, soltados o pegados (sin repetir)."""
+        self.adjuntos += [r for r in dict.fromkeys(rutas) if r not in self.adjuntos]
         self._fichas()
 
     def _fichas(self):
@@ -1795,7 +1834,9 @@ class PaginaDirector(QWidget):
         adjuntos, self.adjuntos = self.adjuntos, []
         self._fichas()
         self.pedido.clear()
-        pedido = texto + (f"{ARCHIVOS}{json.dumps(adjuntos, ensure_ascii=False)}" if adjuntos else "")
+        # La lista va antes de los textos adjuntos: si el pedido se recorta, se recorta el texto y no una ruta
+        pedido = texto + (f"{ARCHIVOS}{json.dumps(adjuntos, ensure_ascii=False)}" if adjuntos else "") + "".join(
+            map(texto_adjunto, adjuntos))
         usuario = {"rol": "usuario", "texto": pedido, **({"adjuntos": adjuntos} if adjuntos else {})}
         self._cerrar_portada()
         self._pintar(usuario)
@@ -1854,12 +1895,14 @@ class PaginaDirector(QWidget):
 
     def _guardar(self):
         """Los últimos MAX_GUARDADOS mensajes, en datos/director.json (de una vez: un corte de luz no lo deja a
-        medias). Si no se puede escribir, se sigue igual."""
+        medias), con las claves y las tarjetas tapadas (ver tapar). Si no se puede escribir, se sigue igual."""
         del self.historial[:-MAX_GUARDADOS]
         if self.archivo is None:
             return
+        mensajes = [{**m, "texto": tapar(m["texto"]), **({"plan": list(map(tapar, m["plan"]))} if "plan" in m else {})}
+                    for m in self.historial]
         try:
-            diseno.escribir_json(self.archivo, {"version": 1, "mensajes": self.historial})
+            diseno.escribir_json(self.archivo, {"version": 1, "mensajes": mensajes})
         except OSError:
             traceback.print_exc()
 
@@ -1894,12 +1937,17 @@ class PaginaDirector(QWidget):
 
     def _animar(self, ruta: str):
         """«Animar» de una tarjeta: se le pide al Director con la imagen adjunta. Se envía sin preguntar (el clic ya
-        es la decisión); si cuesta dinero, el Director pregunta antes con su precio."""
+        es la decisión); si cuesta dinero, el Director pregunta antes con su precio. Lo que estabas escribiendo y
+        adjuntando se queda en la caja."""
         if self.ocupado():
             return self._avisar(t("Espera a que termine el trabajo actual."))
+        borrador, extra = self.pedido.text(), self.adjuntos
         self.adjuntos = [ruta]
         self.pedido.setText(t("Anima esta imagen."))
         self.enviar()
+        self.pedido.setText(borrador)
+        self.adjuntos = extra
+        self._fichas()
 
     def _fin_de_tarea(self):
         if self.bloque:

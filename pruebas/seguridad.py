@@ -563,7 +563,7 @@ parar, malas = [], []
 
 def escribir_sin_parar():
     while not parar:
-        claves.elegir_por_defecto("limite_nube_diario", 3)
+        claves.elegir_por_defecto("limite_nube_mensual", 3)
 
 
 hilo = threading.Thread(target=escribir_sin_parar)

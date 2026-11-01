@@ -78,62 +78,62 @@ modal.Cls.from_name, nube._cliente = (lambda app, clase, client=None: Avatar()),
 nubes.llamar_space = space_prohibido
 try:
     claves.guardar({"proveedor": "modal", "clave": "ak-1 as-2", "usos": ["video"]})
-    claves.elegir_por_defecto("limite_nube_diario", 2)
+    claves.elegir_por_defecto("limite_nube_mensual", 2)
 
     # Una voz de más de 10 s no sale: ValueError antes de apartar cupo y sin llamar a Modal
     assert "como mucho 10 s" in falla(nube.avatar, foto, voz_larga, "9:16", tmp / "a.mp4", error=ValueError)
-    assert nube.usados_hoy() == 0 and not Avatar.llamadas and not (tmp / "a.mp4").exists()
+    assert nube.usados_mes() == 0 and not Avatar.llamadas and not (tmp / "a.mp4").exists()
 
     # Un motor instalado antes del avatar (o sin instalar): dice que se reinstale y el cupo no cambia
     Avatar.existe = False
     error = falla(nube.avatar, foto, voz_corta, "9:16", tmp / "a.mp4", error=RuntimeError)
     assert "Instalar motor en Modal" in error and "otra vez" in error and "No se gastó nada" in error, error
-    assert nube.usados_hoy() == 0 and not Avatar.llamadas
+    assert nube.usados_mes() == 0 and not Avatar.llamadas
     Avatar.existe = True
 
     # Todo bien: el MP4 queda escrito, cuenta 1 clip y a Modal va la foto tal cual y la voz en WAV con su calidad (es
     # la que lleva el MP4: en 16 kHz se perdían los agudos; su wav2vec ya la baja para el modelo)
     destino = nube.avatar(foto, voz_corta, "9:16", tmp / "a.mp4")
-    assert destino.read_bytes() == MP4 and nube.usados_hoy() == 1
+    assert destino.read_bytes() == MP4 and nube.usados_mes() == 1
     imagen, wav, vertical = Avatar.llamadas[-1]
     assert imagen == foto.read_bytes() and vertical is True and wav[:4] == b"RIFF" and wav[8:12] == b"WAVE"
     assert struct.unpack("<HHI", wav[20:28]) == (1, 2, 44100), wav[20:28]  # PCM, estéreo y 44,1 kHz, como la voz
     nube.avatar(foto, voz_corta, "16:9", tmp / "b.mp4")
-    assert Avatar.llamadas[-1][2] is False and nube.usados_hoy() == 2
+    assert Avatar.llamadas[-1][2] is False and nube.usados_mes() == 2
 
     # Sin cupo (o con tope 0) no llama a Modal
     llamadas = len(Avatar.llamadas)
     assert "Ya se usaron los 2 clips" in falla(nube.avatar, foto, voz_corta, "9:16", tmp / "c.mp4", error=RuntimeError)
-    claves.elegir_por_defecto("limite_nube_diario", 0)
+    claves.elegir_por_defecto("limite_nube_mensual", 0)
     assert "apagada" in falla(nube.avatar, foto, voz_corta, "9:16", tmp / "c.mp4", error=RuntimeError)
-    assert len(Avatar.llamadas) == llamadas and nube.usados_hoy() == 2
-    claves.elegir_por_defecto("limite_nube_diario", 5)
+    assert len(Avatar.llamadas) == llamadas and nube.usados_mes() == 2
+    claves.elegir_por_defecto("limite_nube_mensual", 5)
 
     # ia.avatar sin la casilla: solo Modal, con su costo en la actividad; el Space nunca, tampoco si Modal falla
-    assert ia.avatar(foto, voz_corta, "9:16", tmp / "d.mp4").read_bytes() == MP4 and nube.usados_hoy() == 3
+    assert ia.avatar(foto, voz_corta, "9:16", tmp / "d.mp4").read_bytes() == MP4 and nube.usados_mes() == 3
     ultima = actividad.ultimas(1)[0]
     assert (ultima["que"], ultima["proveedor"], ultima["costo"], ultima["resultado"]) == \
         ("video", "modal", nube.PRECIO_AVATAR, "ok"), ultima
     Avatar.existe = False
     assert "Instalar motor en Modal" in falla(ia.avatar, foto, voz_corta, "9:16", tmp / "e.mp4", error=RuntimeError)
-    assert actividad.ultimas(1)[0]["costo"] == 0 and nube.usados_hoy() == 3  # lo que no se hizo no se apunta como gasto
+    assert actividad.ultimas(1)[0]["costo"] == 0 and nube.usados_mes() == 3  # lo que no se hizo no se apunta como gasto
     Avatar.existe = True
 
     # Si falla con la GPU ya en marcha (sin memoria, el plazo, el modelo), pudo gastar: cuenta en el cupo, la actividad
     # apunta lo que suele costar y se dice en claro por qué, sin «Ninguna opción» ni el traceback en inglés
-    claves.elegir_por_defecto("limite_nube_diario", 10)
+    claves.elegir_por_defecto("limite_nube_mensual", 10)
     for remoto, motivo in ((MemoryError(), "sin memoria: prueba con una voz más corta"),
                            (modal.exception.FunctionTimeoutError("Function timed out after 900 seconds"),
                             "se le acabó el tiempo"), (ChildProcessError(1), "registro de tu app en Modal")):
-        Avatar.error, usados = remoto, nube.usados_hoy()
+        Avatar.error, usados = remoto, nube.usados_mes()
         error = falla(ia.avatar, foto, voz_corta, "9:16", tmp / "h.mp4", error=ia.Cobrado)
         assert motivo in error and "US$0.95" in error and "Ninguna opción" not in error and "Function" not in error, error
         ultima = actividad.ultimas(1)[0]
-        assert nube.usados_hoy() == usados + 1 and (ultima["costo"], ultima["resultado"]) == \
+        assert nube.usados_mes() == usados + 1 and (ultima["costo"], ultima["resultado"]) == \
             (nube.PRECIO_AVATAR, "fallo"), ultima
     Avatar.error = None
-    claves.elegir_por_defecto("limite_nube_diario", 5)
-    usados = nube.usados_hoy()
+    claves.elegir_por_defecto("limite_nube_mensual", 5)
+    usados = nube.usados_mes()
 
     # Con la casilla: solo el Space oficial de Wan, gratis y sin tocar Modal ni su cupo. Al Space (lo ve su dueño) va
     # una copia con solo los píxeles: ni el EXIF con el GPS, ni el comentario, ni el nombre de la foto
@@ -151,7 +151,7 @@ try:
     assert Path(audio["path"]) == voz_corta  # subidos como archivos (handle_file)
     assert b"Exif" not in subida and b"Lavc" not in subida and "Maria" not in str(ref_img), ref_img
     assert QImage.fromData(subida).size() == QSize(64, 48)  # la misma foto
-    assert len(Avatar.llamadas) == llamadas and nube.usados_hoy() == usados
+    assert len(Avatar.llamadas) == llamadas and nube.usados_mes() == usados
     assert actividad.ultimas(1)[0]["proveedor"] == "huggingface" and actividad.ultimas(1)[0]["costo"] == 0
     # El Space admite menos de 20 s: una de 19 no se sube
     assert "como mucho 18 s" in falla(ia.avatar, foto, voz_space, "9:16", tmp / "g.mp4", space=True)

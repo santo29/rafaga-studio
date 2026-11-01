@@ -493,8 +493,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # ---------- Avatar IA (motor falso): solo con foto y voz, con lo que cuesta a la vista y preguntado ----------
     claves.guardar({"proveedor": "modal", "clave": "ak-1 as-2", "usos": ["video"]})
     p.herramientas["avatar"].click()
-    assert not p.avatar_btn.isEnabled() and "US$" in p.avatar_costo.text() and "hoy quedan 3 de 3" in \
-        p.avatar_costo.text(), p.avatar_costo.text()
+    tope = nube.LIMITE_MENSUAL  # el cupo de Modal es del mes
+    assert not p.avatar_btn.isEnabled() and "US$" in p.avatar_costo.text() and \
+        f"quedan {tope} de {tope} este mes" in p.avatar_costo.text(), p.avatar_costo.text()
     pe.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(foto), ""))
     p.elegir_foto_avatar()
     assert not p.avatar_btn.isEnabled() and "foto.png" in p.avatar_foto.text()  # falta la voz
@@ -535,10 +536,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(lambda: not p.tareas)
     assert hechos[-1][3] is True and len(preguntas) == n and not p.avatar_space.isChecked()
     p.deshacer()
-    claves.elegir_por_defecto("limite_nube_diario", 0)  # nube apagada: no se puede pulsar, y dice por qué
+    claves.elegir_por_defecto("limite_nube_mensual", 0)  # nube apagada: no se puede pulsar, y dice por qué
     p.herramientas["avatar"].click()
     assert not p.avatar_btn.isEnabled() and "apagada" in p.avatar_falta.text()
-    claves.elegir_por_defecto("limite_nube_diario", 3)
+    claves.elegir_por_defecto("limite_nube_mensual", 3)
     claves.borrar("modal")
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
 

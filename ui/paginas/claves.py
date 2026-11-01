@@ -240,7 +240,7 @@ class PaginaClaves(QWidget):
         defecto_lay.addWidget(etiqueta(t("Con esto la app ya no puede impedir que un enlace llegue a tu red local."),
                                        "sub"))
         lay.addWidget(defecto)
-        # Nube de video en Modal: instalar el motor una vez y fijar el tope diario para no pasar del crédito gratis.
+        # Nube de video en Modal: instalar el motor una vez y fijar el tope del mes para no pasar del crédito gratis.
         nube_caja, nube_lay = tarjeta()
         nube_lay.addWidget(etiqueta(f"☁️  {t('Mi nube de video (Modal)')}", "sub"))
         nube_lay.addWidget(etiqueta(t("Crea una cuenta en modal.com, crea un token en Settings → API tokens (ak-… y "
@@ -250,11 +250,11 @@ class PaginaClaves(QWidget):
                                       "para no pagar nada). Cada clip de 5 s cuesta unos US$0.20 a 0.35.")))
         fila = QHBoxLayout()
         self.limite = QSpinBox()
-        self.limite.setRange(0, 50)
+        self.limite.setRange(0, 300)  # sin tarjeta Modal da US$1 al mes (unos 2 clips): se baja aquí
         self.limite.setValue(nube.limite())
         self.limite.setPrefix(t("Máximo "))
-        self.limite.setSuffix(t(" clips al día"))
-        self.limite.valueChanged.connect(lambda v: claves.elegir_por_defecto("limite_nube_diario", v))
+        self.limite.setSuffix(t(" clips al mes"))
+        self.limite.valueChanged.connect(lambda v: claves.elegir_por_defecto("limite_nube_mensual", v))
         self.uso_nube = etiqueta("", "sub")
         self.instalar = boton(t("Instalar motor en Modal"))
         self.instalar.clicked.connect(self._instalar_nube)
@@ -405,7 +405,7 @@ class PaginaClaves(QWidget):
         conectadas = claves.cargar()
         self._pintar_estados()
         self._pintar_actividad()
-        self.uso_nube.setText(t("Hoy: {n} de {m} clips", n=nube.usados_hoy(), m=nube.limite())
+        self.uso_nube.setText(t("Este mes: {n} de {m} clips", n=nube.usados_mes(), m=nube.limite())
                               if "modal" in conectadas else t("Sin conectar"))
         self.nota_diseno.setVisible(not {"anthropic", "openai"} & conectadas.keys())
         actual = claves.ajustes()
@@ -415,13 +415,11 @@ class PaginaClaves(QWidget):
             for p in claves.opciones(uso):
                 nombre = NOMBRES_PROVEEDOR.get(p, p.capitalize())
                 if uso == "video" and p == "auto":  # que se sepa adónde va la foto antes de elegir
-                    nombre = t("Automático (gratis primero: Space público de Hugging Face)")
+                    nombre = t("Automático (tu nube Modal si está conectada; si no, Space público de Hugging Face)")
                 elif uso == "diseno" and p == "auto":
                     nombre = t("La misma que escribe los guiones")
                 elif uso == "video_voz" and p == "auto":  # Kling y Seedance cobran: solo eligiéndolos
                     nombre = t("Automático (Gemini, si está conectada)")
-                elif uso == "imagen" and p == "huggingface":  # con el token van por su cuenta, no por un Space público
-                    nombre = t("Hugging Face (gratis, con tu cuenta)")
                 combo.addItem(nombre, p)
             combo.setCurrentIndex(max(combo.findData(actual.get(uso, "auto")), 0))
             combo.blockSignals(False)

@@ -62,7 +62,7 @@ PREFERENCIA = {
     "texto": ["anthropic", "openai", "gemini", "openrouter", "xai", "deepseek", "groq", "pollinations"],
     "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai"],  # gratis primero
     "transcripcion": ["groq", "openai"],
-    "video": ["huggingface", "modal", "pollinations", "kling", "seedance"],  # gratis primero; igual que nubes.ORDEN
+    "video": ["modal", "huggingface", "pollinations", "kling", "seedance"],  # tu nube primero; igual que nubes.ORDEN
     "video_voz": ["gemini", "kling", "seedance"],  # escenas que hablan con su propio audio (todas de pago)
     "musica": ["gemini", "elevenlabs"],  # Lyria: ~$0.08 por canción y suena mejor; ElevenLabs: ~$0.30-0.45
 }
@@ -724,12 +724,15 @@ _trabajo = threading.local()  # lo elegido para el trabajo que corre en cada hil
 def por_trabajo(modelo):
     """Mientras dura, este hilo anima con `modelo` (ajustes() lo ve encima de lo guardado): vale para ese trabajo y
     nunca cambia ni guarda la elección de «Claves de IA». Kling y Seedance hacen también sus escenas que hablan.
+    Gemini Omni hace las que hablan y lo mudo (las que no salgan con voz) se mueve con tu nube Modal si la tienes: un
+    fallo de Gemini nunca deja fotos quietas aunque en «Claves de IA» esté «No usar».
     «auto», None o uno que no existe: lo de «Claves de IA» (quien lo recibe de fuera lo comprueba con
     validar_modelo_video, antes de gastar)."""
     antes = getattr(_trabajo, "ajustes", {})
     m = modelo if isinstance(modelo, str) and modelo in MODELOS_VIDEO else None
-    _trabajo.ajustes = {} if not m else {"video_voz": m} if m == "gemini" else \
-        {"video": m, **({"video_voz": m} if m in VIDEO_DE_PAGO else {})}
+    tu_nube = "modal" in cargar() and not _vigente("modal", BLOQUEA)  # su token malo: lo de «Claves de IA»
+    _trabajo.ajustes = {} if not m else {"video_voz": m, **({"video": "modal"} if tu_nube else {})} \
+        if m == "gemini" else {"video": m, **({"video_voz": m} if m in VIDEO_DE_PAGO else {})}
     try:
         yield
     finally:
@@ -766,13 +769,15 @@ def modelos_video() -> list[dict]:
     # Automático es lo de «Claves de IA»: si allí se eligió Kling o Seedance, se dice (cobra, con su pregunta). Se
     # llama fuera de un trabajo (selector, Director, MCP): la capa de por_trabajo está vacía y esto es lo guardado
     pago = ia.video_de_pago()
+    # Con «No usar» en «Claves de IA», Automático no anima: se dice (antes prometía «gratis primero» y salían fotos)
     lista = [("auto", t("Automático (lo de «Claves de IA»: {servicio}, de pago)", servicio=ia.nombre_video(pago))
-              if pago else t("Automático (el estudio elige: gratis primero)")),
+              if pago else t("Automático (en «Claves de IA»: sin animar)") if ajustes().get("video") == "ninguno"
+              else t("Automático (el estudio elige: gratis primero)")),
              ("ninguno", t("Sin animar (fotos con movimiento, gratis)")),
              ("huggingface", t("Hugging Face · gratis, cupo diario"))]
     if "modal" in todas:
-        lista.append(("modal", t("Mi nube Modal · gratis, quedan {n} de {m} hoy",
-                                 n=max(nube.limite() - nube.usados_hoy(), 0), m=nube.limite())))
+        lista.append(("modal", t("Mi nube Modal · gratis, quedan {n} de {m} este mes",
+                                 n=max(nube.limite() - nube.usados_mes(), 0), m=nube.limite())))
     if "pollinations" in todas:
         lista.append(("pollinations", t("Pollinations · gratis, con el saldo de tu cuenta")))
     # Lo más que cuesta un clip (ia.precio_video, como la pregunta de costo), al centavo de arriba: 0,115 dice 0,12.
@@ -830,13 +835,15 @@ _cerrojo_estados = threading.Lock()  # la comprobación y las llamadas escriben 
 
 def clasificar(codigo: int, detalle: str = "") -> str:
     """El estado que dice la respuesta de un servicio: ok, sin_saldo (402, o el texto lo dice: «prepayment credits are
-    depleted», «credit balance is too low»), sin_cuota (429: el límite gratis o por minuto), clave (401, 403, o la
-    clave que Gemini no reconoce, que llega como 400) o error (un 5xx o lo que no se entiende)."""
+    depleted», «credit balance is too low», el tope de gasto mensual de Gemini, que llega como 429), sin_cuota (429:
+    el límite gratis o por minuto), clave (401, 403, o la clave que Gemini no reconoce, que llega como 400) o error (un
+    5xx o lo que no se entiende)."""
     texto = str(detalle or "").lower()
     if codigo < 400:
         return "ok"
     if codigo == 402 or re.search(r"prepayment|credits? (?:are |is )?(?:depleted|exhausted)|credit balance|"
-                                  r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits", texto):
+                                  r"insufficient[_ ](?:balance|quota|funds|credits)|out of credits|"
+                                  r"spend(?:ing)?[_ ]cap", texto):
         return "sin_saldo"
     # La clave vale pero no tiene ese permiso (ElevenLabs deja crear claves con permisos sueltos: «missing the
     # permission user_read»; OpenAI, claves restringidas: «insufficient permissions… Missing scopes: api.model.read»).
@@ -849,9 +856,14 @@ def clasificar(codigo: int, detalle: str = "") -> str:
     return "sin_cuota" if codigo == 429 else "error"
 
 
-def paso(proveedor: str, estado: str) -> str:
-    """Qué hacer con un servicio que no atiende, dicho en una frase."""
+def paso(proveedor: str, estado: str, detalle: str = "") -> str:
+    """Qué hacer con un servicio que no atiende, dicho en una frase. detalle: lo que respondió (el tope de gasto
+    mensual de Gemini no se arregla recargando)."""
     if estado == "sin_saldo":
+        # «spending cap» de Google, o el aviso de la app, que en todos los idiomas nombra la página «Spend»
+        if proveedor == "gemini" and re.search(r"\bspend", str(detalle), re.I):
+            return t("Sube el tope de gasto mensual en AI Studio: aistudio.google.com → tu proyecto → Spend (o espera "
+                     "al mes que viene).")
         if proveedor == "gemini":
             return t("Recarga en AI Studio: aistudio.google.com → tu proyecto → Billing.")
         return t("Recarga saldo en {web}.", web=RECARGA.get(proveedor, nombre(proveedor)))
@@ -961,7 +973,7 @@ def _comprobar_uno(proveedor: str, info: dict) -> dict:
         estado, detalle = "sin_conexion" if isinstance(e, httpx.TransportError) else "error", texto_de_error(e)
     if estado == "ok" and proveedor in SALDO_INVISIBLE:  # la clave vale; el saldo no se ve desde aquí
         estado = "clave_ok"
-    return {"estado": estado, "detalle": guardia.limpiar(detalle)[:240], "paso": paso(proveedor, estado),
+    return {"estado": estado, "detalle": guardia.limpiar(detalle)[:240], "paso": paso(proveedor, estado, detalle),
             "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 
@@ -1018,7 +1030,7 @@ def recordar(proveedor: str, codigo: int, detalle: str = "") -> None:
                 return  # ya se sabía: no se escribe en cada llamada que sale bien
             todos[proveedor] = {"estado": estado, "detalle": guardia.limpiar(f"{codigo}: {detalle}" if estado != "ok"
                                                                              else "")[:240],
-                                "paso": paso(proveedor, estado), "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
+                                "paso": paso(proveedor, estado, detalle), "fecha": time.strftime("%Y-%m-%d %H:%M:%S")}
             _reemplazar(CONEXIONES, json.dumps(todos, ensure_ascii=False, indent=1))
     except Exception:  # es solo un aviso para la próxima vez
         pass
@@ -1064,10 +1076,11 @@ def _cuando(e: dict) -> str:
     return t("comprobado el {fecha}", fecha=f"{fecha[8:10]}/{fecha[5:7]} {fecha[11:16]}")
 
 
-def antes_de(usos) -> list[str]:
+def antes_de(usos, escenas: int = 0) -> list[str]:
     """Lo que se le dice al usuario ANTES de empezar un trabajo que usa estas IA (texto, imagen, musica, video), según el
     último estado comprobado: «Gemini no tiene saldo: usaré Groq para el texto». Lo de pago que no se puede hacer lo
-    dice impide()."""
+    dice impide(). Con video, si las escenas se moverán o no y, con tu nube Modal, cuántas y lo que gastan de tu
+    crédito (escenas: las que animaría el trabajo como mucho; 0 si no se sabe)."""
     avisos = []
     if "texto" in usos:
         c = para("texto") or {}
@@ -1097,6 +1110,29 @@ def antes_de(usos) -> list[str]:
         if quien in VIDEO_DE_PAGO and quien in cargar() and (malo := _vigente(quien, BLOQUEA)):
             avisos.append(t("{problema}: las escenas irán con zoom suave, sin animar.",
                             problema=frase(quien, malo["estado"])))
+        elif quien == "ninguno" and "video" not in getattr(_trabajo, "ajustes", {}):
+            # «No usar» guardado (no «Sin animar» elegido para este trabajo): nunca fotos quietas sin decirlo
+            avisos.append(t("Las escenas irán sin movimiento real (zoom suave): en «Claves de IA», «Animar escenas con "
+                            "IA de video» está en «No usar». Elige «Mi nube Modal» o «Automático» para que se muevan."))
+        elif quien != "ninguno":
+            from . import nube, nubes  # aquí: los dos importan este módulo
+            from .idioma import dinero
+            quedan, tope = max(nube.limite() - nube.usados_mes(), 0), nube.limite()
+            n = min(escenas, quedan)
+            if next(iter(nubes.orden("video")), None) != "modal":
+                pass  # gratis en el Space o en Pollinations: nada de tu crédito que contar
+            elif not quedan:
+                avisos.append(t("Tu nube Modal ya usó sus {m} clips de este mes: las escenas irán con zoom suave. Si "
+                                "tu crédito lo permite, sube el tope en «Claves de IA».", m=tope))
+            elif escenas:
+                avisos.append(t("Movimiento real: hasta {n} escenas con tu nube Modal, unos {costo} de tu crédito como "
+                                "mucho (quedan {quedan} de {m} este mes).", n=n, costo=dinero(n * nube.PRECIO_CLIP),
+                                quedan=quedan, m=tope)
+                              + (" " + t("Las demás irán con zoom suave.") if escenas > quedan else ""))
+            else:
+                avisos.append(t("Movimiento real con tu nube Modal: unos {costo} de tu crédito por escena como mucho "
+                                "(quedan {quedan} de {m} este mes).", costo=dinero(nube.PRECIO_CLIP), quedan=quedan,
+                                m=tope))
     return avisos
 
 
@@ -1106,22 +1142,22 @@ def impide(usos) -> str | None:
     Como impide que se haga el pedido, ninguna respuesta buena lo desbloquea sola: se dice cómo (pasó: recargó y
     seguía bloqueado hasta 12 h)."""
 
-    def que_hacer(proveedor: str, estado: str) -> str:
-        return f"{paso(proveedor, estado)} " + t("Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» "
-                                                 "en «Claves de IA».")
+    def que_hacer(proveedor: str, malo: dict) -> str:  # con su detalle: el tope de gasto de Gemini no es recargar
+        return f"{paso(proveedor, malo['estado'], malo.get('detalle', ''))} " + t(
+            "Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» en «Claves de IA».")
     if "video_voz" in usos:
         quien = (para("video_voz") or {}).get("proveedor")
         if quien and (malo := _vigente(quien, BLOQUEA)):
             return t("No se puede hacer el video que habla: {problema} ({cuando}). {paso} O desmarca «Video animado "
                      "con IA». No se cobró nada.", problema=frase(quien, malo["estado"]), cuando=_cuando(malo),
-                     paso=que_hacer(quien, malo["estado"]))
+                     paso=que_hacer(quien, malo))
     # El modelo elegido para este trabajo en «Modelo de video» (con el de «Claves de IA», las escenas van con zoom
     # suave: antes_de). Hugging Face no: para video va sin su token, que es lo que se comprueba
     quien = getattr(_trabajo, "ajustes", {}).get("video")
     if "video" in usos and quien != "huggingface" and quien in cargar() and (malo := _vigente(quien, BLOQUEA)):
         return t("No se puede animar con {servicio}, el modelo de video elegido: {problema} ({cuando}). {paso} O "
                  "elige otro modelo de video. No se cobró nada.", servicio=nombre(quien),
-                 problema=frase(quien, malo["estado"]), cuando=_cuando(malo), paso=que_hacer(quien, malo["estado"]))
+                 problema=frase(quien, malo["estado"]), cuando=_cuando(malo), paso=que_hacer(quien, malo))
     if "musica" in usos:
         c = para("musica") or {}
         respaldo = "elevenlabs" in cargar() and ajustes().get("musica", "auto") == "auto" and \
@@ -1130,5 +1166,5 @@ def impide(usos) -> str | None:
                                                                                     and respaldo):
             return t("No se puede hacer la canción: {problema} ({cuando}). {paso} No se cobró nada.",
                      problema=frase(c["proveedor"], malo["estado"]), cuando=_cuando(malo),
-                     paso=que_hacer(c["proveedor"], malo["estado"]))
+                     paso=que_hacer(c["proveedor"], malo))
     return None

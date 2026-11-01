@@ -393,7 +393,7 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
     carpeta.mkdir(parents=True)
     foto = Path(shutil.copy(imagen, carpeta / f"imagen{Path(imagen).suffix.lower()}"))
     from . import nubes
-    pago, clip = ia.video_de_pago(), None
+    pago, clip = ia.video_de_pago(un_clip=True), None  # con Gemini elegido, este clip lo hace Gemini (preguntado)
     # Quién lo hace de verdad: con Modal (crédito) elegido decía «gratis primero»; lo gratis va primero solo si es
     # Hugging Face el primero que se prueba
     primero = next(iter(nubes.orden("video")), "huggingface")
@@ -401,10 +401,8 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
     aviso(t("Animando la imagen con {proveedor}…", proveedor=quien) if quien
           else t("Animando la imagen con IA de video (gratis primero)…"), 0.1)
     try:
-        clip = ia.video_desde_imagen(foto, prompt, formato, segundos, carpeta / "clip_ia.mp4", pago)
-        if not clip:  # solo pasa si el usuario puso la IA de video en «No usar» (Hugging Face va sin clave)
-            raise ia.SinClave(t("En «Claves de IA», «Animar escenas con IA de video» está en «No usar». Ponlo en "
-                                "«Automático» para animar: Hugging Face funciona gratis, incluso sin clave."))
+        # forzar: pidió animar esta foto; «No usar» (lo de las escenas de un video) no la deja quieta
+        clip = ia.video_desde_imagen(foto, prompt, formato, segundos, carpeta / "clip_ia.mp4", pago, forzar=True)
         aviso(t("Ajustando al formato…"), 0.9)
         final = video.segmento_mudo(foto, video.duracion(clip), formato, carpeta / "animacion.mp4", 0, clip)
     except Exception as error:  # el clip de pago que se cobró (llegara o no) se dice antes de reintentar

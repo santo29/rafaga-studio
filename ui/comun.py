@@ -974,8 +974,8 @@ class PaginaTrabajo(QWidget):
     def _pagar_video(self, funcion, datos) -> bool:
         """Si el trabajo usa video de pago (escenas que hablan, o Kling o Seedance para animar, elegidos en Claves de
         IA), lo pregunta antes con lo más que puede costar, todo en una sola pregunta. True si se puede seguir."""
-        from motor import director, ia, serie
-        pago = ia.video_de_pago()
+        from motor import director, ia, nube, nubes, serie
+        pago = ia.video_de_pago(un_clip=funcion is desde_prompt.animar_imagen)  # una foto con Gemini: la anima Gemini
         unico = funcion in (desde_prompt.animar_imagen, serie.rehacer_plano)  # un solo clip
         nombre = self._herramienta(funcion)  # las que no animan escenas (canción, shorts…) cuentan 0 clips
         clips = (1 if unico else director.clips(nombre, datos)) if pago and (unico or nombre) else 0
@@ -988,6 +988,11 @@ class PaginaTrabajo(QWidget):
                 texto = t("Escenas animadas con voz en {proveedor}: {n}. Las que no salgan con voz se animarán con "
                           "{video}: hasta unos {costo} en total según sus precios. ¿Seguir?",
                           n=escenas, proveedor=quien, video=ia.nombre_video(pago), costo=dinero(costo + mudos))
+            elif next(iter(nubes.orden("video")), None) == "modal":  # lo que no hable se mueve, no queda en foto
+                texto = t("Escenas animadas con voz en {proveedor}: {n}, hasta unos {costo} según su precio. Las que "
+                          "no salgan con voz se moverán con tu nube Modal (de tu crédito gratis; quedan {quedan} este "
+                          "mes). ¿Seguir?", n=escenas, proveedor=quien, costo=dinero(costo),
+                          quedan=max(nube.limite() - nube.usados_mes(), 0))
             else:
                 texto = t("Escenas animadas con voz en {proveedor}: {n}, hasta unos {costo} según su precio. ¿Seguir?",
                           n=escenas, proveedor=quien, costo=dinero(costo))
@@ -1021,7 +1026,7 @@ class PaginaTrabajo(QWidget):
                 return False
             if not self._pagar_video(funcion, datos):
                 return False
-            avisos = claves.antes_de(usos)
+            avisos = claves.antes_de(usos, director.clips(nombre, datos) if nombre else 0)
         self.antes.setText("\n".join(f"⚠️ {a}" for a in avisos))
         self.antes.setVisible(bool(avisos))
         boton_iniciar.setEnabled(False)

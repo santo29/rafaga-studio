@@ -1,5 +1,6 @@
-"""Rotación de nubes: cada tarea prueba primero lo gratis (cuota diaria, este PC), luego el crédito de Modal y por
-último lo de pago. Así el crédito gratis dura y siempre hay al menos unas creaciones al día."""
+"""Rotación de nubes: cada tarea prueba primero lo gratis (cuota diaria, este PC) y por último lo de pago. Para animar,
+tu nube Modal (privada, de tu crédito, sin cola) va antes que el Space público de Hugging Face, que solo se usa sin
+ella. Un servicio que dijo «sin saldo» va el último (claves.recordar)."""
 import hashlib
 import json
 import os
@@ -20,7 +21,7 @@ USO = Path(__file__).resolve().parent.parent / "datos" / "uso_nubes.json"
 # Del más barato al más caro. "pc" = este ordenador (gratis, más lento).
 ORDEN = {
     "imagen": ["cloudflare", "pollinations", "huggingface", "replicate", "openai", "gemini", "gratis_sin_clave"],
-    "video": ["huggingface", "modal", "pollinations", "kling", "seedance"],
+    "video": ["modal", "huggingface", "pollinations", "kling", "seedance"],
     # Privacidad: tus canciones y tu voz no salen de tu PC (Demucs local; ver _separar_pc).
     "separacion": ["pc"],
     # Tu cara y tu voz: ia.avatar pasa solo una de las dos (la que elegiste), nunca una como respaldo de la otra
@@ -129,22 +130,26 @@ def resumen_hoy() -> dict:
 
 
 def orden(uso: str) -> list[str]:
-    """Proveedores a probar: el elegido por el usuario primero (si eligió uno) y luego del más barato al más caro."""
+    """Proveedores a probar: el elegido por el usuario primero (si eligió uno) y luego del más barato al más caro. Uno
+    que dijo «sin saldo» hace poco (claves.recordar) va el último: con 0 saldo cada imagen esperaba su 402."""
     conectados = set(claves.cargar()) | SIEMPRE
     elegido = claves.ajustes().get(uso, "auto")
     lista = [p for p in ORDEN[uso] if p in conectados]
     if elegido == claves.GRATIS.get(uso) == "pollinations":
         # Eligió «Pollinations (gratis)»: solo opciones gratis y nunca una de pago, aunque fallen todas.
-        # Hugging Face (con token) también es gratis; Pollinations sin clave va al final por su baja calidad.
-        return [p for p in ("pollinations", "cloudflare", "huggingface", "gratis_sin_clave") if p in lista]
-    # De pago con una clave que muchos conectan por otra cosa: solo si el usuario lo eligió (claves.SOLO_ELIGIENDO)
-    lista = [p for p in lista if p not in claves.SOLO_ELIGIENDO.get(uso, []) or p == elegido]
-    if uso == "video" and elegido in claves.SOLO_ELIGIENDO["video"] and elegido in lista:
-        return [elegido]  # video de pago (Kling, Seedance): sin respaldo, que un fallo nunca se pague dos veces
-    if uso == "video" and elegido in ("modal", "pollinations"):
-        # Eligió dónde animar sus fotos: si esa nube falla, nunca se suben por detrás a un Space público de terceros.
-        lista = [p for p in lista if p != "huggingface"]
-    return ([elegido] + [p for p in lista if p != elegido]) if elegido in lista else lista
+        # Hugging Face también es gratis; Pollinations sin clave va al final por su baja calidad.
+        lista = [p for p in ("pollinations", "cloudflare", "huggingface", "gratis_sin_clave") if p in lista]
+    else:
+        # De pago con una clave que muchos conectan por otra cosa: solo si el usuario lo eligió (claves.SOLO_ELIGIENDO)
+        lista = [p for p in lista if p not in claves.SOLO_ELIGIENDO.get(uso, []) or p == elegido]
+        if uso == "video" and elegido in claves.SOLO_ELIGIENDO["video"] and elegido in lista:
+            return [elegido]  # video de pago (Kling, Seedance): sin respaldo, que un fallo nunca se pague dos veces
+        if uso == "video" and (elegido in ("modal", "pollinations") or (elegido != "huggingface" and "modal" in lista)):
+            # Con tu nube Modal (o eligiendo Pollinations), tus fotos nunca se suben por detrás a un Space público de
+            # terceros ni esperan su cola de 5 minutos por escena: el Space es solo para quien no tiene otra
+            lista = [p for p in lista if p != "huggingface"]
+        lista = ([elegido] + [p for p in lista if p != elegido]) if elegido in lista else lista
+    return sorted(lista, key=lambda p: bool(claves._vigente(p, {"sin_saldo"})))
 
 
 CUOTA_DIARIA = {"cloudflare", "huggingface"}  # su 429 es la cuota gratis del día; en los demás, saldo o límite por minuto
@@ -198,6 +203,8 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
                 _apuntar(uso, proveedor, que_fue, e, cobrado=True)
                 raise
             causa = _causa(e, proveedor)
+            if proveedor in claves.USOS and re.search(r"\b402\b|insufficient[_ ]balance", f"{e} {causa}", re.I):
+                claves.recordar(proveedor, 402, causa)  # sin saldo: la próxima imagen ya no lo espera (orden)
             _apuntar(uso, proveedor, que_fue, causa, paso_a=siguiente)
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),

@@ -17,12 +17,13 @@ from PySide6.QtGui import QShortcut  # noqa: E402
 from PySide6.QtWidgets import QApplication, QListWidget, QMessageBox, QPushButton  # noqa: E402
 
 from motor import claves, desde_prompt, diseno, diseno_ia, director, herramientas, ia, memoria, roles, voz  # noqa: E402
+from motor import marca  # noqa: E402
 
 diseno.asegurar_qt()
 app = QApplication.instance()
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-estudio-"))
 claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # sin claves: nunca las del usuario
-memoria.ARCHIVO = tmp / "memoria.json"  # ni su memoria
+memoria.ARCHIVO, marca.ARCHIVO = tmp / "memoria.json", tmp / "marca.json"  # ni su memoria ni su marca
 RAIZ = Path(__file__).resolve().parent.parent
 
 

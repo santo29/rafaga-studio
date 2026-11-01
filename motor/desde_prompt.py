@@ -387,7 +387,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
 
 def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: float = 5,
                   aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
-    """Solo anima una imagen siguiendo el pedido (clip corto, sin voz). Prueba primero la cuota gratis de video."""
+    """Solo anima una imagen siguiendo el pedido (clip corto, sin voz), con quien diga ia.orden_foto."""
     imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-animacion")
     carpeta.mkdir(parents=True)
@@ -396,7 +396,7 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
     pago, clip = ia.video_de_pago(un_clip=True), None  # con Gemini elegido, este clip lo hace Gemini (preguntado)
     # Quién lo hace de verdad: con Modal (crédito) elegido decía «gratis primero»; lo gratis va primero solo si es
     # Hugging Face el primero que se prueba
-    primero = next(iter(nubes.orden("video")), "huggingface")
+    primero = next(iter(ia.orden_foto()), "huggingface")
     quien = ia.nombre_video(pago) if pago else None if primero == "huggingface" else nubes.NOMBRES.get(primero, primero)
     aviso(t("Animando la imagen con {proveedor}…", proveedor=quien) if quien
           else t("Animando la imagen con IA de video (gratis primero)…"), 0.1)
@@ -437,7 +437,9 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     from concurrent.futures import ThreadPoolExecutor, as_completed
     n, fallos, pagados, segundos = min(len(guion["escenas"]), MAX_HABLADAS), {}, 0, 0.0
     quien = quien or proveedor_voz() or "gemini"
-    sin_saldo = []  # el servicio dijo que no tiene saldo: las escenas que faltan ni se piden (fallarían igual)
+    # El servicio dijo que no tiene saldo: las escenas que aún no salieron ni se piden (fallarían igual). Las que ya
+    # iban a la vez (hasta 3) reciben su «no» también: no cobra
+    sin_saldo = []
 
     def uno(i: int, e: dict) -> Path:
         if sin_saldo:
@@ -483,9 +485,11 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
                 fallos[i] = texto_de_error(error)  # el de httpx, en claro (venía en inglés con un enlace)
             aviso(t("Escenas animadas con voz: {hechas} de {total}", hechas=len(hechos) + len(fallos), total=n),
                   0.08 + 0.6 * (len(hechos) + len(fallos)) / n)
-    if fallos:  # una sola nota: si falla la clave, fallan todas por lo mismo
-        notas.append(t("Las escenas {lista} no salieron animadas con voz ({causa}). Se hicieron con imagen y "
-                       "narración.", lista=", ".join(str(i + 1) for i in sorted(fallos)),
+    if fallos:  # una sola nota: si falla la clave, fallan todas por lo mismo. Sin decir «fotos»: con tu nube Modal
+        # (claves.por_trabajo) esas escenas se mueven igual; las que quedan quietas lo dice el montaje
+        notas.append(t("Las escenas {lista} no salieron animadas con voz ({causa}). Van con su imagen y narración, "
+                       "movidas con la IA de video si está activa.",
+                       lista=", ".join(str(i + 1) for i in sorted(fallos)),
                        causa=" ".join(fallos[min(fallos)].split())[:300]))
     if pagados:  # Gemini cobra los segundos que salen; Kling y Seedance, los que se piden (por lo alto)
         costo = ia.precio_video(quien, segundos, voz=True) if quien == "gemini" else \

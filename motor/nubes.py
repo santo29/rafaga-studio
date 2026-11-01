@@ -131,10 +131,14 @@ def resumen_hoy() -> dict:
 
 def orden(uso: str) -> list[str]:
     """Proveedores a probar: el elegido por el usuario primero (si eligió uno) y luego del más barato al más caro. Uno
-    que dijo «sin saldo» hace poco (claves.recordar) va el último: con 0 saldo cada imagen esperaba su 402."""
+    que dijo «sin saldo» hace poco (claves.recordar) va el último: con 0 saldo cada imagen esperaba su 402. Tu nube
+    Modal con su token malo, también: como si no estuviera (ni va delante ni quita el Space)."""
     conectados = set(claves.cargar()) | SIEMPRE
     elegido = claves.ajustes().get(uso, "auto")
     lista = [p for p in ORDEN[uso] if p in conectados]
+
+    def malo(p):
+        return bool(claves._vigente(p, claves.BLOQUEA if p == "modal" else {"sin_saldo"}))
     if elegido == claves.GRATIS.get(uso) == "pollinations":
         # Eligió «Pollinations (gratis)»: solo opciones gratis y nunca una de pago, aunque fallen todas.
         # Hugging Face también es gratis; Pollinations sin clave va al final por su baja calidad.
@@ -144,12 +148,14 @@ def orden(uso: str) -> list[str]:
         lista = [p for p in lista if p not in claves.SOLO_ELIGIENDO.get(uso, []) or p == elegido]
         if uso == "video" and elegido in claves.SOLO_ELIGIENDO["video"] and elegido in lista:
             return [elegido]  # video de pago (Kling, Seedance): sin respaldo, que un fallo nunca se pague dos veces
-        if uso == "video" and (elegido in ("modal", "pollinations") or (elegido != "huggingface" and "modal" in lista)):
+        if uso == "video" and (elegido in ("modal", "pollinations", "ninguno") or
+                               (elegido != "huggingface" and "modal" in lista and not malo("modal"))):
             # Con tu nube Modal (o eligiendo Pollinations), tus fotos nunca se suben por detrás a un Space público de
-            # terceros ni esperan su cola de 5 minutos por escena: el Space es solo para quien no tiene otra
+            # terceros ni esperan su cola de 5 minutos por escena: el Space es solo para quien no tiene otra. Con «No
+            # usar» solo se llega aquí al animar una foto suelta (ia.video_desde_imagen, forzar): tampoco al Space
             lista = [p for p in lista if p != "huggingface"]
         lista = ([elegido] + [p for p in lista if p != elegido]) if elegido in lista else lista
-    return sorted(lista, key=lambda p: bool(claves._vigente(p, {"sin_saldo"})))
+    return sorted(lista, key=malo)
 
 
 CUOTA_DIARIA = {"cloudflare", "huggingface"}  # su 429 es la cuota gratis del día; en los demás, saldo o límite por minuto

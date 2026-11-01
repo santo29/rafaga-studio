@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QSpinBox, QTextEdit, QWidget
 
-from motor import claves, desde_prompt, ia, nube, nubes, seguro, serie
+from motor import claves, desde_prompt, ia, nube, seguro, serie
 from motor.idioma import dinero, t
 from ui.comun import (archivo_valido, boton, campo_archivo, etiqueta, mensaje, PaginaTrabajo, SelectorFormato,
                       SelectorModelo, SelectorVoz)
@@ -138,7 +138,7 @@ class PaginaCrear(PaginaTrabajo):
         """Con qué se animará la foto y lo que cuesta, antes de pulsar (lo de pago se pregunta igual al empezar)."""
         modelo = self.modelo.valor()
         with claves.por_trabajo(modelo):
-            pago, primero = ia.video_de_pago(un_clip=True), next(iter(nubes.orden("video")), "")
+            pago, primero, nadie = ia.video_de_pago(un_clip=True), next(iter(ia.orden_foto()), ""), ia.foto_sin_animar()
         self.costo_foto.setText(
             t("«Sin animar» no anima nada: elige otro modelo de video.") if modelo == "ninguno" else
             t("Hasta unos {costo} con {proveedor} (se pregunta antes de empezar).",
@@ -147,24 +147,28 @@ class PaginaCrear(PaginaTrabajo):
               costo=dinero(nube.PRECIO_CLIP), n=max(nube.limite() - nube.usados_mes(), 0), m=nube.limite())
             if primero == "modal" else
             t("Gratis con el Space público de Hugging Face: tu foto se sube ahí.") if primero == "huggingface" else
-            t("Con Pollinations: usa el saldo de tu cuenta."))
+            nadie)
 
     def _iniciar(self):
         texto = self.prompt.toPlainText().strip()
         imagen = self.imagen.text().strip()
         foto_a_video = bool(imagen) and self.modo.currentIndex() == 1
+        if self.modo.currentIndex() == 1 and not imagen:  # sin foto no es un video entero (con lo oculto de ese modo)
+            return mensaje(self, t("Falta la imagen"), t("Elige la foto que quieres mover."))
         if not texto and not foto_a_video:  # a una foto le basta su movimiento de cámara
             return mensaje(self, t("Falta el pedido"), t("Escribe qué video quieres crear."))
         if imagen and not archivo_valido(self, imagen, seguro.IMAGENES, t("imagen")):
             return
         modelo = self.modelo.valor()  # solo para este trabajo: «Claves de IA» no cambia
         if foto_a_video:
-            if modelo == "ninguno":
-                return mensaje(self, t("Elige un modelo de video"),
+            with claves.por_trabajo(modelo):  # Pollinations no ve la foto; con «No usar», nunca al Space público
+                nadie = not ia.video_de_pago(un_clip=True) and not ia.orden_foto() and ia.foto_sin_animar()
+            if modelo == "ninguno" or nadie:
+                return mensaje(self, t("Elige un modelo de video"), nadie if modelo != "ninguno" else
                                t("«Sin animar» no anima nada: para animar solo la imagen, elige otro modelo de video."))
-            # El pedido (o uno suave) y la cámara elegida: ia.direccion_video pone la cámara delante para la IA
-            pedido = f"{texto or t('Que cobre vida con un movimiento suave y natural')}. " \
-                     f"{ia.CAMARAS[self.camara.currentData()][1]}."
+            # La cámara elegida delante (ia.direccion_video toma la primera): manda sobre un pedido que la nombre
+            pedido = f"{ia.CAMARAS[self.camara.currentData()][1]}. " \
+                     f"{texto or t('Que cobre vida con un movimiento suave y natural')}."
             return self.lanzar(self.iniciar, desde_prompt.animar_imagen, modelo_video=modelo, imagen=imagen,
                                prompt=pedido, formato=self.formato.valor())
         # Animado es de pago: lanzar pregunta antes cuánto, junto con lo que cueste animar (ver _pagar_video)

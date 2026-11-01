@@ -759,10 +759,11 @@ def nombre_modelo(id_: str) -> str:
     return " ".join(p.capitalize() for p in limpio.split("-"))
 
 
-def modelos_video() -> list[dict]:
+def modelos_video(una_foto: bool = False) -> list[dict]:
     """Lo que ofrece el selector «Modelo de video»: Automático, Sin animar y solo lo que funciona ya (Hugging Face va
     sin clave), con lo que cuesta dicho corto. [{"id", "nombre", "estado"}]; estado: el último comprobado de su
-    servicio si no es bueno («sin_saldo», «permiso»…), o ""."""
+    servicio si no es bueno («sin_saldo», «permiso»…), o "". una_foto: para animar una foto suelta, que «No usar» no
+    deja quieta (ia.video_desde_imagen, forzar): Automático no dice «sin animar»."""
     from . import ia, nube  # aquí: los dos importan este módulo
     from .idioma import dinero
     todas, recordados = cargar(), estados()
@@ -771,7 +772,8 @@ def modelos_video() -> list[dict]:
     pago = ia.video_de_pago()
     # Con «No usar» en «Claves de IA», Automático no anima: se dice (antes prometía «gratis primero» y salían fotos)
     lista = [("auto", t("Automático (lo de «Claves de IA»: {servicio}, de pago)", servicio=ia.nombre_video(pago))
-              if pago else t("Automático (en «Claves de IA»: sin animar)") if ajustes().get("video") == "ninguno"
+              if pago else t("Automático (en «Claves de IA»: sin animar)")
+              if ajustes().get("video") == "ninguno" and not una_foto
               else t("Automático (el estudio elige: gratis primero)")),
              ("ninguno", t("Sin animar (fotos con movimiento, gratis)")),
              ("huggingface", t("Hugging Face · gratis, cupo diario"))]
@@ -1076,11 +1078,12 @@ def _cuando(e: dict) -> str:
     return t("comprobado el {fecha}", fecha=f"{fecha[8:10]}/{fecha[5:7]} {fecha[11:16]}")
 
 
-def antes_de(usos, escenas: int = 0) -> list[str]:
+def antes_de(usos, escenas: int = 0, una_foto: bool = False) -> list[str]:
     """Lo que se le dice al usuario ANTES de empezar un trabajo que usa estas IA (texto, imagen, musica, video), según el
     último estado comprobado: «Gemini no tiene saldo: usaré Groq para el texto». Lo de pago que no se puede hacer lo
     dice impide(). Con video, si las escenas se moverán o no y, con tu nube Modal, cuántas y lo que gastan de tu
-    crédito (escenas: las que animaría el trabajo como mucho; 0 si no se sabe)."""
+    crédito (escenas: las que animaría el trabajo como mucho; 0 si no se sabe). una_foto: solo anima una foto (Solo
+    animar), que «No usar» no deja quieta (ia.orden_foto): dónde se sube y lo que cuesta, como en Crear."""
     avisos = []
     if "texto" in usos:
         c = para("texto") or {}
@@ -1110,6 +1113,16 @@ def antes_de(usos, escenas: int = 0) -> list[str]:
         if quien in VIDEO_DE_PAGO and quien in cargar() and (malo := _vigente(quien, BLOQUEA)):
             avisos.append(t("{problema}: las escenas irán con zoom suave, sin animar.",
                             problema=frase(quien, malo["estado"])))
+        elif una_foto:  # sin nadie que la anime, el trabajo lo dice al empezar (ia.foto_sin_animar) sin subir nada
+            from . import ia, nube
+            from .idioma import dinero
+            primero = next(iter(ia.orden_foto()), "")
+            if primero == "modal":
+                avisos.append(t("Con tu nube Modal: unos {costo} de tu crédito (quedan {n} de {m} este mes).",
+                                costo=dinero(nube.PRECIO_CLIP), n=max(nube.limite() - nube.usados_mes(), 0),
+                                m=nube.limite()))
+            elif primero == "huggingface":
+                avisos.append(t("Gratis con el Space público de Hugging Face: tu foto se sube ahí."))
         elif quien == "ninguno" and "video" not in getattr(_trabajo, "ajustes", {}):
             # «No usar» guardado (no «Sin animar» elegido para este trabajo): nunca fotos quietas sin decirlo
             avisos.append(t("Las escenas irán sin movimiento real (zoom suave): en «Claves de IA», «Animar escenas con "

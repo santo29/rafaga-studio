@@ -1026,7 +1026,8 @@ class PaginaTrabajo(QWidget):
                 return False
             if not self._pagar_video(funcion, datos):
                 return False
-            avisos = claves.antes_de(usos, director.clips(nombre, datos) if nombre else 0)
+            # Todas sus escenas, sin el tope de clips de pago (director.clips): tu nube Modal no lo tiene, solo su cupo
+            avisos = claves.antes_de(usos, director.FOTOS[nombre](datos) if nombre in director.ANIMAN else 0)
         self.antes.setText("\n".join(f"⚠️ {a}" for a in avisos))
         self.antes.setVisible(bool(avisos))
         boton_iniciar.setEnabled(False)

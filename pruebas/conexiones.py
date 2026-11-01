@@ -810,6 +810,10 @@ try:
     ia.imagen("a juicy cordon bleu with pink ham and stretchy cheese", 64, 64, tmp / "cb.png")
     assert len(pedidos) == 2 and pedidos[1][1]["json"]["prompt"].startswith("Family-friendly"), pedidos
     assert not {"juicy", "pink", "stretchy"} & set(pedidos[1][1]["json"]["prompt"].split()), pedidos[1]
+    # El plato no cambia: «hot» sale de «a hot girl», no de «hot dog» ni de «hot sauce» (quedaba «a dog»)
+    assert ia._neutro("Close-up of a juicy hot dog with hot sauce, a hot girl") == ("Family-friendly, safe for work "
+                                                                                     "image. Close-up of a hot dog "
+                                                                                     "with hot sauce, a girl")
     assert actividad.ultimas(1)[0]["proveedor"] == "cloudflare" and actividad.ultimas(1)[0]["resultado"] == "ok"
     # Hugging Face con token: el Space oficial de FLUX (hf-inference ya no sirve el modelo: 410 Gone)
     claves.elegir_por_defecto("imagen", "huggingface")
@@ -924,8 +928,9 @@ try:
 finally:
     ia.video_hablado = hablado_real
 assert hechos == {} and 1 <= len(pedidas) <= 3, len(pedidas)  # como mucho las 3 que iban a la vez; las otras, no
-assert notas == ["Las escenas 1, 2, 3, 4, 5, 6 no salieron animadas con voz (Gemini no tiene saldo). Se hicieron con "
-                 "imagen y narración."], notas
+# Sin decir «fotos»: con tu nube Modal esas escenas se mueven igual (claves.por_trabajo)
+assert notas == ["Las escenas 1, 2, 3, 4, 5, 6 no salieron animadas con voz (Gemini no tiene saldo). Van con su "
+                 "imagen y narración, movidas con la IA de video si está activa."], notas
 # El tope de gasto mensual de Gemini llega como 429: es «sin saldo», no «espera un rato». Se dice en claro y en
 # español, sin cobrar, una sola petición, y el trabajo siguiente ni empieza (con cómo subir el tope)
 TOPE = {"error": {"code": 429, "message": "Your project has exceeded its monthly spending cap. Please go to AI Studio "

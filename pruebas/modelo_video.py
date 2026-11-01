@@ -134,6 +134,20 @@ assert d.startswith(ia.CAMARAS["acercar"][1] + "; a juicy burger on a wooden tab
 d = ia.direccion_video("Que el vapor suba. Smooth orbit around the subject.")  # la de la foto, delante
 assert d.startswith("Smooth orbit around the subject; Que el vapor suba."), d
 assert [n for n, _ in ia.CAMARAS.values()] == ["Acercar", "Alejar", "Órbita", "Paneo", "Grúa", "Cámara en mano"]
+# Una frase es la cámara solo si EMPIEZA por ella: «in the pan» o «el pan» son lo que pasa (se perdían), «static macro»
+# sí es cámara (no se le añade otra)
+for pedido, esperado in (
+        ("orbit; the patty sizzles in the pan, cheese melts", "orbit; the patty sizzles in the pan, cheese melts."),
+        ("slow dolly in; the chef flips the patty in the pan, steam rises",
+         "slow dolly in; the chef flips the patty in the pan, steam rises."),
+        ("Smooth orbit around the subject. el pan se tuesta y sube el vapor",
+         "Smooth orbit around the subject; el pan se tuesta y sube el vapor."),
+        ("static macro; sauce drips", "static macro; sauce drips."),
+        ("a small pan of melted butter", f"{ia.CAMARAS['acercar'][1]}; a small pan of melted butter."),
+        ("the camera pans left across the kitchen; steam rises. Drone shot over the city",
+         "the camera pans left across the kitchen; steam rises.")):
+    d = ia.direccion_video(pedido)
+    assert d.startswith(esperado) and d.count(";") == esperado.count(";") + 1, (pedido, d)
 
 # ---------- «No usar» nunca deja fotos quietas sin decirlo; con tu nube Modal, cuántas escenas y lo que gastan ------
 claves.elegir_por_defecto("video", "ninguno")
@@ -154,6 +168,13 @@ with claves.por_trabajo("modal"):  # quedan 2 de 3: dos se mueven y se dice que 
     nube.USO.write_text(json.dumps({"mes": time.strftime("%Y-%m"), "clips": 1}), encoding="utf-8")
 with claves.por_trabajo("huggingface"):
     assert claves.antes_de(["video"], 6) == []  # gratis en el Space: nada de tu crédito que contar
+    assert claves.antes_de(["video"], una_foto=True) == ["Gratis con el Space público de Hugging Face: tu foto se "
+                                                         "sube ahí."]  # una foto suya: dónde va
+# Animar UNA foto suya con «No usar» guardado (Director, MCP): la mueve tu nube Modal y se dice lo que cuesta, nunca
+# «sin animar» ni «sin movimiento real»
+assert claves.modelos_video(una_foto=True)[0]["nombre"] == "Automático (el estudio elige: gratis primero)"
+assert claves.antes_de(["video"], una_foto=True) == ["Con tu nube Modal: unos US$0.35 de tu crédito (quedan 2 de 3 "
+                                                     "este mes)."], claves.antes_de(["video"], una_foto=True)
 
 
 # «Solo animar» (Crear, el visor, el Director, el MCP): pidió animar SU foto, y «No usar» no la deja quieta. Con
@@ -183,9 +204,44 @@ try:
     assert hablados[-1][1:] == (foto_prueba, "gemini") and "No dialogue" in hablados[-1][0] and not animadas[1:]
 finally:
     ia.video_hablado = hablado_real
+# Pollinations hace el clip solo con el texto: nunca anima una foto suelta, ni de respaldo si falla tu nube Modal
+claves.guardar({"proveedor": "pollinations", "clave": "sk_" + "AbCdEfGh" * 8, "usos": ["video"], "modelo_video": "wan"})
+descargas, descargar_real, animar_real = [], ia.seguro.descargar, nube.animar
+ia.seguro.descargar = lambda *a, **k: descargas.append(a) or b""
+nube.animar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Modal no respondió"))
+try:
+    assert nubes.orden("video") == ["modal", "pollinations"] and ia.orden_foto() == ["modal"]
+    assert "Ninguna opción pudo hacerlo" in falla(ia.video_desde_imagen, foto_prueba, "x", "9:16", 5, tmp / "p.mp4",
+                                                  forzar=True, error=RuntimeError) and not descargas
+    with claves.por_trabajo("pollinations"):  # elegido para esta foto: se dice, sin subir nada
+        assert ia.orden_foto() == [] and falla(ia.video_desde_imagen, foto_prueba, "x", "9:16", 5, tmp / "p.mp4",
+                                               forzar=True, error=ia.SinClave).startswith(
+            "Pollinations hace el clip solo con el texto, sin tu foto") and not descargas
+finally:
+    ia.seguro.descargar, nube.animar = descargar_real, animar_real
+    claves.borrar("pollinations")
+# «No usar» y sin tu nube Modal: la foto nunca va al Space público por detrás (la doc lo promete); se dice cómo
+claves.borrar("modal")
+espacios, llamar_real = [], nubes.llamar_space
+nubes.llamar_space = lambda *a, **k: espacios.append(a)
+try:
+    assert nubes.orden("video") == [] and claves.antes_de(["video"], una_foto=True) == []
+    e = falla(ia.video_desde_imagen, foto_prueba, "x", "9:16", 5, tmp / "z.mp4", forzar=True, error=ia.SinClave)
+    assert e.startswith("Para animar tu foto, elige «Hugging Face» (gratis: se sube a su Space público)") and \
+        not espacios, (e, espacios)
+    with claves.por_trabajo("huggingface"):  # elegido a mano para esta foto: al Space, sí
+        assert ia.orden_foto() == ["huggingface"]
+finally:
+    nubes.llamar_space = llamar_real
+    claves.guardar({"proveedor": "modal", "clave": "ak-AAA111 as-BBB222", "usos": ["video"]})
 assert ia.precio_video("gemini") == 1.0 and ia.nota_pago("gemini", 1) == ("Gemini hizo clips de video (1): hasta "
                                                                           "unos US$1.00 según su precio.")
 sin_video()  # vuelve a Automático sin dejar «video» guardado
+# Tu nube Modal con su token malo: como si no estuviera (no promete movimiento ni quita el Space); arreglado, primero
+claves.recordar("modal", 401, "Token invalid")
+assert nubes.orden("video") == ["huggingface", "modal"] and claves.antes_de(["video"], 8) == []
+claves.recordar("modal", 200)
+assert nubes.orden("video") == ["modal"]
 for raro in ("auto", None, "sora", ["kling"], 3):  # lo que no es un modelo: lo de «Claves de IA»
     with claves.por_trabajo(raro):
         assert claves.ajustes() == claves._guardados()
@@ -309,6 +365,22 @@ try:
     claves.recordar("kling", 200)
     crear.imagen.setText("")
     crear.modo.setCurrentIndex(0)
+    # Lo que gasta tu nube Modal: todas las escenas (600 s son unas 102), no el tope de 15 clips de lo de pago
+    claves.elegir_por_defecto("limite_nube_mensual", 85)
+    elegir(crear.modelo, "modal")
+    segundos_antes, n = crear.segundos.value(), len(hechos)
+    crear.segundos.setValue(600)
+    crear._iniciar()
+    esperar(lambda: len(hechos) == n + 1 and not crear.tarea.isRunning())
+    assert "Movimiento real: hasta 84 escenas con tu nube Modal, unos US$29.40 de tu crédito como mucho (quedan 84 de " \
+           "85 este mes). Las demás irán con zoom suave." in crear.antes.text(), crear.antes.text()
+    crear.segundos.setValue(segundos_antes)
+    claves.elegir_por_defecto("limite_nube_mensual", 3)
+    # «Foto a video» sin foto: se pide la foto (antes hacía un video entero con la casilla oculta de las que hablan)
+    crear.modo.setCurrentIndex(1)
+    crear._iniciar()
+    assert errores[-1][1:] == ("Falta la imagen", "Elige la foto que quieres mover.") and len(hechos) == n + 1
+    crear.modo.setCurrentIndex(0)
 
     # ---------- Foto a video: una foto sin pedido queda lista para moverse, con su cámara y lo que cuesta ----------
     from PySide6.QtWidgets import QPushButton  # noqa: E402
@@ -332,8 +404,9 @@ try:
         n = len(preguntas)
         crear._iniciar()  # sin pedido: le basta su cámara; gratis (tu crédito): sin pregunta
         esperar(lambda: animaciones and not crear.tarea.isRunning())
-        assert len(preguntas) == n and animaciones[-1]["prompt"] == ("Que cobre vida con un movimiento suave y "
-                                                                      "natural. Smooth orbit around the subject.")
+        # La cámara elegida delante: ia.direccion_video toma la primera, y así manda sobre lo que se escriba
+        assert len(preguntas) == n and animaciones[-1]["prompt"] == ("Smooth orbit around the subject. Que cobre vida "
+                                                                      "con un movimiento suave y natural.")
         assert animaciones[-1]["orden"] == ["modal"] and animaciones[-1]["pago"] is None, animaciones[-1]
         # Gemini Omni elegido: la foto la anima Gemini, con lo que cuesta dicho al lado y preguntado antes
         elegir(crear.modelo, "gemini")
@@ -343,12 +416,24 @@ try:
         assert len(preguntas) == n + 1 and "Escenas que se animarán con Gemini: hasta 1, por unos US$1.00" in \
             preguntas[-1] and len(animaciones) == 1, preguntas[-1]
         respuesta[0] = QMessageBox.Yes
-        crear.prompt.setPlainText("el vapor sube")
+        crear.prompt.setPlainText("slow pan left; el vapor sube")  # la cámara del combo manda sobre la escrita
         crear._iniciar()
         esperar(lambda: len(animaciones) == 2 and not crear.tarea.isRunning())
-        assert animaciones[-1]["pago"] == "gemini" and animaciones[-1]["prompt"].startswith("el vapor sube. ")
+        assert animaciones[-1]["pago"] == "gemini" and animaciones[-1]["prompt"] == ("Smooth orbit around the "
+                                                                                     "subject. slow pan left; el "
+                                                                                     "vapor sube.")
+        assert ia.direccion_video(animaciones[-1]["prompt"]).startswith("Smooth orbit around the subject; el vapor "
+                                                                        "sube. One continuous shot")
         elegir(crear.modelo, "huggingface")
         assert crear.costo_foto.text() == "Gratis con el Space público de Hugging Face: tu foto se sube ahí."
+        # «No usar» y sin tu nube Modal: nadie la anima sin subirla a un Space público; se dice al lado y no empieza
+        elegir(crear.modelo, "auto")
+        claves.borrar("modal")
+        crear._costo_foto()
+        assert crear.costo_foto.text().startswith("Para animar tu foto, elige «Hugging Face»"), crear.costo_foto.text()
+        crear._iniciar()
+        assert errores[-1][1:] == ("Elige un modelo de video", crear.costo_foto.text()) and len(animaciones) == 2
+        claves.guardar({"proveedor": "modal", "clave": "ak-AAA111 as-BBB222", "usos": ["video"]})
     finally:
         desde_prompt.animar_imagen, comun.QFileDialog.getOpenFileName = animar_imagen_real, dialogo_real
         sin_video()
@@ -395,6 +480,21 @@ try:
         director.dirigir("una manzana que habla", confirmar=lambda p: pedidas.append(p) or True, modelo_video=gratis)
         assert len(hechos) == n + 1 and not pedidas and hechos[-1]["animado"] is False, (gratis, pedidas)
         assert hechos[-1]["pago"] is None and hechos[-1]["video"] == gratis
+    # Animar SU foto con «No usar» guardado: no dice «sin animar» (sí se mueve) sino con qué y lo que cuesta
+    claves.elegir_por_defecto("video", "ninguno")
+    ia.texto_json = pasos({"mensaje": "La animo.", "herramienta": "crear_video", "argumentos": json.dumps(
+        {"prompt": "que suba el vapor", "imagen": str(foto_prueba), "solo_animar": True})}, FIN)
+    dichos, animar_imagen_real = [], desde_prompt.animar_imagen
+    desde_prompt.animar_imagen = lambda *a, **k: {"tipo": "animacion", "resultados": []}
+    try:
+        r = director.dirigir(f"anima esta foto {foto_prueba}", confirmar=lambda p: True, al_decir=dichos.append)
+    finally:
+        desde_prompt.animar_imagen = animar_imagen_real
+        sin_video()
+    assert "ERROR" not in str(r["pasos"][0]["resultado"]), r["pasos"]
+    assert "Para el video usaré: Automático (el estudio elige: gratis primero)." in dichos and \
+        "Con tu nube Modal: unos US$0.35 de tu crédito (quedan 2 de 3 este mes)." in dichos and \
+        not any("sin animar" in d or "sin movimiento real" in d for d in dichos), dichos
     # Lo que diga que no, no se hace
     ia.texto_json = pasos(VIDEO, FIN)
     n = len(hechos)

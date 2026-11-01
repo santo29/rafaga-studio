@@ -318,7 +318,7 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
     if "modelo_video" in inspect.signature(funcion).parameters:  # la herramienta anima: con el modelo del usuario
         # Gemini Omni solo hace escenas que hablan: elegido, crear_video las hace (pregunta antes el costo); para lo
         # demás, Automático. Uno que ya no está conectado, también Automático (como su selector al abrirlo)
-        lista = {m["id"]: m["nombre"] for m in claves.modelos_video()}
+        lista = {m["id"]: m["nombre"] for m in claves.modelos_video(_solo_anima(args))}
         habla = nombre == "crear_video" and not _solo_anima(args)
         args["modelo_video"] = modelo_video if modelo_video in lista and (modelo_video != "gemini" or habla) else "auto"
         if args["modelo_video"] == "gemini":
@@ -341,7 +341,7 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
     if pregunta and not confirmar(pregunta):
         return args, f"ERROR: {t('el usuario no lo aceptó: no se hizo ni se gastó nada')}"
     with claves.por_trabajo(args.get("modelo_video")):
-        avisar(claves.antes_de(usos(nombre, args)))
+        avisar(claves.antes_de(usos(nombre, args), una_foto=_solo_anima(args)))
     al_usar(nombre)
     herramientas._hilo.aviso = aviso
     try:

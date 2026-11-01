@@ -1050,8 +1050,10 @@ def investigar_web(pregunta: str, plazo: float = 300) -> str | None:
 
 
 # Lo que el filtro de Cloudflare toma por «NSFW» en pedidos inocentes (comida, dibujos): fuera en su único reintento
+# («hot» sí, salvo en comidas: sin él, «hot dog» quedaba «dog»)
 _DUDOSAS = re.compile(r"\b(?:juicy|moist|wet|dripping|oozing|stretchy|creamy|thick|tender|pink|flesh\w*|skin\w*|naked|"
-                      r"nude|bare|sexy|seductive|sensual|hot|steamy|curvy|busty|lick\w*|suck\w*|kiss\w*|"
+                      r"nude|bare|sexy|seductive|sensual|hot(?![ -]?(?:dogs?|sauces?|wings?|pot|chocolate|cocoa|soup|"
+                      r"tea|coffee|peppers?|chil[il]\w*)\b)|steamy|curvy|busty|lick\w*|suck\w*|kiss\w*|"
                       r"bod(?:y|ies))\b", re.I)
 
 
@@ -1158,10 +1160,14 @@ def cloudflare_partes(clave: str) -> tuple[str, str]:
     return cuenta, token
 
 
-# Un movimiento de cámara dicho como lo entiende Wan 2.2 (y Kling, Seedance, Omni)
-_CAMARA = re.compile(r"\b(?:dolly|push(?:es|ing)?[ -]in|pull(?:s|ing)?[ -](?:back|out)|zoom\w*|pan(?:s|ning)?|tilt\w*|"
-                     r"orbit\w*|crane|jib|tracking|truck\w*|arc(?:s|ing)?|hand-?held|static camera|locked[ -]off|"
-                     r"drone|aerial|fpv)\b", re.I)
+# Un movimiento de cámara dicho como lo entiende Wan 2.2 (y Kling, Seedance, Omni), AL EMPEZAR la frase: «the patty
+# sizzles in the pan» o «el pan se tuesta» son lo que pasa, no la cámara (se perdían)
+_CAMARA = re.compile(r"(?:(?:the|camera|slow(?:ly)?|smooth(?:ly)?|gentle|gently|quick(?:ly)?|fast|subtle|steady|very|"
+                     r"cinematic)[\s:,]+)*(?:dolly|push(?:es|ing)?[ -]in|pull(?:s|ing)?[ -](?:back|out)|zoom\w*|"
+                     r"pan(?:s|ning)?\s+(?:left|right|across|up|down|over|from|to)|tilt(?:s|ing)?\s+(?:up|down)|"
+                     r"orbit\w*|(?:crane|jib)(?:\s+(?:shot|up|down)|s?\s+(?:up|down))|tracking|"
+                     r"truck(?:s|ing)?\s+(?:left|right)|arc(?:s|ing)?\s+(?:shot|around|left|right)|hand-?held|static|"
+                     r"locked[ -]off|macro|(?:drone|aerial)\s+(?:shot|view)|fpv)\b", re.I)
 # Los movimientos con nombre para animar una foto (como los de Higgsfield): el nombre, y cómo se le pide a la IA
 CAMARAS = {"acercar": (t("Acercar"), "Slow dolly in toward the subject"),
            "alejar": (t("Alejar"), "Slow dolly out, pulling back to reveal the scene"),
@@ -1177,9 +1183,27 @@ def direccion_video(prompt: str) -> str:
     acercamiento lento: antes iba la descripción quieta de la imagen con «cinematic motion» al final, y salía casi
     quieta."""
     frases = [f.strip(" ,") for f in re.split(r"[.;\n]+", str(prompt)) if f.strip(" ,")]
-    camara = next((f for f in frases if _CAMARA.search(f)), CAMARAS["acercar"][1])
-    return "; ".join([camara, *(f for f in frases if not _CAMARA.search(f))]) + \
+    camara = next((f for f in frases if _CAMARA.match(f)), CAMARAS["acercar"][1])
+    return "; ".join([camara, *(f for f in frases if not _CAMARA.match(f))]) + \
         ". One continuous shot with smooth, natural motion; the subject keeps its exact look."
+
+
+def orden_foto() -> list[str]:
+    """Quién anima UNA foto que pidió mover el usuario (Solo animar): los de las escenas (nubes.orden), salvo
+    Pollinations, que hace el clip solo con el texto y no ve la foto (elegido, no hay nadie). Con «No usar» guardado,
+    nubes.orden no la sube al Space público: solo tu nube Modal. Vacío: foto_sin_animar() dice por qué."""
+    from . import nubes
+    if claves.ajustes().get("video") == "pollinations":
+        return []
+    return [p for p in nubes.orden("video") if p != "pollinations"]
+
+
+def foto_sin_animar() -> str:
+    """Por qué nadie anima la foto (orden_foto() vacío), dicho para el usuario."""
+    if claves.ajustes().get("video") == "pollinations":
+        return t("Pollinations hace el clip solo con el texto, sin tu foto: para animarla, elige otro modelo de video.")
+    return t("Para animar tu foto, elige «Hugging Face» (gratis: se sube a su Space público) o conecta tu nube Modal "
+             "(privada). Con «No usar» en «Claves de IA», el estudio no la sube a un Space público por su cuenta.")
 
 
 def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: float, destino: Path,
@@ -1190,7 +1214,9 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     pago: el video de pago (video_de_pago) que se preguntó al empezar el trabajo; solo ese se puede usar. Si el
     usuario elige otro a mitad del trabajo, esa escena no se paga (falla y va con zoom suave): vale para el siguiente.
     Gemini Omni (solo con una foto, video_de_pago(un_clip=True)): sin respaldo, un fallo nunca se paga dos veces.
-    forzar: el usuario pidió animar ESTA imagen (Solo animar): «No usar» no la deja quieta."""
+    forzar: el usuario pidió animar ESTA imagen (Solo animar): «No usar» guardado no la deja quieta, pero entonces solo
+    la mueve tu nube Modal (nubes.orden: nunca el Space público); Pollinations nunca, que no ve la foto (orden_foto).
+    SinClave si no hay quien."""
     from . import nube, nubes
     if not forzar and claves.ajustes().get("video") == "ninguno":
         return None
@@ -1199,6 +1225,8 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     if pago == "gemini":  # su propio sonido de ambiente; el montaje lo deja mudo
         return video_hablado(f"Animate this exact image as the first frame. {movimiento} No dialogue, no voice-over, "
                              "no music: only natural ambient sound.", formato, destino, imagen_png, "gemini")
+    if forzar and not orden_foto():  # antes de subir nada
+        raise SinClave(foto_sin_animar())
 
     def huggingface():
         from gradio_client import handle_file
@@ -1235,7 +1263,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
     resultado, _ = nubes.rotar("video", {
         "huggingface": huggingface,
         "modal": lambda: nube.animar(imagen_png, movimiento, formato, segundos, destino),
-        "pollinations": pollinations,
+        **({} if forzar else {"pollinations": pollinations}),  # sin la foto: con forzar, su clip no sería esa foto
         **{p: lambda p=p: de_pago(p) for p in claves.VIDEO_DE_PAGO if p == pago},  # solo el que se preguntó
     }, que_fue=que_fue)
     return resultado

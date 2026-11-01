@@ -2,12 +2,14 @@
 import json
 import shutil
 import time
+import traceback
 from pathlib import Path
 from typing import Callable
 
 from . import ia, memoria, nubes, seguro, video
-from .desde_prompt import FALTAS, idioma_codigo, idioma_de, montar, palabras_por_segundo, relanzar_con_gasto
-from .idioma import t
+from .desde_prompt import (ESCENA, FALTAS, MOVIMIENTO, idioma_codigo, idioma_de, montar, palabras_por_segundo,
+                           relanzar_con_gasto)
+from .idioma import IDIOMAS, t
 from .shorts import PROYECTOS
 
 ESTILOS = {
@@ -27,10 +29,7 @@ ESQUEMA = {
             "angulo": {"type": "string"}, "gancho": {"type": "string"}, "titulo": {"type": "string"},
             "texto_anuncio": {"type": "string"}, "hashtags": {"type": "array", "items": {"type": "string"}},
             "estilo_visual": {"type": "string"},
-            "escenas": {"type": "array", "items": {
-                "type": "object",
-                "properties": {"narracion": {"type": "string"}, "imagen": {"type": "string"}},
-                "required": ["narracion", "imagen"], "additionalProperties": False}},
+            "escenas": {"type": "array", "items": ESCENA},  # con su movimiento y su texto en pantalla
         },
         "required": ["angulo", "gancho", "titulo", "texto_anuncio", "hashtags", "estilo_visual", "escenas"],
         "additionalProperties": False}}},
@@ -51,35 +50,60 @@ acción.
   un producto y sale en la escena, escribe exactamente "the product" (no inventes otra marca). La IA de imágenes lee
   cada descripción SOLA: nunca escribas «the same man», «he», «the guy»; repite la descripción completa de la persona
   (edad, cara, pelo, ropa) en cada escena donde salga. Sin texto, letreros ni logotipos escritos en la imagen.
+""" + MOVIMIENTO + """
+- Si te dan la foto del producto o del negocio, la ves: las escenas, los colores y el gancho encajan con lo que se ve.
 - Sin promesas falsas ni afirmaciones médicas o de ingresos que no se puedan probar. No inventes ofertas, precios ni
   descuentos: usa solo los que vengan en el pedido.
 - texto_anuncio: el texto que va sobre el anuncio en Meta/TikTok, con emoji moderado y CTA."""
 
+# Con solo la foto (pasó: «hazme una versión de anuncio» con una foto acababa en preguntas), la IA que la ve dice qué
+# se anuncia antes de investigar el mercado
+VER_FOTO = """Miras la foto de lo que el usuario quiere anunciar. producto: su nombre corto (con la marca si se lee
+en la foto) o el tipo de negocio (barbería, restaurante…). detalles: lo que se ve que ayuda a venderlo (qué es,
+colores, envase, ambiente), en una frase. Nada inventado: ni precios ni ofertas. Si no ves ninguna foto, deja los dos
+vacíos. Escribe en {idioma}."""
+ESQUEMA_FOTO = {"type": "object", "properties": {"producto": {"type": "string"}, "detalles": {"type": "string"}},
+                "required": ["producto", "detalles"], "additionalProperties": False}
 
-def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, estilo: str, formato: str = "9:16",
+
+def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", oferta: str = "",
+          estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
           voz: str = "es-DO-RamonaNeural", variantes: int = 3, segundos: int = 25,
           aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
+    """producto vacío: lo dice la IA de texto que ve la foto (si no la ve, el anuncio se hace igual con la foto)."""
     foto = str(seguro.archivo_medio(foto, seguro.IMAGENES, t("foto del producto")))
     pago = ia.video_de_pago()  # fijado al empezar: lo que se preguntó (ver desde_prompt.montar)
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-anuncio")
     carpeta.mkdir(parents=True)
     foto_local = Path(shutil.copy(foto, carpeta / f"producto{Path(foto).suffix.lower()}"))
+    producto, detalles = str(producto or "").strip(), str(detalles or "").strip()
+    if not producto and not isinstance(vista := ia.con_fotos("La foto:", [foto_local]), str):
+        aviso(t("Mirando tu foto para saber qué anuncias…"), 0.02)
+        try:
+            visto = ia.texto_json(VER_FOTO.replace("{idioma}", IDIOMAS[idioma_codigo(voz)]), vista, ESQUEMA_FOTO,
+                                  rapido=True)
+            producto, detalles = visto["producto"].strip(), detalles or visto["detalles"].strip()
+        except Exception:  # noqa: BLE001  sin eso el anuncio sale igual: el plan también ve la foto
+            traceback.print_exc()
 
-    aviso(t("Investigando qué anuncios funcionan para este producto…"), 0.03)
-    web = ia.investigar_web(
-        f"Investiga en internet anuncios en video que estén funcionando ahora para productos como: {producto} "
-        f"({detalles}). Público: {publico}. ¿Qué ganchos, ángulos, objeciones y formatos usan los anuncios ganadores "
-        "en Meta Ads Library y TikTok Creative Center? Da ejemplos concretos.")
+    web = None
+    if producto:  # sin saber qué es, no hay mercado que investigar
+        aviso(t("Investigando qué anuncios funcionan para este producto…"), 0.03)
+        web = ia.investigar_web(
+            f"Investiga en internet anuncios en video que estén funcionando ahora para productos como: {producto} "
+            f"({detalles}). Público: {publico}. ¿Qué ganchos, ángulos, objeciones y formatos usan los anuncios "
+            "ganadores en Meta Ads Library y TikTok Creative Center? Da ejemplos concretos.")
 
     aviso(t("La IA está creando las variantes del anuncio…"), 0.12)
-    plan = ia.texto_json(INSTRUCCIONES, (
-        f"Producto: {producto}\nDetalles: {detalles}\nPúblico: {publico}\nOferta y llamada a la acción: {oferta}\n"
+    plan = ia.texto_json(INSTRUCCIONES, ia.con_fotos(
+        f"Producto: {producto or 'el de la foto'}\nDetalles: {detalles}\nPúblico: {publico}\n"
+        f"Oferta y llamada a la acción: {oferta}\n"
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
         f"(~{int(segundos * palabras_por_segundo(voz))} palabras, {max(3, round(segundos / 5))} escenas)."
         f"\nVariantes: {variantes}"
         + idioma_de(voz)
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")
-        + memoria.para("anuncios")), ESQUEMA)
+        + memoria.para("anuncios"), [foto_local]), ESQUEMA)
 
     # La IA decide cuántas variantes y escenas devuelve: se recorta a lo pedido (el gasto no lo marca la IA).
     plan["variantes"] = plan["variantes"][:variantes]
@@ -90,7 +114,8 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
     resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
     # La ortografía, antes de narrar y de quemar nada («FUSEL ESTE AROMA», el ángulo «Deseño», «#CaféBrise»)
     ia.repasar([x for v in plan["variantes"] for x in (v, *v["escenas"])],
-               ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion"), idioma_codigo(voz), notas)
+               ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion", "texto_pantalla"), idioma_codigo(voz),
+               notas)
     if not web:
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
 
@@ -142,7 +167,7 @@ def crear(foto: str, producto: str, detalles: str, publico: str, oferta: str, es
                            "hashtags": v["hashtags"]})
 
     proyecto = {"tipo": "anuncio", "producto": producto, "formato": formato, "carpeta": str(carpeta),
-                "titulo": t("Anuncios · {producto}", producto=producto), "resultados": resultados,
+                "titulo": t("Anuncios · {producto}", producto=producto or Path(foto).stem), "resultados": resultados,
                 "con_web": bool(web), "avisos": notas}
     (carpeta / "proyecto.json").write_text(json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8")
     aviso(t("¡Listo! Hay avisos ({n}): los ves debajo del video.", n=len(notas)) if notas else t("¡Listo!"), 1.0)

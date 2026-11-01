@@ -23,6 +23,7 @@ MANANA = (date.today() + timedelta(days=1)).isoformat()
 MANZANA = "C:/Users/Yo/Videos/manzana.mp4"
 CANCION = "C:/Users/Yo/Music/mi tema.mp3"
 CLIPS = ["C:/Users/Yo/Videos/playa1.mp4", "C:/Users/Yo/Videos/playa2.mp4"]
+FOTO = "C:/Users/Yo/Fotos/hamburguesa.jpg"
 
 
 def _n(texto) -> str:
@@ -68,9 +69,12 @@ CASOS = [
      "valen": {"programar_publicacion": {"archivo": es_ruta(MANZANA), "fecha_hora": manana_a_las_6}, "": {}},
      "ejemplo": ("programar_publicacion", {"archivo": MANZANA, "titulo": "La manzana que habla",
                                            "descripcion": "#manzana", "fecha_hora": f"{MANANA}T18:00"})},
-    {"pedido": "un anuncio de mi barbería",  # sin foto: o la pide o hace una pieza gráfica
-     "valen": {"": {}, "crear_diseno": {"pedido": contiene("barber")}},
-     "ejemplo": ("", {})},
+    {"pedido": "un anuncio de mi barbería",  # sin foto: una pieza gráfica, sin preguntar
+     "valen": {"crear_diseno": {"pedido": contiene("barber")}},
+     "ejemplo": ("crear_diseno", {"pedido": "anuncio de mi barbería", "tipo": "anuncio"})},
+    {"pedido": "hazme una version de anuncio con esta foto", "adjuntos": [FOTO],  # con foto: directo, sin preguntar
+     "valen": {"crear_anuncios": {"foto": es_ruta(FOTO)}},
+     "ejemplo": ("crear_anuncios", {"foto": FOTO})},
     {"pedido": "hazme un video de una manzana que abla de comer sano",
      "valen": {"crear_video": {"prompt": contiene("manzana"), "animado": False}},  # lo de pago, solo si lo pide
      "ejemplo": ("crear_video", {"prompt": "una manzana que habla de comer sano"})},
@@ -144,7 +148,8 @@ def primer_paso(caso: dict) -> tuple[str, dict | str, str]:
         raise _Primero
     real, director._usar = director._usar, parar
     try:
-        r = director.dirigir(pedido_de(caso), caso.get("historial", ()), aviso=lambda texto, f: mensajes.append(texto))
+        r = director.dirigir(pedido_de(caso), caso.get("historial", ()), aviso=lambda texto, f: mensajes.append(texto),
+                             adjuntos=caso.get("adjuntos", ()))  # como la página: las fotos que existan, las ve
         return "", {}, r["mensaje"]
     except _Primero:
         argumentos = visto["argumentos"]

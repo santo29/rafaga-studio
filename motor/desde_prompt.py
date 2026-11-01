@@ -40,18 +40,22 @@ def voz_por_defecto() -> str:
     """La primera voz gratis en el idioma de la app (en español, la de República Dominicana)."""
     return next((v for v in VOCES.values() if v.startswith(f"{actual()}-")), "es-DO-EmilioNeural")
 
+# Opcionales (los guiones de fuera, por el MCP, siguen valiendo sin ellos): brief (lo primero que escribe la IA: el
+# plan antes de las escenas), entendido, y en cada escena movimiento (cámara y acción, para la IA de video) y
+# texto_pantalla (lo que se lee en pantalla)
+ESCENA = {"type": "object",
+          "properties": {"narracion": {"type": "string"}, "imagen": {"type": "string"},
+                         "movimiento": {"type": "string"}, "texto_pantalla": {"type": "string"}},
+          "required": ["narracion", "imagen"], "additionalProperties": False}
 ESQUEMA = {
     "type": "object",
     "properties": {
+        "brief": {"type": "string"},
         "titulo": {"type": "string"}, "descripcion": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
         "estilo_visual": {"type": "string"},
-        "entendido": {"type": "string"},  # opcional: los guiones de fuera (MCP) siguen valiendo sin él
-        "escenas": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"narracion": {"type": "string"}, "imagen": {"type": "string"}},
-            "required": ["narracion", "imagen"], "additionalProperties": False,
-        }},
+        "entendido": {"type": "string"},
+        "escenas": {"type": "array", "items": ESCENA},
     },
     "required": ["titulo", "descripcion", "hashtags", "estilo_visual", "escenas"],
     "additionalProperties": False,
@@ -60,15 +64,32 @@ ESQUEMA = {
 # Regla común (la misma en Diseño, Director, Dibujos animados y aquí): el pedido puede traer faltas de ortografía.
 FALTAS = ia.FALTAS  # la regla común de faltas de ortografía (una sola, en ia.py)
 
-INSTRUCCIONES = """Eres guionista de videos virales para YouTube, TikTok, Instagram y Facebook.
-Con el pedido del usuario escribe un guion narrado dividido en escenas.
+# Cómo se escribe cada escena para la IA de video (aquí y en Anuncios)
+MOVIMIENTO = """- movimiento (en inglés, una línea): primero el movimiento de cámara (slow dolly in, dolly out, orbit,
+  tracking shot, crane up, pan, handheld, static macro…), después lo que hace el sujeto y por último el entorno y la
+  velocidad («slow dolly in; the chef flips the patty, cheese melts, steam rises»). Un solo movimiento de cámara.
+- texto_pantalla: el texto que se lee en pantalla en esa escena, corto, o "" si no lleva. El que pidió el usuario va
+  palabra por palabra, en su escena."""
+
+INSTRUCCIONES = """Eres director creativo y guionista de una productora de videos para YouTube, TikTok, Instagram y
+Facebook. Primero entiendes el pedido como un profesional y luego escribes el plan de rodaje, escena por escena.
 - """ + FALTAS + """
+- brief (lo primero, de 3 a 6 líneas cortas): objetivo, público, plataforma y formato, gancho, estilo visual y luz,
+  sonido (voz, música, sonidos) y texto en pantalla o llamada a la acción. Lo que el usuario no dijo lo decides tú
+  con criterio profesional: nunca preguntes.
 - entendido: una frase corta, en el idioma del usuario, con lo que entendiste del pedido (sin empezar por «Entendí»).
-- La primera escena es un gancho que atrapa en 3 segundos. La última cierra con fuerza o invita a seguir.
-- Cada escena: 1 o 2 frases de narración (lo que dice la voz) y una descripción de la imagen.
-- La descripción de imagen va en inglés, muy visual y concreta, sin texto escrito dentro de la imagen.
-- La IA de imágenes lee cada descripción SOLA, sin ver las demás: nunca escribas «the same…», «he», «she» ni «it»;
-  nombra y describe siempre lo que sale.
+- Lo que el usuario escribió manda: si numera escenas o planos, haz exactamente esas, en su orden y con lo que pasa
+  en cada una; si da tiempos, respétalos; si pide un texto en pantalla, va tal cual en «texto_pantalla» de su escena
+  (no lo pases a la narración).
+- Sin estructura suya: la primera escena es un gancho que atrapa en 3 segundos y la última cierra con fuerza o
+  invita a seguir.
+- narracion: 1 o 2 frases (lo que dice la voz). Si pide el video sin voz o sin narración, "" en todas. Si no pide voz
+  pero sí música, sonidos o texto en pantalla, la narración es mínima ("" en las escenas que no la necesitan).
+- imagen: el primer fotograma de la escena, en inglés, muy visual y concreto (sujeto, lugar, encuadre, lente y luz),
+  sin texto escrito dentro de la imagen.
+""" + MOVIMIENTO + """
+- La IA de imágenes y la de video leen cada escena SOLA, sin ver las demás: nunca escribas «the same…», «he», «she»
+  ni «it»; nombra y describe siempre lo que sale.
 - Si el pedido es un personaje que habla (una fruta, un animal, una calavera, un objeto, una mascota…), la narración la
   dice ESE personaje en primera persona, y la imagen lo muestra hablando a cámara. Nunca una persona que habla de él.
 - Describe al protagonista con las mismas palabras en todas las escenas, para que se vea igual en todo el video.
@@ -102,6 +123,11 @@ def palabras_por_segundo(voz: str) -> float:
     return PALABRAS_POR_SEGUNDO_ELEVEN if voz.startswith("eleven:") else PALABRAS_POR_SEGUNDO
 
 
+# ponytail: una escena sin narración dura siempre esto (lo que dura un clip de IA), no los segundos que el usuario le
+# dio a esa escena; si hace falta exacto, que el montaje los saque de su pedido
+SEGUNDOS_MUDA = 5
+
+
 # La narración que el usuario ya escribió en su pedido («Guion / Voz en Off: "…"», «Narración: «…»», «Voice-over:
 # "…"»), una línea por escena: va tal cual, ni la IA la reescribe ni se acorta. Entre comillas: «Narración: alegre»
 # dice cómo narrar, no lo que se dice. Con un número delante («1. Voz en off: …») o una acotación detrás
@@ -115,6 +141,24 @@ _NARRACION = re.compile(r"(?im)^[ \t>*•\d.)-]*(?:gui[oó]n[ \t]*/[ \t]*)?(?:vo
 
 def narracion_del_usuario(prompt: str) -> list[str]:
     return [x.strip() for x in _NARRACION.findall(prompt) if x.strip()]
+
+
+# Las escenas que el usuario numeró en su pedido («ESCENA 1 (0-4 segundos)», «Scene 2:», «PLANO 3»): esas se hacen
+# (pasó: pidió 6 y el código pidió a la IA «unas 4 escenas»)
+_ESCENA = re.compile(r"(?im)^[ \t>*#•-]*(?:escena|scene|sc[eè]ne|cena|plano|toma|shot)[ \t]*(\d{1,3})\b")
+# El video sin narración, dicho así en el pedido: va vacía (lo impone el código, no la IA). «Sin voz en off» no: un
+# personaje puede hablar; eso lo decide la IA
+_SIN_VOZ = re.compile(r"(?i)\b(?:sin|no|without|sem|sans)\s+(?:narraci[oó]n|locuci[oó]n|narration|narra[cç][aã]o|"
+                      r"locu[cç][aã]o)\b")
+
+
+def escenas_pedidas(prompt: str) -> int:
+    """Cuántas escenas numeró el usuario en su pedido (0 si no numeró ninguna)."""
+    return len(set(_ESCENA.findall(prompt or "")))
+
+
+def sin_voz(prompt: str) -> bool:
+    return bool(_SIN_VOZ.search(prompt or ""))
 
 
 def al_tiempo(escenas: list[dict], segundos: float, ritmo: float = PALABRAS_POR_SEGUNDO) -> bool:
@@ -150,6 +194,10 @@ def narrar(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> list[
     # El único paso de texto a voz (videos, anuncios, serie, el Director hablando y la voz del editor): sin esto se
     # oía «asterisco», «almohadilla» o la URL entera, y salía igual en los subtítulos quemados
     texto = ia.sin_markdown(texto, "voz")
+    if not texto.strip():  # una escena sin narración (el usuario pidió el video sin voz): silencio, sin palabras
+        video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", SEGUNDOS_MUDA, destino.name,
+                     cwd=destino.parent)
+        return []
     if voz.startswith("eleven:"):
         return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino, velocidad)
     return con_signos(asyncio.run(_voz(texto, voz, destino, velocidad)), texto)
@@ -236,9 +284,10 @@ def proveedor_voz() -> str | None:
     return (claves.para("video_voz") or {}).get("proveedor")
 
 
-def costo_hablado(segundos: int) -> tuple[int, float]:
-    """Cuántas escenas irán animadas con voz y lo más que costarán (US$) con quien las hace (ver ia.precio_video)."""
-    escenas = min(MAX_HABLADAS, max(1, round(segundos / SEGUNDOS_HABLADO)))
+def costo_hablado(segundos: int, prompt: str = "") -> tuple[int, float]:
+    """Cuántas escenas irán animadas con voz y lo más que costarán (US$) con quien las hace (ver ia.precio_video).
+    Con las escenas que numeró el usuario en su pedido (prompt), esas: generar hace las mismas."""
+    escenas = min(MAX_HABLADAS, escenas_pedidas(prompt) or max(1, round(segundos / SEGUNDOS_HABLADO)))
     return escenas, escenas * ia.precio_video(proveedor_voz() or "gemini", voz=True)
 
 
@@ -272,43 +321,59 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     if formato not in video.FORMATOS:  # antes de gastar: un formato raro tumbaría el montaje ya pagado
         raise ValueError(t("Formato no válido: usa 9:16, 16:9, 1:1 o 4:5."))
     animado = animado is True  # «"false"» o «1» de una IA no son un sí: lo de pago, solo pedido de verdad
+    if guion is not None:  # se comprueba antes de crear nada
+        guion = ia.de_fuera(guion, ESQUEMA, t("El guion"))
+    de_la_ia = guion is None
+    # La narración que trae el pedido manda (pasó: un «Guion / Voz en Off» de 82 palabras salió resumido en 62)
+    lineas, ritmo = narracion_del_usuario(prompt) if de_la_ia else [], palabras_por_segundo(voz)
+    # Lo que el usuario escribió manda (pasó: pidió 6 escenas sin voz y salieron 4 narradas): sus escenas numeradas
+    # y, si lo pidió sin narración, sin voz. Sin nada que decir, ni escenas que hablan (se pagarían por nada)
+    pedidas, mudo = escenas_pedidas(prompt) if de_la_ia else 0, de_la_ia and not lineas and sin_voz(prompt)
+    callado, animado = animado and mudo, animado and not mudo
     # Lo de pago se fija al empezar (es lo que se preguntó): elegir otro en Claves de IA a mitad del trabajo no paga
     # nada que no se haya preguntado; vale para el trabajo siguiente
     pago, quien = ia.video_de_pago(), proveedor_voz()
     if animado and not quien:  # se avisa antes de gastar nada
         raise ia.SinClave(t("Para videos animados con voz conecta Gemini, Kling o Seedance en «Claves de IA» (Kling y "
                             "Seedance, elígelos en «Escenas que hablan»), o desmarca «Video animado con IA»."))
-    escenas_aprox = max(1, round(segundos / SEGUNDOS_HABLADO)) if animado else max(3, round(segundos / 6))
-    if guion is not None:  # se comprueba antes de crear nada
-        guion = ia.de_fuera(guion, ESQUEMA, t("El guion"))
-    de_la_ia = guion is None
-    # La narración que trae el pedido manda (pasó: un «Guion / Voz en Off» de 82 palabras salió resumido en 62)
-    lineas, ritmo = narracion_del_usuario(prompt) if de_la_ia else [], palabras_por_segundo(voz)
+    base = max(1, round(segundos / SEGUNDOS_HABLADO)) if animado else max(3, round(segundos / 6))
+    # Con las suyas, como mucho las que caben en el gasto que se preguntó (costo_hablado y director.FOTOS)
+    escenas_aprox = min(pedidas, MAX_HABLADAS if animado else base + 2) if pedidas else base
     if guion is None:
         aviso(t("La IA está escribiendo el guion…"), 0.03)
-        con_foto = ("\nEl usuario dio una imagen de referencia: la primera escena ES esa imagen. En las demás, cuando "
-                    "aparezca su protagonista (persona, producto, lugar o personaje) escribe «the subject from the "
-                    "reference image» en la descripción.") if imagen else ""
+        con_foto = ("\nEl usuario dio una foto de partida (va con el pedido): la primera escena ES esa foto. En las "
+                    "demás, cuando aparezca su protagonista (persona, producto, lugar o personaje), descríbelo como "
+                    "en la foto y escribe «the subject from the reference image».") if imagen else ""
         hablado = (f"\nCada escena será un video de IA de {SEGUNDOS_HABLADO} segundos con su propio sonido: como "
                    f"mucho 18 palabras de narración por escena.") if animado and not lineas else ""
+        palabras = "" if mudo else f" (~{int(segundos * ritmo)} palabras de narración)"
         cuanto = (f", {len(lineas)} escenas (una por cada línea de narración del usuario)" if lineas else
-                  f" (~{int(segundos * ritmo)} palabras de narración), unas {escenas_aprox} escenas")
+                  f"{palabras}, {escenas_aprox} escenas: las que numeró el usuario, en su orden" if pedidas else
+                  f"{palabras}, unas {escenas_aprox} escenas")
         propia = ("\nLa narración ya la escribió el usuario: copia cada línea en «narracion» tal cual, palabra por "
                   "palabra (sin acortarla, resumirla ni cambiarla), una escena por línea y en este orden:\n"
                   + "\n".join(f"{i}. {x}" for i, x in enumerate(lineas, 1))) if lineas else ""
-        guion = ia.texto_json(INSTRUCCIONES, (
+        sin_narrar = ("\nSin narración: «narracion» vacía en todas las escenas; lo que se lee va en «texto_pantalla»."
+                      if mudo else "")
+        guion = ia.texto_json(INSTRUCCIONES, ia.con_fotos(
             f"Pedido: {prompt}\nDuración: unos {segundos} segundos{cuanto}. Formato {formato}."
-            f"{propia}{con_foto}{hablado}{idioma_de(voz)}"
-            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "") + memoria.para("video")), ESQUEMA)
+            f"{propia}{sin_narrar}{con_foto}{hablado}{idioma_de(voz)}"
+            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "") + memoria.para("video")
+            + memoria.recientes(), [imagen] if imagen else []), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»). Animadas, cada una se paga: ni una de más.
-    # Se quitan las del medio: la última es el cierre o la llamada a la acción.
-    escenas, tope, notas = guion["escenas"], escenas_aprox + (0 if animado else 2), []
+    # Se quitan las del medio: la última es el cierre o la llamada a la acción. Las que numeró el usuario, justas.
+    escenas, tope, notas = guion["escenas"], escenas_aprox + (0 if animado or pedidas else 2), []
     if not escenas:
         raise ValueError(t("El guion no tiene ninguna escena."))
     if lineas:  # cada línea en su escena y tal cual, aunque la IA devuelva otro número de escenas o la reescriba
         guion["escenas"] = escenas = [{**escenas[i * len(escenas) // len(lineas)], "narracion": x}
                                       for i, x in enumerate(lineas)]
+    if mudo:  # sin voz aunque la IA escriba alguna frase
+        for e in escenas:
+            e["narracion"] = ""
+    if callado:
+        notas.append(t("Pediste el video sin narración: las escenas no hablan y no se paga por ellas."))
     if estilo:  # lo impone el código: la IA a veces lo mezcla con otro
         guion["estilo_visual"] = estilo
     if guion.get("entendido"):  # se ve mientras trabaja, antes de gastar imágenes y voz
@@ -342,7 +407,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         e["narracion"] = ia.recortar(ia.sin_markdown(e["narracion"], "voz"), 400)
     # La IA escribe más de lo pedido (30 s salían 38,6 s): se acorta antes de narrar. Un guion de fuera o la
     # narración que escribió el usuario, tal cual.
-    if de_la_ia and not lineas and not animado and al_tiempo(guion["escenas"], segundos, ritmo):
+    if de_la_ia and not lineas and not animado and not pedidas and al_tiempo(guion["escenas"], segundos, ritmo):
         notas.append(t("La narración pasaba de los {segundos} s pedidos: se acortó el guion para que quepa.",
                        segundos=segundos))
     # La ortografía, antes de narrar: lo que se dice es lo que sale en los subtítulos y lo que se publica. Un guion
@@ -350,7 +415,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     # del usuario tampoco se toca: es suya
     if de_la_ia:
         ia.repasar([guion, *guion["escenas"]],
-                   ("titulo", "descripcion", "hashtags") + (() if lineas else ("narracion",)), idioma_codigo(voz), notas)
+                   ("titulo", "descripcion", "hashtags", "texto_pantalla") + (() if lineas else ("narracion",)),
+                   idioma_codigo(voz), notas)
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:

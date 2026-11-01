@@ -159,7 +159,6 @@ sacado SOLO del título (no se sabe qué se ve en cada momento). Escribe todo en
 ESQUEMA_TITULO = {"type": "object", "properties": {**{k: _TEXTOS[k] for k in ("descripcion", "hashtags")},
                                                    "tema": {"type": "string"}},
                   "required": ["descripcion", "hashtags", "tema"], "additionalProperties": False}
-VEN_IMAGENES = ("anthropic", "openai", "gemini")  # las IA de texto conectadas que aceptan fotogramas
 
 
 def _fotogramas(original: Path, clips: list[dict], titulo: str, proveedor: str) -> list[dict]:
@@ -187,7 +186,7 @@ def _textos_sin_voz(original: Path, clips: list[dict], titulo: str, avisos: list
     momento. Si no: numerados en el orden de la lista (el primero, el de más cortes), como sus archivos
     («Momento 2 de 5: …»), con el tema, la descripción y los hashtags que salen del título."""
     c = claves.para("texto")
-    if c and c.get("clave") and c["proveedor"] in VEN_IMAGENES:
+    if c and c.get("clave") and c["proveedor"] in ia.VEN_IMAGENES:
         try:
             hechos = ia._pedir(c, f"{INSTRUCCIONES_SIN_VOZ}\n\n{ia.TEXTO_PLANO}",
                                _fotogramas(original, clips, titulo, c["proveedor"]), ESQUEMA_SIN_VOZ)["momentos"]

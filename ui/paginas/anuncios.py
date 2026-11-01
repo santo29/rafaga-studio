@@ -25,7 +25,8 @@ class PaginaAnuncios(PaginaTrabajo):
         elegir.clicked.connect(self._elegir_foto)
         datos = QVBoxLayout()
         self.producto = QLineEdit()
-        self.producto.setPlaceholderText(t("Producto o servicio (ej.: Crema reafirmante Aloe+, Barbería Los Panas)"))
+        self.producto.setPlaceholderText(t("Producto o servicio (opcional, la IA lo ve en tu foto; ej.: Barbería Los "
+                                           "Panas)"))
         self.detalles = QLineEdit()
         self.detalles.setPlaceholderText(t("Qué hace, beneficios, precio"))
         self.publico = QLineEdit()
@@ -73,8 +74,8 @@ class PaginaAnuncios(PaginaTrabajo):
             self.vista.setPixmap(QPixmap(ruta).scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _iniciar(self):
-        if not self.foto or not self.producto.text().strip():
-            return mensaje(self, t("Faltan datos"), t("Elige la foto del producto y escribe su nombre."))
+        if not self.foto:  # el nombre no hace falta: la IA lo ve en la foto
+            return mensaje(self, t("Faltan datos"), t("Elige la foto de tu producto o de tu negocio."))
         self.lanzar(self.iniciar, anuncios.crear, foto=self.foto, producto=self.producto.text(),
                     detalles=self.detalles.text(), publico=self.publico.text(), oferta=self.oferta.text(),
                     estilo=self.estilo.currentData(), formato=self.formato.valor(), voz=self.voz.currentData(),

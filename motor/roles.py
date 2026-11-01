@@ -10,8 +10,9 @@ DEPARTAMENTOS = {
         "nombre": t("Guion y video"),
         "hace": "videos narrados o de un personaje que habla, desde un pedido o una foto",
         "herramientas": ["crear_video"],
-        "reglas": "gancho en los 3 primeros segundos; frases cortas que suenan bien en voz alta; si habla un "
-                  "personaje, en primera persona; 9:16 para TikTok, Reels y Shorts, 16:9 para YouTube"},
+        "reglas": "las escenas, tiempos y textos en pantalla que escribió el usuario, tal cual; gancho en los 3 "
+                  "primeros segundos; frases cortas que suenan bien en voz alta; si habla un personaje, en primera "
+                  "persona; 9:16 para TikTok, Reels y Shorts, 16:9 para YouTube"},
     "diseno": {
         "nombre": t("Diseño gráfico"),
         "hace": "posts, flyers, logos, miniaturas, tarjetas, presentaciones, ilustraciones, fotos realistas y "
@@ -36,8 +37,8 @@ DEPARTAMENTOS = {
         "nombre": t("Anuncios"),
         "hace": "anuncios en video (pruebas A/B) con la foto real del producto",
         "herramientas": ["crear_anuncios"],
-        "reglas": "siempre la foto real de su producto (si no la dio, pídela); gancho, beneficio, prueba y llamada a "
-                  "la acción; nunca ofertas ni precios inventados"},
+        "reglas": "con la foto real que dio (sin foto, un anuncio gráfico con crear_diseno); gancho, beneficio, "
+                  "prueba y llamada a la acción; nunca ofertas ni precios inventados"},
     "edicion": {
         "nombre": t("Edición"),
         "hace": "unir fotos y videos con música y subtítulos, y sacar shorts de un video largo",

@@ -66,9 +66,11 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
 
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
     {"titulo", "descripcion", "hashtags": [..], "estilo_visual": estilo común de las imágenes en inglés,
-    "escenas": [{"narracion": 1-2 frases que dice la voz, "imagen": descripción visual en inglés sin texto}]}.
-    Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena si va animado); si sobran, se quitan
-    las del medio y se conserva la última."""
+    "escenas": [{"narracion": 1-2 frases que dice la voz ("" sin voz), "imagen": el primer fotograma en inglés sin
+    texto, "movimiento" (opcional): en inglés, el movimiento de cámara y luego la acción, "texto_pantalla"
+    (opcional): lo que se lee en pantalla}]}. Unas segundos/6 escenas (segundos/8 y como mucho 18 palabras por escena
+    si va animado), o las que numere el prompt (ESCENA 1, 2…); si sobran, se quitan las del medio y se conserva la
+    última."""
     segundos = max(15, min(int(segundos), 600))  # los mismos rangos que la app: nada de trabajos gigantes
     # antes de gastar nada. Nunca se fuerza animado: la ventana de costo del MCP se calculó con lo que pidió el agente
     modelo_video = validar_modelo(modelo_video, habla=animado is True and not (imagen and solo_animar))
@@ -105,11 +107,11 @@ def investigar_nichos(tema: str = "", pais: str = "Latinoamérica",
     return _json(nichos.investigar(tema, redes=redes, pais=pais, aviso=_aviso()))
 
 
-def crear_anuncios(foto: str, producto: str, detalles: str = "", publico: str = "", oferta: str = "",
+def crear_anuncios(foto: str, producto: str = "", detalles: str = "", publico: str = "", oferta: str = "",
                    estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
                    variantes: int = 3, segundos: int = 25, modelo_video: str = "auto") -> str:
-    """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto.
-    estilo: uno de {estilos}."""
+    """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto o del
+    negocio. producto: qué se anuncia; vacío, la IA lo saca de la foto. estilo: uno de {estilos}."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
     with claves.por_trabajo(validar_modelo(modelo_video)):
         return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,

@@ -419,14 +419,19 @@ VEN_IMAGENES = ("anthropic", "openai", "gemini")  # las IA de texto que ven foto
 MAX_FOTOS_VISTAS, LADO_FOTO_VISTA = 4, 768  # unos 800 tokens por foto con Claude: céntimos de dólar
 
 
+def ve_fotos(uso: str = "texto") -> bool:
+    """Si la IA de texto elegida ve las fotos que se le dan (con_fotos); si no, solo lee su nombre."""
+    c = claves.para(uso) or {}
+    return bool(c.get("clave")) and c.get("proveedor") in VEN_IMAGENES
+
+
 def con_fotos(texto: str, rutas, uso: str = "texto") -> str | list:
     """El pedido con las fotos que dio el usuario, para que la IA de texto las VEA y no solo su nombre (pasó: con
     «hazme una versión de anuncio» y una foto, Claude solo veía «IMG_2041.jpg» y preguntaba qué era): el texto y hasta
     MAX_FOTOS_VISTAS fotos en JPEG pequeño, si la IA elegida ve imágenes (VEN_IMAGENES). Si no, o no hay ninguna foto
     (un video, un audio, un archivo que no está), el texto tal cual. Si al final responde otra IA que no las ve,
     recibe solo el texto (_para)."""
-    c = claves.para(uso) or {}
-    if not c.get("clave") or c.get("proveedor") not in VEN_IMAGENES:
+    if not ve_fotos(uso):
         return texto
     from PySide6.QtCore import QBuffer, QIODevice, Qt
     from PySide6.QtGui import QImageReader

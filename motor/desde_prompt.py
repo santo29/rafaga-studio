@@ -84,7 +84,8 @@ Facebook. Primero entiendes el pedido como un profesional y luego escribes el pl
 - Sin estructura suya: la primera escena es un gancho que atrapa en 3 segundos y la última cierra con fuerza o
   invita a seguir.
 - narracion: 1 o 2 frases (lo que dice la voz). Si pide el video sin voz o sin narración, "" en todas. Si no pide voz
-  pero sí música, sonidos o texto en pantalla, la narración es mínima ("" en las escenas que no la necesitan).
+  pero sí música, sonidos o texto en pantalla, la narración es mínima ("" en las escenas que no la necesitan) y no
+  hace falta llegar a las palabras de narración del pedido: esas son para cuando todas las escenas hablan.
 - imagen: el primer fotograma de la escena, en inglés, muy visual y concreto (sujeto, lugar, encuadre, lente y luz),
   sin texto escrito dentro de la imagen.
 """ + MOVIMIENTO + """
@@ -123,11 +124,6 @@ def palabras_por_segundo(voz: str) -> float:
     return PALABRAS_POR_SEGUNDO_ELEVEN if voz.startswith("eleven:") else PALABRAS_POR_SEGUNDO
 
 
-# ponytail: una escena sin narración dura siempre esto (lo que dura un clip de IA), no los segundos que el usuario le
-# dio a esa escena; si hace falta exacto, que el montaje los saque de su pedido
-SEGUNDOS_MUDA = 5
-
-
 # La narración que el usuario ya escribió en su pedido («Guion / Voz en Off: "…"», «Narración: «…»», «Voice-over:
 # "…"»), una línea por escena: va tal cual, ni la IA la reescribe ni se acorta. Entre comillas: «Narración: alegre»
 # dice cómo narrar, no lo que se dice. Con un número delante («1. Voz en off: …») o una acotación detrás
@@ -143,22 +139,45 @@ def narracion_del_usuario(prompt: str) -> list[str]:
     return [x.strip() for x in _NARRACION.findall(prompt) if x.strip()]
 
 
-# Las escenas que el usuario numeró en su pedido («ESCENA 1 (0-4 segundos)», «Scene 2:», «PLANO 3»): esas se hacen
-# (pasó: pidió 6 y el código pidió a la IA «unas 4 escenas»)
-_ESCENA = re.compile(r"(?im)^[ \t>*#•-]*(?:escena|scene|sc[eè]ne|cena|plano|toma|shot)[ \t]*(\d{1,3})\b")
+# Las escenas que el usuario numeró en su pedido («ESCENA 1 (0-4 segundos):», «Scene 2:», «PLANO 3 -»), también
+# seguidas en una sola línea, como las escribe el Director: esas se hacen (pasó: pidió 6 y el código pidió a la IA
+# «unas 4 escenas»). Con un separador tras el número: «Toma 2 huevos», «Cena 2 x 1» o «Shot 1 of the city» no son
+# escenas («cena» sí lo es en portugués). Y los segundos que le dio a cada una, si los dio («(0-4 segundos)», «(5 s)»)
+_ESCENA = re.compile(r"(?im)\b(?:escena|scene|sc[eè]ne|cena|plano|toma|shot)\s*(\d{1,3})(?=\s*[:.()\-–—]|\s*$)"
+                     r"(?:\s*\(\s*(?:(\d{1,3}(?:[.,]\d+)?)\s*(?:-|–|—|a|to|à)\s*)?(\d{1,3}(?:[.,]\d+)?)\s*"
+                     r"(?:s|seg|sec)\w*\s*\))?")
 # El video sin narración, dicho así en el pedido: va vacía (lo impone el código, no la IA). «Sin voz en off» no: un
 # personaje puede hablar; eso lo decide la IA
 _SIN_VOZ = re.compile(r"(?i)\b(?:sin|no|without|sem|sans)\s+(?:narraci[oó]n|locuci[oó]n|narration|narra[cç][aã]o|"
                       r"locu[cç][aã]o)\b")
+# El pedido nombra un estilo («estilo Pixar 3D», «anime», «cinematográfico», «hiperrealista»): ese manda sobre el del
+# menú de Crear (pasó: pidió Pixar 3D y salió anime, el que estaba elegido en el menú)
+_ESTILO = re.compile(r"(?i)\b(?:estilo|style|pixar|disney|ghibli|anime|manga|cartoon|caricatura|dibujos? animados?|"
+                     r"desenhos? animados?|dessins? anim[eé]s?|3d|2d|(?:hiper|hyper|foto|photo)?r[eé]alis\w*|cine\w*|"
+                     r"c[oó]mic\w*|acuarela|aquarela|watercolou?r|ilustra\w*|illustra\w*|stop[- ]?motion)\b")
+# Música pedida: el video de Crear no la lleva, y se dice
+_MUSICA = re.compile(r"(?i)(?<!sin )(?<!sem )(?<!sans )(?<!no )(?<!without )\b(?:m[uú]sica|music|musique)\b")
+
+
+def _numeradas(prompt: str) -> dict[str, float]:
+    """{número de escena: los segundos que le dio el usuario (0 si no dio)}, en su orden. Vacío si numeró menos de
+    dos: una sola «Escena 1:» no es una lista de escenas."""
+    escenas = {}
+    for n, desde, hasta in _ESCENA.findall(prompt or ""):
+        if n not in escenas:  # la primera vez: el encabezado (luego puede nombrarla, «como en la escena 1.»)
+            a, b = (float(x.replace(",", ".")) if x else 0.0 for x in (desde, hasta))
+            escenas[n] = min(max(b - a, 1.0), 30.0) if b > a else 0.0
+    return escenas if len(escenas) > 1 else {}
 
 
 def escenas_pedidas(prompt: str) -> int:
-    """Cuántas escenas numeró el usuario en su pedido (0 si no numeró ninguna)."""
-    return len(set(_ESCENA.findall(prompt or "")))
+    """Cuántas escenas numeró el usuario en su pedido (0 si no numeró al menos dos)."""
+    return len(_numeradas(prompt))
 
 
 def sin_voz(prompt: str) -> bool:
-    return bool(_SIN_VOZ.search(prompt or ""))
+    """Si pidió el video sin narración (y no la escribió él): sin voz y sin escenas que hablan."""
+    return bool(_SIN_VOZ.search(prompt or "")) and not narracion_del_usuario(prompt or "")
 
 
 def al_tiempo(escenas: list[dict], segundos: float, ritmo: float = PALABRAS_POR_SEGUNDO) -> bool:
@@ -194,10 +213,6 @@ def narrar(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> list[
     # El único paso de texto a voz (videos, anuncios, serie, el Director hablando y la voz del editor): sin esto se
     # oía «asterisco», «almohadilla» o la URL entera, y salía igual en los subtítulos quemados
     texto = ia.sin_markdown(texto, "voz")
-    if not texto.strip():  # una escena sin narración (el usuario pidió el video sin voz): silencio, sin palabras
-        video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", SEGUNDOS_MUDA, destino.name,
-                     cwd=destino.parent)
-        return []
     if voz.startswith("eleven:"):
         return ia.voz_elevenlabs(texto, voz.removeprefix("eleven:"), destino, velocidad)
     return con_signos(asyncio.run(_voz(texto, voz, destino, velocidad)), texto)
@@ -276,6 +291,7 @@ async def _voz(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> l
 SEGUNDOS_HABLADO = 8  # lo que dura cada escena animada con voz (Omni hace clips de 3 a 10 s)
 MAX_HABLADAS = 15  # tope de gasto por video (~US$12): las escenas de más se hacen con imagen y narración
 MAX_CLIPS_PAGO = 15  # con Kling o Seedance para animar, clips de pago por trabajo como mucho: el resto, zoom suave
+SEGUNDOS_SIN_VOZ = 3  # lo que dura una escena sin narración (montar): lo justo para leer su texto en pantalla
 
 
 def proveedor_voz() -> str | None:
@@ -286,9 +302,19 @@ def proveedor_voz() -> str | None:
 
 def costo_hablado(segundos: int, prompt: str = "") -> tuple[int, float]:
     """Cuántas escenas irán animadas con voz y lo más que costarán (US$) con quien las hace (ver ia.precio_video).
-    Con las escenas que numeró el usuario en su pedido (prompt), esas: generar hace las mismas."""
-    escenas = min(MAX_HABLADAS, escenas_pedidas(prompt) or max(1, round(segundos / SEGUNDOS_HABLADO)))
+    Con las escenas que numeró el usuario en su pedido (prompt), esas: generar hace las mismas. Si lo pidió sin
+    narración, ninguna (no se pregunta lo que no se va a pagar)."""
+    escenas = 0 if sin_voz(prompt) else min(MAX_HABLADAS, escenas_maximas(segundos, prompt, True))
     return escenas, escenas * ia.precio_video(proveedor_voz() or "gemini", voz=True)
+
+
+def escenas_maximas(segundos: int, prompt: str = "", animado: bool = False) -> int:
+    """Cuántas escenas (y así imágenes) hará generar como mucho: las que numeró el usuario (hasta MAX_HABLADAS) o,
+    si no numeró, según los segundos. La usan costo_hablado y director.FOTOS: se pregunta lo que se hará."""
+    pedidas = min(escenas_pedidas(prompt), MAX_HABLADAS)
+    if animado and not sin_voz(prompt):
+        return pedidas or max(1, round(segundos / SEGUNDOS_HABLADO))
+    return pedidas or max(3, round(segundos / 6)) + 2
 
 
 def con_voz_propia() -> bool:
@@ -328,8 +354,11 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     lineas, ritmo = narracion_del_usuario(prompt) if de_la_ia else [], palabras_por_segundo(voz)
     # Lo que el usuario escribió manda (pasó: pidió 6 escenas sin voz y salieron 4 narradas): sus escenas numeradas
     # y, si lo pidió sin narración, sin voz. Sin nada que decir, ni escenas que hablan (se pagarían por nada)
-    pedidas, mudo = escenas_pedidas(prompt) if de_la_ia else 0, de_la_ia and not lineas and sin_voz(prompt)
-    callado, animado = animado and mudo, animado and not mudo
+    pedidas, mudo = escenas_pedidas(prompt) if de_la_ia else 0, de_la_ia and sin_voz(prompt)
+    callado, animado, notas = animado and mudo, animado and not mudo, []
+    if callado:  # al empezar, antes de gastar nada: costo_hablado no las contó, ni se preguntaron
+        notas.append(t("Pediste el video sin narración: las escenas no hablan y no se paga por ellas."))
+        aviso(notas[-1], 0.02)
     # Lo de pago se fija al empezar (es lo que se preguntó): elegir otro en Claves de IA a mitad del trabajo no paga
     # nada que no se haya preguntado; vale para el trabajo siguiente
     pago, quien = ia.video_de_pago(), proveedor_voz()
@@ -337,8 +366,10 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         raise ia.SinClave(t("Para videos animados con voz conecta Gemini, Kling o Seedance en «Claves de IA» (Kling y "
                             "Seedance, elígelos en «Escenas que hablan»), o desmarca «Video animado con IA»."))
     base = max(1, round(segundos / SEGUNDOS_HABLADO)) if animado else max(3, round(segundos / 6))
-    # Con las suyas, como mucho las que caben en el gasto que se preguntó (costo_hablado y director.FOTOS)
-    escenas_aprox = min(pedidas, MAX_HABLADAS if animado else base + 2) if pedidas else base
+    # Las que numeró, todas, animadas o no (hasta el tope de gasto): las que cuenta escenas_maximas, lo que se preguntó
+    escenas_aprox = min(pedidas, MAX_HABLADAS) if pedidas else base
+    # El estilo del menú manda, salvo que el pedido nombre otro (ese lo elige la IA, como dicen las INSTRUCCIONES)
+    estilo_propio = de_la_ia and bool(_ESTILO.search(prompt))
     if guion is None:
         aviso(t("La IA está escribiendo el guion…"), 0.03)
         con_foto = ("\nEl usuario dio una foto de partida (va con el pedido): la primera escena ES esa foto. En las "
@@ -358,12 +389,13 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         guion = ia.texto_json(INSTRUCCIONES, ia.con_fotos(
             f"Pedido: {prompt}\nDuración: unos {segundos} segundos{cuanto}. Formato {formato}."
             f"{propia}{sin_narrar}{con_foto}{hablado}{idioma_de(voz)}"
-            + (f"\nEstilo visual obligatorio: {estilo}" if estilo else "") + memoria.para("video")
+            + (f"\nEstilo elegido en el menú (úsalo salvo que el pedido nombre otro estilo): {estilo}" if estilo
+               else "") + memoria.para("video")
             + memoria.recientes(), [imagen] if imagen else []), ESQUEMA)
     # La IA decide cuántas escenas devuelve: se recorta a lo pedido, para que nadie pueda disparar el gasto en
     # imágenes y voces (p. ej. con un pedido que diga «haz 300 escenas»). Animadas, cada una se paga: ni una de más.
     # Se quitan las del medio: la última es el cierre o la llamada a la acción. Las que numeró el usuario, justas.
-    escenas, tope, notas = guion["escenas"], escenas_aprox + (0 if animado or pedidas else 2), []
+    escenas, tope = guion["escenas"], escenas_aprox + (0 if animado or pedidas else 2)
     if not escenas:
         raise ValueError(t("El guion no tiene ninguna escena."))
     if lineas:  # cada línea en su escena y tal cual, aunque la IA devuelva otro número de escenas o la reescriba
@@ -372,9 +404,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     if mudo:  # sin voz aunque la IA escriba alguna frase
         for e in escenas:
             e["narracion"] = ""
-    if callado:
-        notas.append(t("Pediste el video sin narración: las escenas no hablan y no se paga por ellas."))
-    if estilo:  # lo impone el código: la IA a veces lo mezcla con otro
+    if estilo and not estilo_propio:  # lo impone el código: la IA a veces lo mezcla con otro
         guion["estilo_visual"] = estilo
     if guion.get("entendido"):  # se ve mientras trabaja, antes de gastar imágenes y voz
         # sin un «Entendí:» de la IA delante: salía «La IA entendió: Entendí: un gato que habla»
@@ -385,8 +415,23 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         guion["escenas"] = escenas[:tope - 1] + escenas[-1:]
         notas.append(t("Tu narración tiene {n} líneas y en este video caben {tope} escenas: se quitaron las líneas del "
                        "medio que sobraban.", n=len(escenas), tope=tope) if lineas else
+                     # las suyas pasan del tope de gasto: cuáles se quitaron (las del medio; la última es el cierre)
+                     t("Numeraste {n} escenas y en un video caben {tope} como mucho: se quitaron las escenas {lista}.",
+                       n=pedidas, tope=tope, lista=", ".join(str(k) for k in range(tope, len(escenas))))
+                     if pedidas > tope else
                      t("El guion traía {n} escenas y se usaron {tope} (las del medio que sobraban se quitaron).",
                        n=len(escenas), tope=tope))
+    tiempos = list(_numeradas(prompt).values()) if de_la_ia else []
+    if len(tiempos) == len(guion["escenas"]):  # una por cada escena suya: la que va sin voz dura lo que le dio
+        for e, s in zip(guion["escenas"], tiempos):
+            if s:
+                e["segundos"] = s
+    elif mudo:  # sin voz y sin sus tiempos: los segundos pedidos, repartidos (si no, 6 escenas mudas eran 18 s)
+        for e in guion["escenas"]:
+            e["segundos"] = round(segundos / len(guion["escenas"]), 1)
+    if de_la_ia and _MUSICA.search(prompt):
+        notas.append(t("Pediste música y este video no la lleva: ponla en el Editor de video con «Importar música o "
+                       "sonido»."))
     if animado and lineas:  # sin el tope de 18 palabras: cada escena sigue siendo un clip de pago de SEGUNDOS_HABLADO s
         dichas = {e["narracion"] for e in guion["escenas"]}
         notas += [t("La línea {n} de tu narración tiene {palabras} palabras: en una escena animada de {s} s puede no "
@@ -531,9 +576,12 @@ def clips_hablados(guion: dict, carpeta: Path, formato: str, aviso: Callable[[st
     # Las escenas que ya están hechas en la carpeta (un reintento de ejemplos/crear.py) no se vuelven a pagar
     # (nombre propio: «video_final_escena_XX» también lo usa la escena de respaldo con imagen y narración)
     hechos = {i: p for i in range(n) if (p := carpeta / f"video_final_hablada_{i:02d}.mp4").is_file()}
-    aviso(t("Creando las escenas animadas con voz ({n})…", n=n - len(hechos)), 0.08)
+    # Una escena sin nada que decir no se paga como escena que habla (y Omni le inventaría una voz): la hace montar,
+    # por su camino sin voz
+    pedir = [i for i, e in enumerate(guion["escenas"][:n]) if i not in hechos and e["narracion"].strip()]
+    aviso(t("Creando las escenas animadas con voz ({n})…", n=len(pedir)), 0.08)
     with ThreadPoolExecutor(3) as grupo:
-        trabajos = {grupo.submit(uno, i, e): i for i, e in enumerate(guion["escenas"][:n]) if i not in hechos}
+        trabajos = {grupo.submit(uno, i, guion["escenas"][i]): i for i in pedir}
         for listo in as_completed(trabajos):  # los avisos, desde este hilo
             i = trabajos[listo]
             try:
@@ -636,8 +684,15 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
             continue
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
-        # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
-        palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
+        if e["narracion"].strip():
+            # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
+            palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
+        else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío. Dura
+            # lo que le dio el usuario («ESCENA 2 (4-9 s)», ver generar), con tope: el guion puede venir de fuera
+            dura = e.get("segundos")
+            dura = min(dura, 30) if isinstance(dura, (int, float)) and dura >= 1 else SEGUNDOS_SIN_VOZ
+            video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", dura, audio.name, cwd=carpeta)
+            palabras = []
         paso_imagen = paso + 0.3 * (hasta - desde) / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
         # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería

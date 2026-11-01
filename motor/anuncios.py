@@ -70,13 +70,15 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
           estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
           voz: str = "es-DO-RamonaNeural", variantes: int = 3, segundos: int = 25,
           aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
-    """producto vacío: lo dice la IA de texto que ve la foto (si no la ve, el anuncio se hace igual con la foto)."""
+    """producto vacío: lo dice la IA de texto que ve la foto. Si no ve fotos (Groq, la gratis), hay que decirlo."""
     foto = str(seguro.archivo_medio(foto, seguro.IMAGENES, t("foto del producto")))
+    producto, detalles = str(producto or "").strip(), str(detalles or "").strip()
+    if not producto and not ia.ve_fotos():  # sin verla ni saber qué es, el anuncio se escribiría a ciegas
+        raise ValueError(t("Escribe qué anuncias: tu IA de texto no ve fotos (Claude, OpenAI y Gemini sí las ven)."))
     pago = ia.video_de_pago()  # fijado al empezar: lo que se preguntó (ver desde_prompt.montar)
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-anuncio")
     carpeta.mkdir(parents=True)
     foto_local = Path(shutil.copy(foto, carpeta / f"producto{Path(foto).suffix.lower()}"))
-    producto, detalles = str(producto or "").strip(), str(detalles or "").strip()
     if not producto and not isinstance(vista := ia.con_fotos("La foto:", [foto_local]), str):
         aviso(t("Mirando tu foto para saber qué anuncias…"), 0.02)
         try:
@@ -116,7 +118,7 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
     ia.repasar([x for v in plan["variantes"] for x in (v, *v["escenas"])],
                ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion", "texto_pantalla"), idioma_codigo(voz),
                notas)
-    if not web:
+    if not web and producto:  # sin producto no se buscó, y no es por Claude
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
 
     def con_producto(p, w, h, d):

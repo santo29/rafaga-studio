@@ -192,10 +192,8 @@ def _solo_anima(args: dict) -> bool:
 # Cuántas imágenes de IA hace como mucho cada herramienta: con una IA de imágenes de pago, cada una se paga. Animado,
 # las escenas que pasan del tope de Omni (o que le fallan) se hacen con imagen: por lo alto, todas
 FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
-         "crear_video": lambda a: 0 if _solo_anima(a) else
-         max(1, desde_prompt.escenas_pedidas(str(a.get("prompt", ""))) or  # las que numeró, como generar
-             round(_numero(a.get("segundos"), 45, 15, 600) / desde_prompt.SEGUNDOS_HABLADO))
-         if a.get("animado") is True else max(3, round(_numero(a.get("segundos"), 45, 15, 600) / 6)) + 2,
+         "crear_video": lambda a: 0 if _solo_anima(a) else desde_prompt.escenas_maximas(  # las mismas que generar
+             _numero(a.get("segundos"), 45, 15, 600), str(a.get("prompt", "")), a.get("animado") is True),
          "crear_video_musical": lambda a: video_musical.MAX_ESCENAS,
          "crear_serie": lambda a: _numero(a.get("personajes"), 3, 1, serie.MAX_PERSONAJES),
          # rehacer (numero): se dibujan los planos que falten de su guion guardado, no los que diga «planos»
@@ -236,7 +234,8 @@ def usos(nombre: str, args: dict) -> list[str]:
         lista.append("musica")
     if nombre in ANIMAN:
         lista.append("video")
-    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args):
+    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) and \
+            not desde_prompt.sin_voz(str(args.get("prompt", ""))):  # sin narración no hay escenas que hablan
         lista.append("video_voz")
     return lista
 
@@ -386,7 +385,8 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     # por del usuario
     if faltan := [r for r in adjuntos if _norma(r) not in _norma(pedido)]:
         pedido += f"\n\nArchivos que te doy: {json.dumps(faltan, ensure_ascii=False)}"
-    historial = [m for m in historial or () if isinstance(m, dict) and isinstance(m.get("texto"), str)]
+    historial = [m for m in historial or () if isinstance(m, dict) and isinstance(m.get("texto"), str)
+                 and m.get("rol") in ("usuario", "director")]
     recuerdos = ("\n".join(f"- {d}: {'; '.join(lista)}" for d, lista in memoria.cargar().items() if lista)
                  + memoria.de_marca() + memoria.recientes()).strip()
 

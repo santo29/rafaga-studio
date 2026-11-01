@@ -980,8 +980,10 @@ class PaginaTrabajo(QWidget):
         nombre = self._herramienta(funcion)  # las que no animan escenas (canción, shorts…) cuentan 0 clips
         clips = (1 if unico else director.clips(nombre, datos)) if pago and (unico or nombre) else 0
         mudos = clips * ia.precio_video(pago) if clips else 0.0
-        if funcion is desde_prompt.generar and datos.get("animado") is True:  # escenas que hablan (de pago)
-            escenas, costo = desde_prompt.costo_hablado(datos.get("segundos", 45), datos.get("prompt", ""))
+        # escenas que hablan (de pago); pedido «sin narración», ninguna: ni se preguntan
+        if funcion is desde_prompt.generar and datos.get("animado") is True and \
+                (hablado := desde_prompt.costo_hablado(datos.get("segundos", 45), datos.get("prompt", "")))[0]:
+            escenas, costo = hablado
             quien = ia.nombre_video(desde_prompt.proveedor_voz() or "gemini")
             titulo = t("Video animado con voz")
             if clips:  # el clip mudo de las que no salgan con voz, por lo alto: una sola cifra, como el Director

@@ -111,7 +111,8 @@ def crear_anuncios(foto: str, producto: str = "", detalles: str = "", publico: s
                    estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
                    variantes: int = 3, segundos: int = 25, modelo_video: str = "auto") -> str:
     """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto o del
-    negocio. producto: qué se anuncia; vacío, la IA lo saca de la foto. estilo: uno de {estilos}."""
+    negocio. producto: qué se anuncia; vacío, la IA lo saca de la foto (si la IA de texto no ve fotos, responde que
+    hay que decirlo). estilo: uno de {estilos}."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
     with claves.por_trabajo(validar_modelo(modelo_video)):
         return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,

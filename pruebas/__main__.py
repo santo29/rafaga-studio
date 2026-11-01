@@ -370,7 +370,8 @@ try:
     guardado = json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))
     assert guardado["estilo_visual"] == serie.ESTILOS["Cartoon 2D"]
     assert len(dibujos) == 3 and all(d.endswith(serie.ESTILOS["Cartoon 2D"]) for d in dibujos), dibujos
-    assert "Estilo visual obligatorio: " + serie.ESTILOS["Cartoon 2D"] in pedidos[-1]
+    assert "Estilo elegido en el menú (úsalo salvo que el pedido nombre otro estilo): " + serie.ESTILOS["Cartoon 2D"] \
+        in pedidos[-1]
     assert "Idioma de la narración: English" in pedidos[-1]
     # Un guion de fuera (MCP) sin «entendido» sigue valiendo, y sin estilo se queda el suyo
     mio = {k: v for k, v in guion_ia.items() if k != "entendido"}

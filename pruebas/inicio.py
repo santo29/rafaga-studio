@@ -631,13 +631,14 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     esperar(ventana.isActiveWindow)
     portada = ventana.inicio
     hilos = len(app.findChildren(QThread))
-    # Con dos líneas: los campos de una línea (Diseño y Director) la reciben en una, con espacios
+    # Con dos líneas: el campo de una línea (Diseño) la recibe en una, con espacios; el Director, con sus líneas (un
+    # pedido largo con sus escenas se ve entero)
     for n, (pagina_de, campo, tipo, una_linea) in enumerate([
             (ventana.crear, lambda: ventana.crear.prompt.toPlainText(), None, False),
             (ventana.diseno, lambda: ventana.diseno.pedido.text(), "ilustracion", True),
             (ventana.diseno, lambda: ventana.diseno.pedido.text(), "auto", True),
             (ventana.musica, lambda: ventana.musica.idea.toPlainText(), None, False),
-            (ventana.director, lambda: ventana.director.pedido.text(), None, True)]):
+            (ventana.director, lambda: ventana.director.pedido.text(), None, False)]):
         ventana.ir_a(0)
         portada.modos.grupo.button(n).click()
         portada.idea.setPlainText(f"Mi idea {n}\n  segunda línea")
@@ -679,8 +680,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     antes = portada.destacados.actual
     portada.destacados.reloj.timeout.emit()
     assert portada.destacados.actual == antes
-    # Y la página baja hasta el campo: setFocus no la desplaza, y la galería lo dejaba debajo, fuera de la pantalla.
-    # Igual desde la galería del propio Director
+    # Y el campo se ve sin desplazar nada: la página del Director es un chat que no se sale de la ventana (antes la
+    # galería lo dejaba debajo, fuera de la pantalla). Igual desde la galería del propio Director
     area = ventana.paginas.currentWidget()
 
     def se_ve(campo):
@@ -688,49 +689,51 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         return 0 <= y and y + campo.height() <= area.viewport().height()
 
     esperar(lambda: se_ve(ventana.director.pedido))
-    area.verticalScrollBar().setValue(0)
-    assert not se_ve(ventana.director.pedido)
+    assert area.verticalScrollBar().maximum() == 0
     del_director = ventana.director.findChildren(pagina_director.Pieza)
     del_director[2].findChild(QMenu).actions()[0].trigger()
-    esperar(lambda: se_ve(ventana.director.pedido))
-    assert ventana.director.pedido.text() == "Dos escenas del anime"
+    assert ventana.director.pedido.text() == "Dos escenas del anime" and se_ve(ventana.director.pedido)
     # De vuelta a Inicio, su vigilancia y su carrusel siguen; la del Director, oculto, se para
     ventana.ir_a(0)
     assert portada.vigia.isActive() and portada.destacados.reloj.isActive() and not ventana.director.vigia.isActive()
     ventana.ir_a(ventana.orden.index(ventana.director))
 
-    # ---------- Lo que entrega el Director, en su página: un diseño no va al reproductor de video ----------
+    # ---------- Lo que entrega el Director, en el chat: cada resultado en su tarjeta, sin ventanas que se abran solas
     carpeta_diseno = diseno.CARPETA / "20261024-120000-cartel"
     hecho = diseno.nuevo("post", "Cartel")
     diseno.guardar(hecho, carpeta_diseno)
     png = diseno.exportar(hecho, carpeta_diseno, carpeta_diseno / "vista_previa.png")
-    director_ui, mostrados = ventana.director, []
-    director_ui.reproductor.mostrar = mostrados.append
+    director_ui = ventana.director
+
+    def tarjetas():
+        return director_ui.chat.mensajes()[-1].findChildren(pagina_director.TarjetaResultado)
+
+    def botones(t):
+        return {b.accessibleName() or b.text(): b for b in t.findChildren(QPushButton)}
+
     director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
         {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []}]})
-    assert mostrados == [] and director_ui.ir_serie.isHidden()
-    assert not director_ui.ir_diseno.isHidden() and director_ui.ir_diseno.text() == "Abrir en Diseño"
-    visor = director_ui.findChildren(QDialog)[-1]  # la imagen, en grande
-    assert visor.windowTitle() == "Cartel" and not visor.findChild(QLabel).pixmap().isNull()
-    visor.close()
-    director_ui.ir_diseno.click()
+    assert not [v for v in director_ui.findChildren(QDialog) if v.isVisible()]
+    [cartel] = tarjetas()
+    assert "Abrir en Dibujos animados" not in botones(cartel)
+    botones(cartel)["Editar en Diseño"].click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
     assert ventana.diseno.carpeta == carpeta_diseno and ventana.diseno.diseno["nombre"] == "Cartel"
-    # Un video y una imagen que no es un diseño: el video al reproductor, y sin «Abrir en Diseño»
+    # Un video y una imagen que no es un diseño: dos tarjetas; el video va al editor y la imagen, a un diseño nuevo
     suelta = d / "suelta.png"
     assert foto.save(str(suelta))
     director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "16:9", "resultados": [
         {"archivo": str(d / "Uno.mp4"), "titulo": "Uno", "descripcion": "", "hashtags": []},
         {"archivo": str(suelta), "titulo": "Suelta", "descripcion": "", "hashtags": []}]})
-    assert [x["titulo"] for x in mostrados[-1]["resultados"]] == ["Uno"] and director_ui.ir_diseno.isHidden()
-    director_ui.findChildren(QDialog)[-1].close()
-    # Después, un trabajo que solo da un diseño: el video del pedido anterior no se queda debajo
-    assert not director_ui.reproductor.isHidden()
-    director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
-        {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []}]})
-    assert director_ui.reproductor.isHidden() and len(mostrados) == 1 and director_ui.ir_diseno.menu() is None
-    director_ui.findChildren(QDialog)[-1].close()
-    # Dos diseños en un trabajo («un post y un flyer»): se ven los dos y cada uno se abre desde el menú del botón
+    uno, imagen_suelta = tarjetas()
+    assert {"Descargar", "Editar"} <= set(botones(uno)) and "Editar en Diseño" not in botones(uno)
+    ventana.ir_a(0)
+    botones(imagen_suelta)["Editar en Diseño"].click()
+    assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
+    assert ventana.diseno.carpeta != carpeta_diseno and not [v for v in director_ui.findChildren(QDialog)
+                                                             if v.isVisible()]
+    ventana.diseno.abrir(carpeta_diseno)  # sin cambios a medias que pregunten al seguir
+    # Dos diseños en un trabajo («un post y un flyer»): dos tarjetas, y cada una abre su carpeta
     carpeta_flyer = diseno.CARPETA / "20261024-120100-flyer"
     flyer = diseno.nuevo("flyer", "Flyer")
     diseno.guardar(flyer, carpeta_flyer)
@@ -738,29 +741,20 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     director_ui._listo({"mensaje": "Listo", "pasos": [], "formato": "9:16", "resultados": [
         {"archivo": str(png), "titulo": "Cartel", "descripcion": "", "hashtags": []},
         {"archivo": str(png_flyer), "titulo": "Flyer", "descripcion": "", "hashtags": []}]})
-    visores = [v for v in director_ui.findChildren(QDialog) if v.isVisible()]
-    assert [v.windowTitle() for v in visores] == ["Cartel", "Flyer"]
-    for v in visores:
-        v.close()
-    assert not director_ui.ir_diseno.isHidden()
-    assert [a.text() for a in director_ui.ir_diseno.menu().actions()] == ["Cartel", "Flyer"]
-    ventana.ir_a(0)
-    director_ui.ir_diseno.click()  # con menú, el clic solo lo despliega: no abre el último por su cuenta
-    assert ventana.paginas.currentIndex() == 0
-    for accion, carpeta in zip(director_ui.ir_diseno.menu().actions(), (carpeta_diseno, carpeta_flyer)):
+    assert not [v for v in director_ui.findChildren(QDialog) if v.isVisible()]
+    for t, carpeta in zip(tarjetas(), (carpeta_diseno, carpeta_flyer), strict=True):
         ventana.ir_a(0)
-        accion.trigger()
+        botones(t)["Editar en Diseño"].click()
         assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.diseno)
         assert ventana.diseno.carpeta == carpeta, carpeta
-    director_ui.ir_diseno.menu().close()
-    # Una serie: «Abrir en Dibujos animados» la deja elegida en su página
+    # Una serie: su tarjeta con «Abrir en Dibujos animados» la deja elegida en su página
     director_ui._listo({"mensaje": "Listo", "formato": "16:9", "resultados": [], "pasos": [
         {"herramienta": "crear_serie", "argumentos": {},
          "resultado": json.dumps({"carpeta": str(serie.CARPETA / "20261021-090000-mi-serie")})}]})
-    assert director_ui.ir_diseno.isHidden() and not director_ui.ir_serie.isHidden()
-    assert director_ui.ir_serie.text() == "Abrir en Dibujos animados"
+    [de_serie] = tarjetas()
+    assert set(botones(de_serie)) == {"Abrir en Dibujos animados"}
     assert ventana.serie.series.currentData() is None
-    director_ui.ir_serie.click()
+    botones(de_serie)["Abrir en Dibujos animados"].click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.serie)
     assert ventana.serie.series.currentData()["nombre"] == "20261021-090000-mi-serie"
     ventana.serie.recargar("x")  # otra vez sin elegir: el acceso de Inicio tiene que elegirla él

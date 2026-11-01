@@ -334,8 +334,9 @@ try:
         pagina.caja.button(QMessageBox.Yes).click()
         esperar(lambda: not pagina.ocupado() and pagina.enviar_btn.isEnabled())
         assert hechos == [("crear_cancion", "dembow de Punta Cana")]
-        # Tras un trabajo con 2 resultados, uno con 1: la lista del reproductor no pide una fila que ya no existe
-        assert not errores and pagina.reproductor.lista.count() == 1, errores
+        # Tras un trabajo con 2 resultados, uno con 1: cada trabajo, en su mensaje con sus tarjetas
+        assert not errores and len(pagina.chat.mensajes()[-1].findChildren(pagina_director.TarjetaResultado)) == 1, \
+            errores
 
         # ---------- «Memoria del estudio»: verla y borrarla ----------
         assert any(b.text() == "Memoria del estudio" for b in pagina.findChildren(QPushButton))

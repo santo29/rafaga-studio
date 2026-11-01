@@ -355,12 +355,14 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
 
 
 def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lambda nombre: None,
-            confirmar=lambda pregunta: False, al_decir=lambda texto: None, modelo_video: str = "auto") -> dict:
+            confirmar=lambda pregunta: False, al_decir=lambda texto: None, modelo_video: str = "auto",
+            adjuntos=()) -> dict:
     """Hace el trabajo pedido usando las herramientas que hagan falta. historial: [{"rol": "usuario"|"director",
     "texto", "hecho" (opcional: el resumen de esa respuesta)}] de la conversación. al_usar(nombre) avisa de cada herramienta que empieza (la app ilumina su página).
     confirmar(pregunta) -> bool: la app pregunta al usuario antes de un paso que cuesta dinero o publica; sin su sí no
     se hace. al_decir(texto): lo que va a hacer (el plan), dicho en la conversación antes del primer paso.
     modelo_video: el que eligió el usuario en el selector «Modelo de video» del chat (solo para este pedido).
+    adjuntos: las rutas de los archivos que adjuntó (también van al final del pedido, como «Archivos que te doy»).
     Devuelve {"mensaje", "pasos", "resultados", "formato", "resumen"}: resultados son los videos y audios listos para
     ver; resumen, lo hecho y sus archivos (para recordarlo en la conversación: «sigue», «cámbiale la música»…)."""
     pedido = str(pedido or "").strip()[:4000]

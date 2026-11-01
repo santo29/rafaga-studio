@@ -125,6 +125,17 @@ def _estilo_ass(fuente, tam, letra, antes, contorno, fondo, negrita, borde, gros
             f"{grosor},{sombra},{alineacion},60,60,{margen},1")
 
 
+def _cabecera_ass(w: int, h: int, estilo: str) -> list[str]:
+    """Las líneas de un .ass hasta sus eventos, con un solo estilo (el de _estilo_ass)."""
+    # ScaledBorderAndShadow: el borde y la sombra encogen con el video (vista previa a 640) como las letras
+    return ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {w}", f"PlayResY: {h}", "WrapStyle: 0",
+            "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
+            "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
+            "MarginL, MarginR, MarginV, Encoding",
+            estilo, "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+
+
 def _grupos(palabras: list[dict], por_grupo: int) -> list[list[dict]]:
     """Grupos de por_grupo palabras como mucho, sin juntar dos frases: se corta tras un punto o un silencio."""
     grupos = []
@@ -169,17 +180,7 @@ def subtitulos_ass(palabras: list[dict], formato: str, destino: Path, por_grupo:
     }
     base, activa, normal, mayusculas = estilos[estilo]
     por_grupo = 1 if estilo == "impacto" else por_grupo
-    lineas = [
-        # ScaledBorderAndShadow: el borde y la sombra encogen con el video (vista previa a 640) como las letras
-        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {w}", f"PlayResY: {h}", "WrapStyle: 0",
-        "ScaledBorderAndShadow: yes", "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
-        "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
-        "MarginL, MarginR, MarginV, Encoding",
-        base,
-        "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ]
+    lineas = _cabecera_ass(w, h, base)
     brillo = "{\\blur5}" if estilo == "neon" else ""
     for grupo in _grupos(palabras, por_grupo):
         letras = [_texto_ass(p["palabra"].upper() if mayusculas else p["palabra"]) for p in grupo]
@@ -239,12 +240,31 @@ def escena_de_imagen(imagen: Path, audio: Path, formato: str, palabras: list[dic
     return destino
 
 
+def _sin_bucle(clip: Path, formato: str, mueve: float, total: float) -> str:
+    """Filtros que hacen durar un clip de IA `total` s sin que se vea volver a empezar (repetido, a los 5 s saltaba a su
+    principio): más lento, hasta 1,5×, para que se mueva durante `mueve` s, y lo que falte, su último cuadro con el
+    acercamiento lento de escena_de_imagen (quieto, en un tramo musical de 13 s eran 5,6 s de foto fija)."""
+    largo = duracion(clip)
+    lento = min(1.5, max(1.0, mueve / largo))
+    # Lo que se recorta por cada lado al acercar. Con perspective, que mueve menos de un píxel por cuadro: zoompan iba
+    # a tirones (medido: de 0,26 a 2,07 de cambio entre cuadros). Solo en la cola (enable): el clip ni pasa por él
+    lado = f"(1-1/min(1+0.0007*max(in-{round(lento * largo * 30)},0),1.18))/2"
+    # ponytail: más lento repitiendo cuadros (fps); en un plano muy movido se nota a saltos. Si molesta, minterpolate
+    # (cuadros inventados, mucho más suave) a cambio de tardar varias veces más por escena
+    return (f"setpts={lento:.4f}*PTS,{filtro_formato(formato, 'recortar')},fps=30,"
+            f"tpad=stop_mode=clone:stop_duration={total:.2f},"
+            f"perspective=x0='W*{lado}':y0='H*{lado}':x1='W*(1-{lado})':y1='H*{lado}':x2='W*{lado}':"
+            f"y2='H*(1-{lado})':x3='W*(1-{lado})':y3='H*(1-{lado})':eval=frame:enable='gte(t,{lento * largo:.3f})'")
+
+
 def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], destino: Path) -> Path:
-    """Una escena a partir de un clip de IA: se repite hasta cubrir la voz, se ajusta al formato y lleva subtítulos."""
-    seg = duracion(audio) + 0.25
+    """Una escena a partir de un clip de IA: dura lo que la voz (ver _sin_bucle), se ajusta al formato y lleva
+    subtítulos. Un clip que ya trae su voz (escena_hablada) no se alarga: su audio no dura más que él."""
+    voz = duracion(audio)
+    seg = voz + 0.25
     ass = subtitulos_ass(palabras, formato, destino.with_suffix(".ass"))
-    ffmpeg("-stream_loop", "-1", "-i", clip.resolve(), "-i", audio.resolve(), "-map", "0:v", "-map", "1:a",
-           "-vf", f"{filtro_formato(formato, 'recortar')},fps=30,ass={ass.name},{COLOR}",
+    ffmpeg("-i", clip.resolve(), "-i", audio.resolve(), "-map", "0:v", "-map", "1:a",
+           "-vf", f"{_sin_bucle(clip, formato, voz, seg)},ass={ass.name},{COLOR}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
     return destino
@@ -252,11 +272,12 @@ def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], 
 
 def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, indice: int,
                   clip: Path | None = None) -> Path:
-    """Tramo de video sin sonido: el clip de IA repetido o la imagen con zoom suave. Para videos musicales."""
+    """Tramo de video sin sonido: el clip de IA (sin repetirse, ver _sin_bucle) o la imagen con zoom suave. Para
+    videos musicales."""
     w, h = FORMATOS[formato]
     if clip:
-        entrada = ["-stream_loop", "-1", "-i", clip.resolve()]
-        filtro = f"{filtro_formato(formato, 'recortar')},fps=30"
+        entrada = ["-i", clip.resolve()]
+        filtro = _sin_bucle(clip, formato, segundos, segundos)
     else:
         zoom = "min(1.0+0.0007*on,1.18)" if indice % 2 == 0 else "max(1.18-0.0007*on,1.0)"
         entrada = ["-loop", "1", "-i", imagen.resolve()]
@@ -344,9 +365,102 @@ def cierre(video_in: Path, texto: str, formato: str, destino: Path, segundos: fl
     return destino
 
 
-def unir(partes: list[Path], destino: Path) -> Path:
-    lista = destino.with_suffix(".txt")
-    lista.write_text("".join(f"file '{p.name}'\n" for p in partes), encoding="utf-8")
-    ffmpeg("-f", "concat", "-safe", "0", "-i", lista.name, "-c", "copy", "-movflags", "+faststart",
-           destino.name, cwd=destino.parent)
+CRUCE = 0.25  # s de fundido entre escenas: cabe en la cola sin voz que lleva cada una (escena_de_imagen)
+# Lo que piden las redes (YouTube, TikTok, Instagram): -14 LUFS con picos reales de -1 dBTP. La voz gratis salía a -19,8
+SONORIDAD = "I=-14:TP=-1:LRA=11"
+# El look de color de todo el video (uno de render_edicion._FILTROS), por su estilo visual: el primero que encaja.
+# Sin look los dibujos (sus colores son el estilo) y lo casero, como el anuncio UGC (tiene que verse real)
+LOOKS = ((r"cartoon|anime|pixar|disney|\b3d\b|animat|illustrat|drawing|comic|clay|watercolou?r|painting|ugc|selfie|"
+          r"smartphone|documentar", ""),
+         (r"noir|black.and.white|monochrome", "noir"),
+         (r"vintage|retro|analog|polaroid|\b[5-9]0s\b", "retro"),
+         (r"neon|cyberpunk|synthwave", "neon"),
+         (r"food|burger|pizza|cook|kitchen|chef|bak|coffee|dessert|restaurant|gourmet|golden", "dorado"),
+         (r"beach|caribbean|tropical|ocean|island|summer", "caribe"),
+         (r"cinemat|film|movie|blockbuster", "cine"))
+
+
+def look_de(estilo: str) -> str:
+    """El look para un estilo visual (en inglés); ninguno ("") si no pide uno: el color de sus imágenes, tal cual."""
+    return next((look for patron, look in LOOKS if re.search(patron, estilo, re.I)), "")
+
+
+def _titulos_ass(textos: list[str], inicios: list[float], finales: list[float], formato: str, destino: Path) -> Path:
+    """El texto en pantalla de cada escena (texto_pantalla: lo que el usuario quiere leer, no oír), arriba para no
+    pisar los subtítulos. Con colores de marca, en una caja de su primer color con la letra que mejor se lee."""
+    from . import marca  # aquí: arrastra Qt (diseno), que el resto de este módulo no necesita
+    w, h = FORMATOS[formato]
+    tam, colores = int(min(w, h) * 0.075), marca.cargar()["colores"]
+    if colores:
+        r, g, b = (int(colores[0][k:k + 2], 16) for k in (1, 3, 5))
+        letra = "&H00000000" if 0.299 * r + 0.587 * g + 0.114 * b > 150 else "&H00FFFFFF"  # negra en color claro
+        estilo = _estilo_ass("Arial Black", tam, letra, letra, f"&H00{b:02X}{g:02X}{r:02X}", "&H00000000", 1, 3,
+                             tam // 4, 0, 8, int(h * 0.12))
+    else:
+        estilo = _estilo_ass("Arial Black", tam, "&H00FFFFFF", "&H00FFFFFF", "&H00000000", "&H64000000", 1, 1,
+                             max(tam // 10, 3), 2, 8, int(h * 0.12))
+    lineas = _cabecera_ass(w, h, estilo) + [
+        f"Dialogue: 0,{_t(ini)},{_t(fin)},Base,,0,0,0,,{{\\fad(200,200)}}{_texto_ass(texto.strip())}"
+        for texto, ini, fin in zip(textos, inicios, finales) if texto.strip()]
+    destino.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+    return destino
+
+
+def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str] = (), look: str = "",
+         musica: Path | None = None, avance=lambda f: None) -> Path:
+    """Une las escenas. Sin formato (el video musical, ya cortado al ritmo): tal cual, sin volver a codificar.
+    Con el formato de las escenas, el acabado de estudio: fundidos cortos entre escenas (CRUCE, en la cola sin voz de
+    cada una: no se come ninguna palabra), un mismo look de color (render_edicion), el texto en pantalla de cada escena
+    (textos, "" si no lleva), la música (si hay) bajo la voz y el sonido a SONORIDAD, en estéreo a 48 kHz.
+    avance(fracción, de 0 a 1): lo que lleva el acabado, que tarda (medido: 6 escenas de 6 s, 21 s; con look, 52 s)."""
+    if not formato:
+        lista = destino.with_suffix(".txt")
+        lista.write_text("".join(f"file '{p.name}'\n" for p in partes), encoding="utf-8")
+        ffmpeg("-f", "concat", "-safe", "0", "-i", lista.name, "-c", "copy", "-movflags", "+faststart",
+               destino.name, cwd=destino.parent)
+        return destino
+    import json
+    from .render_edicion import _BAJAR, _FILTROS, _correr  # aquí: render_edicion importa este módulo
+    largos = [duracion(p) for p in partes]
+    n, cruce = len(partes), min(CRUCE, min(largos) / 2)
+    inicios = [sum(largos[:i]) - i * cruce for i in range(n)]
+    total = inicios[-1] + largos[-1]
+    grafo = [f"[{i}:v]fps=30,format=yuv420p,setsar=1[v{i}]" for i in range(n)]
+    ultimo = "v0"
+    for i in range(1, n):
+        grafo.append(f"[{ultimo}][v{i}]xfade=transition=fade:duration={cruce:.3f}:offset={inicios[i]:.3f}[x{i}]")
+        ultimo = f"x{i}"
+    acabado = [_FILTROS[look]] if look in _FILTROS else []
+    if any(x.strip() for x in textos):
+        finales = [ini + largo - (cruce if i < n - 1 else 0) for i, (ini, largo) in enumerate(zip(inicios, largos))]
+        ass = _titulos_ass(textos, inicios, finales, formato, destino.with_name(destino.stem + "_textos.ass"))
+        acabado.append(f"ass={ass.name}")
+    grafo.append(f"[{ultimo}]{','.join([*acabado, COLOR])}[v]")
+    # La voz de cada escena hasta donde empieza la siguiente (el fundido cae en su cola sin voz)
+    grafo += [f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,apad,"
+              f"atrim=duration={largo - (cruce if i < n - 1 else 0):.3f}[a{i}]" for i, largo in enumerate(largos)]
+    grafo.append("".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[voz]")
+    entradas = [x for p in partes for x in ("-i", p.resolve())]
+    sonido = "voz"
+    if musica:  # se repite si es corta; baja cuando hay voz y, donde no la hay, lleva el video (luego, a SONORIDAD)
+        # a -12 dB (0.25): una canción ya masterizada suena unos 6 dB más fuerte que la voz gratis; bajada, ~20 menos
+        entradas += ["-stream_loop", "-1", "-i", Path(musica).resolve()]
+        grafo += [f"[{n}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.25,atrim=duration={total:.3f},"
+                  f"afade=t=out:st={max(0.0, total - 1.5):.3f}:d=1.5[fondo]",
+                  "[voz]asplit=2[dice][escucha]", f"[fondo][escucha]{_BAJAR}[bajada]",
+                  "[dice][bajada]amix=inputs=2:normalize=0:duration=first[mezcla]"]
+        sonido = "mezcla"
+    crudo = destino.with_name(destino.stem + "_sin_mezclar.mkv")
+    _correr([*entradas, "-filter_complex", ";".join(grafo), "-map", "[v]", "-map", f"[{sonido}]",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+             crudo.name], destino.parent, total, avance)
+    # Sonoridad en dos pasadas (la de una sola, medida, se quedaba en -15,3): se mide y luego se ajusta
+    medida = _leer_ffmpeg("-i", crudo, "-vn", "-af", f"loudnorm={SONORIDAD}:print_format=json", "-f", "null", "-")
+    m = json.loads(medida[medida.rindex("{"):medida.rindex("}") + 1])
+    ajuste = "anull" if m["input_i"] == "-inf" else (
+        f"loudnorm={SONORIDAD}:measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}:"
+        f"measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true,aresample=48000")
+    ffmpeg("-i", crudo.name, "-map", "0:v", "-map", "0:a", "-c:v", "copy", "-af", ajuste, "-c:a", "aac", "-b:a", "192k",
+           "-ar", "48000", "-ac", "2", "-movflags", "+faststart", destino.name, cwd=destino.parent)
+    crudo.unlink(missing_ok=True)
     return destino

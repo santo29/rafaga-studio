@@ -159,7 +159,7 @@ ia.video_desde_imagen = lambda *a, **k: None
 desde_prompt.narrar = lambda texto, voz, destino, velocidad=1.0: velocidades.append(velocidad) or []
 video.duracion = lambda archivo: largo[0]
 video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escena
-video.unir = lambda partes, d: d
+video.unir = lambda partes, d, *a: d
 reales_animado = desde_prompt.proveedor_voz, desde_prompt.clips_hablados
 try:
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))

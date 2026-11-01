@@ -699,8 +699,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     # una y lleva a «Claves de IA»
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.inicio) == 0
     assert ventana.orden.index(ventana.director) == 1 and ventana.grupo.buttons()[0].text() == "Inicio"
-    assert "Conecta Groq o Gemini" in ventana.director.chat.toPlainText()
-    next(b for b in ventana.director.findChildren(QPushButton) if b.text() == "Ir a Claves de IA").click()
+    lenta = ventana.director.lenta  # la pastilla «IA gratis lenta» de arriba del chat
+    assert "Conecta Groq o Gemini" in lenta.toolTip() and not lenta.isHidden() and lenta.text() == "IA gratis lenta"
+    lenta.click()
     assert ventana.paginas.currentIndex() == ventana.orden.index(ventana.claves)
     ventana.ir_a(i)
     assert ventana.paginas.currentIndex() == i and ventana.grupo.buttons()[i].isChecked()

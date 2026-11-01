@@ -398,10 +398,10 @@ if disenos_ej:  # los diseños de ejemplo se abren en grande, sin bloquear la ap
     visor = ver_imagen(pagina, pagina_director.foto(disenos_ej[0]), disenos_ej[0]["titulo"])
     assert visor.isVisible() and not visor.findChild(QLabel).pixmap().isNull()
     visor.close()
-if ejemplos:
-    pagina.ver_ejemplo(ejemplos[0])
-    assert pagina.reproductor.isVisible() and pagina.reproductor.resultados[0]["archivo"].endswith(".mp4")
-    pagina.reproductor.player.stop()
+if ejemplos:  # en su ventana, con sonido: la página ya no tiene un reproductor que le quite sitio al chat
+    visto = pagina.ver_ejemplo(ejemplos[0])
+    assert visto.reproductor.isVisible() and visto.reproductor.resultados[0]["archivo"].endswith(".mp4")
+    visto.close()
     # La galería es la misma de Inicio (una sola pieza para todas): videos y diseños intercalados en una fila del
     # mismo alto; se mueven con su GIF y el clic derecho deja su pedido escrito, sin enviar
     from PySide6.QtWidgets import QMenu  # noqa: E402
@@ -431,30 +431,74 @@ if ejemplos:
     pagina.show()
     assert pagina.vigia.isActive()
 
-_dirigir = director.dirigir
+from PySide6.QtWidgets import QLabel, QPushButton  # noqa: E402
+
+_dirigir, recibido = director.dirigir, {}
+_abrir_varios = pagina_director.QFileDialog.getOpenFileNames
 try:
-    director.dirigir = lambda pedido, historial, al_usar, aviso, **_: (
-        al_usar("crear_diseno"), aviso("trabajando", 0.5),
-        {"mensaje": "Hecho <b>sin HTML</b>", "pasos": [], "formato": "9:16",
+    director.dirigir = lambda pedido, historial, al_usar, aviso, **k: (
+        recibido.update(k, pedido=pedido), al_usar("crear_diseno"), aviso("trabajando", 0.5),
+        {"mensaje": "Hecho <b>sin HTML</b>", "pasos": [{"herramienta": "editar_video", "resultado": "{}"}],
+         "formato": "9:16",
          "resultados": [{"archivo": str(salida), "titulo": "Mi video", "descripcion": "", "hashtags": []}]})[-1]
     usadas = []
     pagina.usando.connect(usadas.append)
-    pagina.adjuntos = [str(foto)]
+    # Adjuntar: cualquier archivo (también un texto con el encargo), cada uno a la vista con su miniatura y su «×»
+    brief = tmp / "encargo.txt"
+    brief.write_text("Hamburguesa con queso, para Instagram", encoding="utf-8")
+    pagina_director.QFileDialog.getOpenFileNames = staticmethod(lambda *a, **k: ([str(foto), str(brief)], ""))
+    pagina._adjuntar()
+    assert pagina.adjuntos == [str(foto), str(brief)] and pagina.caja_adjuntos.isVisibleTo(pagina)
+    vistas = pagina.caja_adjuntos.findChildren(pagina_director.Miniatura)
+    assert [v.ruta for v in vistas] == [foto, None]  # el texto, con el icono de su tipo
+    quitar = [b for b in pagina.caja_adjuntos.findChildren(QPushButton) if b.accessibleName() == "Quitar encargo.txt"]
+    quitar[0].click()
+    assert pagina.adjuntos == [str(foto)]
+    # Soltado en la caja (o pegado con Ctrl+V): se adjunta con su ficha, no se escribe «file:///…»; un enlace web, sí
+    from PySide6.QtCore import QMimeData, QUrl  # noqa: E402
+    soltado = QMimeData()
+    soltado.setUrls([QUrl.fromLocalFile(str(brief))])
+    assert pagina.pedido.canInsertFromMimeData(soltado)
+    pagina.pedido.insertFromMimeData(soltado)
+    assert pagina.pedido.text() == "" and pagina.adjuntos == [str(foto), brief.as_posix()]
+    assert pagina.fila_adjuntos.count() == 3  # sus dos fichas y el relleno
+    web = QMimeData()
+    web.setUrls([QUrl("https://ejemplo.com/foto")])
+    web.setText("https://ejemplo.com/foto")
+    pagina.pedido.insertFromMimeData(web)
+    assert pagina.pedido.text() == "https://ejemplo.com/foto" and len(pagina.adjuntos) == 2
     pagina.pedido.setText("hazme un post")
     pagina.enviar()
-    assert not pagina.enviar_btn.isEnabled() and pagina.pedido.text() == ""
+    assert not pagina.enviar_btn.isEnabled() and pagina.pedido.text() == "" and pagina.caja_adjuntos.isHidden()
+    assert not pagina.nueva.isEnabled()  # mientras trabaja, la conversación no se puede vaciar
     pagina.tarea.wait(10_000)
     for _ in range(20):
         app.processEvents()
-    assert usadas == ["crear_diseno"] and pagina.enviar_btn.isEnabled()
+    assert usadas == ["crear_diseno"] and pagina.enviar_btn.isEnabled() and pagina.nueva.isEnabled()
+    assert recibido["adjuntos"] == [str(foto), brief.as_posix()]
+    assert str(foto).replace("\\", "\\\\") in recibido["pedido"]
+    # Lo que dice el texto adjunto le llega al Director (no solo su nombre), después de la lista de rutas
+    assert recibido["pedido"].endswith("Texto de encargo.txt:\nHamburguesa con queso, para Instagram")
     texto = pagina.chat.toPlainText()
     assert "Hecho <b>sin HTML</b>" in texto and "foto.png" in texto  # lo de la IA se ve tal cual, nunca como HTML
+    assert "Archivos que te doy" not in texto and "Hamburguesa" not in texto  # es para la IA, no para la burbuja
     assert pagina.historial[0]["rol"] == "usuario" and "foto.png" in pagina.historial[0]["texto"]
-    assert pagina.historial[-1] == {"rol": "director", "texto": "Hecho <b>sin HTML</b>"}
-    assert pagina.reproductor.isVisible() and pagina.adjuntos == []
-    pagina.reproductor.player.stop()
+    assert pagina.historial[0]["adjuntos"] == [str(foto), brief.as_posix()]
+    assert {k: v for k, v in pagina.historial[-1].items() if k != "resultados"} == {
+        "rol": "director", "texto": "Hecho <b>sin HTML</b>", "hechas": ["editar_video"]}
+    assert [x["titulo"] for x in pagina.historial[-1]["resultados"]] == ["Mi video"]
+    # La foto adjunta, en tu burbuja; lo hecho, en el chat (en su tarjeta), y la portada con la galería ya no está
+    tuyo, suyo = pagina.chat.mensajes()[-2:]
+    assert tuyo.tuyo and [v.ruta for v in tuyo.findChildren(pagina_director.Miniatura)] == [foto, None]
+    assert [t.findChild(QLabel, "resultado_titulo").text() for t in suyo.findChildren(
+        pagina_director.TarjetaResultado)] == ["Mi video"]
+    assert pagina.adjuntos == [] and not pagina.galeria.isVisible() and not pagina.vigia.isActive()
+    pagina.hide()
+    pagina.show()
+    assert not pagina.vigia.isActive()  # sin portada no hay galería que mover
 finally:
     director.dirigir = _dirigir
+    pagina_director.QFileDialog.getOpenFileNames = _abrir_varios
 
 # La luz: se enciende, late con la voz y se apaga sola sin tapar los clics
 brillo = pagina.brillo
@@ -488,8 +532,8 @@ assert not any(b.graphicsEffect() for b in ventana.grupo.buttons())
 assert set(pagina_director.PAGINA) == set(herramientas.TODAS)  # cada herramienta tiene su página que iluminar
 
 # Ctrl+Espacio desde cualquier página: mantenerlo pulsado mientras hablas no enciende y apaga la escucha (Windows
-# repite la tecla), y la página baja hasta el estado: a 1280×720 al 150 % (~650 px de alto) quedaba por debajo de la
-# pantalla y ningún aviso de la voz se veía. Sin voz, se avisa en el chat y en voz alta, y la luz se apaga.
+# repite la tecla), y el estado se ve sin desplazar nada: a 1280×720 al 150 % (~650 px de alto) quedaba por debajo de
+# la pantalla y ningún aviso de la voz se veía. Sin voz, se avisa en el chat y en voz alta, y la luz se apaga.
 import time  # noqa: E402
 
 from PySide6.QtCore import QPoint, QUrl  # noqa: E402
@@ -519,8 +563,9 @@ try:
     ventana.ir_a(0)
     atajos[0].activated.emit()
     assert oyendo.wait(5) and area.widget() is d and ventana.paginas.currentWidget() is area
-    esperar(lambda: area.verticalScrollBar().value() > 0)
-    arriba = d.estado.mapTo(d, QPoint(0, 0)).y() - area.verticalScrollBar().value()
+    esperar(lambda: d.estado.isVisible())
+    arriba = d.estado.mapTo(area.viewport(), QPoint(0, 0)).y()
+    assert area.verticalScrollBar().maximum() == 0  # la página no se desplaza: el chat se desplaza solo
     assert d.estado.text().startswith("Te escucho") and 0 <= arriba <= area.viewport().height() - d.estado.height()
     d.alternar_voz()  # «Parar» sin haber dicho nada
     esperar(lambda: not d.escucha.isRunning() and leidos and not (d.lectura and d.lectura.isRunning()))
@@ -567,6 +612,220 @@ try:
 finally:
     voz.preparar, voz.escuchar, voz.entender, voz.hablar = guardadas
 ventana.close()
+
+# ---------- El chat a página completa: medidas, teclado, tarjetas, descargar y la conversación guardada ----------
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QDialog, QFileDialog  # noqa: E402
+
+from ui import comun  # noqa: E402
+
+
+def se_ve(w, area) -> bool:
+    y = w.mapTo(area.viewport(), QPoint(0, 0)).y()
+    return w.isVisible() and 0 <= y and y + w.height() <= area.viewport().height()
+
+
+director.dirigir = lambda pedido, historial, al_usar, aviso, **k: (
+    recibido.update(k, pedido=pedido), {"mensaje": "Listo", "pasos": [], "formato": "1:1", "resultados": []})[-1]
+try:
+    for ancho, alto in ((1280, 650), (1920, 1080)):  # 1280×650: lo que le queda a la página a 1280×720 al 150 %
+        ventana = aplicacion.Ventana()
+        ventana.resize(ancho, alto)
+        ventana.show()
+        d = ventana.director
+        ventana.ir_a(ventana.orden.index(d))
+        area = ventana.paginas.currentWidget()
+        app.processEvents()
+        caja = d.pedido.parentWidget()
+        # Sin mensajes: la portada con la galería, y la caja del pedido entera a la vista sin desplazar la página
+        assert d.galeria.isVisible() and d.vigia.isActive() and se_ve(caja, area), (ancho, alto)
+        assert area.verticalScrollBar().maximum() == 0 and d.chat.columna.width() <= pagina_director.ANCHO_CHAT
+        assert abs(caja.geometry().center().x() - d.width() / 2) <= 2  # centrada, como la columna del chat
+        # Un pedido largo (de Inicio, con sus escenas en líneas) se ve entero hasta 6 líneas y luego se desplaza
+        una = d.pedido.height()
+        d.pedido.setText("ESCENA 1: ingredientes\nESCENA 2: el montaje\nESCENA 3: el final")
+        tres = d.pedido.height()
+        d.pedido.setText("\n".join(f"ESCENA {n}" for n in range(7)))
+        siete = d.pedido.height()
+        d.pedido.setText("\n".join(f"ESCENA {n}" for n in range(20)))
+        app.processEvents()
+        assert una < tres < siete == d.pedido.height() and se_ve(caja, area), (una, tres, siete)
+        assert area.verticalScrollBar().maximum() == 0
+        # Mayús+Intro, otra línea; Intro lo manda. La portada se va y el chat ocupa la página
+        d.pedido.setText("una taza de café")
+        QTest.keyClick(d.pedido, Qt.Key_Return, Qt.ShiftModifier)
+        QTest.keyClicks(d.pedido, "humeante")
+        assert d.pedido.text() == "una taza de café\nhumeante" and not d.ocupado()
+        QTest.keyClick(d.pedido, Qt.Key_Return)
+        esperar(lambda: not d.ocupado() and d.enviar_btn.isEnabled())
+        d._decir("Tú", "ahora anímala, que salga el humo")
+        app.processEvents()
+        assert recibido["pedido"] == "una taza de café\nhumeante"
+        assert not d.galeria.isVisible() and not d.vigia.isActive() and se_ve(caja, area)
+        assert area.verticalScrollBar().maximum() == 0 and d.chat.height() >= 0.6 * area.viewport().height()
+        # Tu burbuja a la derecha de la columna, del ancho de su texto (una línea); la respuesta, a la izquierda
+        tuyo, suyo, corto = d.chat.mensajes()
+        derecha = tuyo.caja.mapTo(d.chat.columna, QPoint(tuyo.caja.width(), 0)).x()
+        assert abs(derecha - d.chat.columna.width()) <= 2 and suyo.caja.mapTo(d.chat.columna, QPoint(0, 0)).x() == 0
+        linea = corto.caja.findChild(QLabel, "texto_tu")
+        assert linea.height() < 2 * linea.fontMetrics().lineSpacing(), linea.height()
+        ventana.grab()  # se pinta sin errores
+        ventana.close()
+finally:
+    director.dirigir = _dirigir
+
+# Lo hecho, en tarjetas: sin repetir, nunca una ruta de red y con su serie
+carpeta_diseno = tmp / "disenos" / "cartel"
+carpeta_diseno.mkdir(parents=True)
+cartel = carpeta_diseno / "vista_previa.png"
+cartel.write_bytes(png("#FFB454", 120, 150))
+(carpeta_diseno / "diseno.json").write_text("{}", encoding="utf-8")
+r = {"mensaje": "Listo", "formato": "9:16", "resumen": "Hecho: crear_diseno", "pasos": [
+    {"herramienta": "crear_diseno", "resultado": "{}"}, {"herramienta": "crear_video", "resultado": "ERROR: cuota"}],
+     "resultados": [{"archivo": str(cartel), "titulo": "Cartel", "descripcion": "", "hashtags": []},
+                    {"archivo": str(foto), "titulo": "Suelta", "descripcion": "", "hashtags": []},
+                    {"archivo": str(salida), "titulo": "Mi video", "descripcion": "Para publicar", "hashtags": ["#a"]},
+                    {"archivo": str(salida), "titulo": "Mi video otra vez", "descripcion": "", "hashtags": []},
+                    {"archivo": str(musica), "titulo": "Mi canción", "descripcion": "", "hashtags": []},
+                    {"archivo": str(tmp / "movido.mp4"), "titulo": "Se movió", "descripcion": "", "hashtags": []},
+                    {"archivo": r"\\servidor\x.png", "titulo": "De red", "descripcion": "", "hashtags": []},
+                    {"archivo": str(tmp / "notas.txt"), "titulo": "Notas", "descripcion": "", "hashtags": []}]}
+assert [(x["tipo"], x["titulo"]) for x in pagina_director.tarjetas_de(r)] == [
+    ("diseno", "Cartel"), ("imagen", "Suelta"), ("video", "Mi video"), ("audio", "Mi canción"), ("video", "Se movió")]
+serie_hecha = {"herramienta": "crear_serie", "resultado": json.dumps({"carpeta": str(tmp / "series" / "mi-serie")})}
+assert pagina_director.tarjetas_de({"pasos": [serie_hecha], "resultados": []}) == [
+    {"tipo": "serie", "archivo": "", "titulo": "mi-serie", "serie": "mi-serie"}]
+assert pagina_director.tarjetas_de({"pasos": [serie_hecha], "resultados": r["resultados"][2:3]})[0]["serie"] == "mi-serie"
+# La portada de un video, en el hilo del trabajo y solo dentro de datos/ (junto a un video tuyo no se deja nada)
+otro = tmp / "otro" / "tuyo.mp4"
+otro.parent.mkdir()
+otro.write_bytes(salida.read_bytes())
+pagina_director.con_portadas({"resultados": [{"archivo": str(otro)}]})
+_datos, pagina_director.DATOS = pagina_director.DATOS, tmp / "ediciones"
+try:
+    pagina_director.con_portadas({"resultados": [{"archivo": str(salida)}, {"archivo": str(musica)},
+                                                 {"archivo": r"\\servidor\v.mp4"}]})
+finally:
+    pagina_director.DATOS = _datos
+assert pagina_director.portada(salida).is_file() and not pagina_director.portada(otro).exists()
+assert not pagina_director.portada(musica).exists()
+
+disenados, editados = [], []
+_editar, _disenar = comun.Reproductor.al_editar, comun.VisorImagen.al_disenar
+comun.Reproductor.al_editar = lambda archivo, formato: editados.append((archivo, formato))
+comun.VisorImagen.al_disenar = lambda ruta, titulo="": disenados.append(Path(ruta))
+_guardar_como, _mensaje = QFileDialog.getSaveFileName, comun.mensaje
+assert pagina.archivo is None  # sin restaurar() no se guarda nada: las pruebas nunca tocan datos/director.json
+chat = PaginaDirector(abrir_diseno=disenados.append, abrir_serie=lambda nombre: None)
+guardado = tmp / "conversacion" / "director.json"
+chat.restaurar(guardado)
+assert chat.historial == [] and not guardado.exists()
+chat.resize(1100, 800)
+chat.show()
+try:
+    chat._listo(r)
+    app.processEvents()
+    assert not [v for v in chat.findChildren(QDialog) if v.isVisible()]  # ya no se abre ninguna ventana sola
+    [m] = chat.chat.mensajes()
+    tarjetas = m.findChildren(pagina_director.TarjetaResultado)
+    texto = chat.chat.toPlainText()
+    assert "Hecho: crear un diseño" in texto and "No salió: crear un video" in texto and "Cartel" in texto
+
+    def botones(tarjeta):
+        return {b.accessibleName() or b.text(): b for b in tarjeta.findChildren(QPushButton)}
+    diseno_t, suelta_t, video_t, audio_t, movido_t = tarjetas
+    assert set(botones(diseno_t)) == set(botones(suelta_t)) == {"Descargar", "Editar en Diseño", "Animar",
+                                                                "Abrir carpeta"}
+    assert set(botones(video_t)) == {"Descargar", "Editar", "Abrir carpeta"}
+    assert set(botones(audio_t)) == {"Descargar", "Abrir carpeta"}
+    assert f"Guardado en: {salida.parent}" in [l.text() for l in video_t.findChildren(QLabel, "resultado_meta")]
+    botones(diseno_t)["Editar en Diseño"].click()
+    botones(suelta_t)["Editar en Diseño"].click()
+    botones(video_t)["Editar"].click()
+    assert disenados == [carpeta_diseno, foto] and editados == [(str(salida), "9:16")]
+    # Si el archivo ya no está, lo dice y sus botones se apagan
+    assert movido_t.findChildren(QLabel, "resultado_meta")[0].text() == "Ya no está en tu PC"
+    assert not any(b.isEnabled() for b in movido_t.findChildren(QPushButton)) and not movido_t.miniatura.isEnabled()
+    # Su miniatura se lee en el pool; pulsarla la ve en grande (la imagen en el visor, el video con su sonido)
+    esperar(lambda: diseno_t.miniatura._capas is not None and not diseno_t.miniatura._capas[2].isNull())
+    diseno_t.miniatura.click()
+    visor = [v for v in chat.findChildren(QDialog) if v.isVisible()][-1]
+    assert visor.windowTitle() == "Cartel"
+    visor.close()
+    video_t.miniatura.click()
+    visor = [v for v in chat.findChildren(QDialog) if v.isVisible()][-1]
+    assert visor.reproductor.resultados[0]["descripcion"] == "Para publicar"
+    visor.close()
+    # Descargar: una copia donde elijas, con los mismos bytes, y dónde quedó
+    destino, dichos = tmp / "descargas" / "copia.mp4", []
+    destino.parent.mkdir()
+    QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(destino), ""))
+    comun.mensaje = lambda padre, titulo, texto, *a, **k: dichos.append(texto)
+    botones(video_t)["Descargar"].click()
+    assert destino.read_bytes() == salida.read_bytes() and dichos == [f"Guardado en {destino}"]
+    # «Animar» se lo pide al Director con la imagen adjunta, y lo que estabas escribiendo y adjuntando se queda
+    director.dirigir = lambda pedido, historial, al_usar, aviso, **k: (
+        recibido.update(k, pedido=pedido), {"mensaje": "Animada", "pasos": [], "formato": "1:1", "resultados": []})[-1]
+    borrador = "Un borrador largo con mis escenas:\nEscena 1, el local"
+    chat.pedido.setText(borrador)
+    chat._sumar([str(cartel)])
+    botones(suelta_t)["Animar"].click()
+    esperar(lambda: not chat.ocupado() and chat.enviar_btn.isEnabled())
+    app.processEvents()
+    assert recibido["adjuntos"] == [str(foto)] and recibido["pedido"].startswith("Anima esta imagen.")
+    assert chat.pedido.text() == borrador and chat.adjuntos == [str(cartel)] and chat.caja_adjuntos.isVisibleTo(chat)
+    chat.pedido.clear()
+    chat._quitar(str(cartel))
+    # Guardada: otra página (la app abierta otra vez) rehace la conversación con sus tarjetas
+    assert guardado.is_file()
+    otra = PaginaDirector(abrir_diseno=disenados.append)
+    otra.restaurar(guardado)
+    assert otra.historial == chat.historial and len(otra.historial) == 3
+    assert otra.chat.toPlainText() == chat.chat.toPlainText() and otra.chat.portada.isHidden()
+    assert len(otra.chat.mensajes()[0].findChildren(pagina_director.TarjetaResultado)) == 5
+    otra.cerrar()
+    # Una clave o una tarjeta escrita en el chat no queda en el disco (en esta sesión el Director la sigue teniendo);
+    # las rutas de los archivos, aunque lleven cifras y letras, se guardan enteras
+    clave = "sk-ant-api03-" + "Ab1" * 30
+    chat.pedido.setText(f"Conecta esta clave de Claude y hazme un post: {clave}. Mi tarjeta: 4111 1111 1111 1111")
+    chat.enviar()
+    esperar(lambda: not chat.ocupado() and chat.enviar_btn.isEnabled())
+    app.processEvents()
+    escrito = guardado.read_text(encoding="utf-8")
+    assert clave not in escrito and "Ab1Ab1" not in escrito and "1111 1111" not in escrito and "•••" in escrito
+    assert clave in chat.historial[-2]["texto"]
+    assert pagina_director.tapar(f"usa {clave}, gracias") == "usa •••, gracias"
+    assert pagina_director.tapar(r'["C:\\x\\rafaga-director-abc123def456ghi789\\2026-11-01-1234567890.mp4"]') == \
+        r'["C:\\x\\rafaga-director-abc123def456ghi789\\2026-11-01-1234567890.mp4"]'
+    assert pagina_director.cargar_conversacion(guardado)[1]["adjuntos"] == [str(foto)]
+    assert str(foto).replace("\\", "\\\\") in pagina_director.cargar_conversacion(guardado)[1]["texto"]
+    # Lo guardado no se cree: roto, enorme o con tipos raros da una conversación vacía, y nunca una ruta de red
+    for malo in ("{roto", json.dumps({"mensajes": "x"}), json.dumps([1, 2]), " " * 2_100_000 + "{}"):
+        guardado.write_text(malo, encoding="utf-8")
+        assert pagina_director.cargar_conversacion(guardado) == [], malo[:20]
+    guardado.write_text(json.dumps({"version": 1, "mensajes": [
+        {"rol": "usuario", "texto": "hola", "adjuntos": [r"\\servidor\foto.png", str(foto)]},
+        {"rol": "sistema", "texto": "fuera"}, {"rol": "director", "texto": 5},
+        {"rol": "director", "texto": "Listo", "hechas": ["crear_diseno", 7], "resultados": [
+            {"tipo": "imagen", "archivo": r"\\servidor\x.png", "titulo": "red"},
+            {"tipo": "video", "archivo": str(tmp / "x.exe"), "titulo": "programa"},
+            {"tipo": "raro", "archivo": str(foto), "titulo": "raro"},
+            {"tipo": "imagen", "archivo": str(foto), "titulo": "Buena", "formato": "<b>"}]}]}), encoding="utf-8")
+    assert pagina_director.cargar_conversacion(guardado) == [
+        {"rol": "usuario", "texto": "hola", "adjuntos": [str(foto)]},
+        {"rol": "director", "texto": "Listo", "hechas": ["crear_diseno"], "resultados": [
+            {"tipo": "imagen", "archivo": str(foto), "titulo": "Buena", "formato": "", "descripcion": "",
+             "hashtags": []}]}]
+    # «Nueva conversación»: vuelve la portada y se borra lo guardado (lo hecho sigue en su carpeta)
+    chat.nueva_conversacion()
+    assert chat.historial == [] and chat.chat.mensajes() == [] and chat.galeria.isVisible() and chat.vigia.isActive()
+    assert not guardado.exists() and cartel.is_file()
+finally:
+    director.dirigir = _dirigir
+    comun.Reproductor.al_editar, comun.VisorImagen.al_disenar = _editar, _disenar
+    QFileDialog.getSaveFileName, comun.mensaje = _guardar_como, _mensaje
+chat.cerrar()
 
 # Un aviso cuyo texto Qt dejó en una sola línea cortada (pasó con la pantalla al 150 %): al mostrarse se parte en
 # líneas y la ventana crece hasta que se lee entero

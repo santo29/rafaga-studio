@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTranslator
+from PySide6.QtCore import QLibraryInfo, QProcess, Qt, QTimer, QTranslator
 from PySide6.QtGui import QColor, QFont, QIcon, QImageReader, QKeySequence, QPalette, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFrame,
                                QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
@@ -303,9 +303,9 @@ class Ventana(QMainWindow):
     def _pedir(self, modo, texto):
         """La idea escrita arriba en Inicio, en la página que la hace: escrita y sin empezar (empezar puede gastar cuota
         o dinero, y eso lo decide el usuario allí)."""
-        if modo in ("director", "imagen", "diseno"):
+        if modo in ("imagen", "diseno"):
             # Sus campos son de una línea: un salto de línea llegaba tal cual (se veía pegado). Pasan a espacios, y como
-            # mucho las 2000 letras que admite el pedido de Diseño
+            # mucho las 2000 letras que admite el pedido de Diseño. El del Director crece: sus escenas siguen en líneas
             texto = " ".join(texto.split())[:2000]
         if modo == "director":
             return self._usar_pedido(texto)
@@ -355,6 +355,9 @@ if __name__ == "__main__":
                             "--uploaded-prior-to", "P7D", "yt-dlp", "yt-dlp-ejs"])
     ventana = Ventana()
     ventana.show()
+    # La conversación de la última vez (aquí y no en la ventana: las pruebas no la leen), con la ventana ya abierta:
+    # rehacer 100 mensajes con sus tarjetas tarda más de un segundo
+    QTimer.singleShot(0, ventana.director.restaurar)
     # Cada servicio conectado, comprobado en segundo plano al abrir (aquí y no en la ventana: las pruebas la crean sin
     # red): así un trabajo avisa ANTES de empezar si Gemini se quedó sin saldo, y «Claves de IA» enseña su estado
     ventana.claves.comprobar_ahora(al_abrir=True)

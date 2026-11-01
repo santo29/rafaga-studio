@@ -41,6 +41,7 @@ Casi todo queda en la carpeta `datos` de Ráfaga Studio; lo demás, también en 
 | Investigaciones de nichos | `datos/nichos/` |
 | Lo que programaste en YouTube (archivo, hora, título e id del video) | `datos/publicaciones.json` |
 | Tus preferencias que recuerda el Director (memoria del estudio: «títulos cortos», «mi marca es…») | `datos/memoria.json` |
+| La conversación con el Director (lo que escribiste, con las claves y los números de tarjeta tapados; las rutas de lo que adjuntaste y el principio de tus textos .txt o .md; sus respuestas y qué archivos hizo; los últimos 100 mensajes). La borras con «Nueva conversación» | `datos/director.json` |
 | Historial de Ráfaga Guardia: lo que la app frenó (fecha, tipo, gravedad, de dónde vino y un detalle corto sin claves, sin enlaces firmados y sin rutas enteras: de un archivo solo queda su nombre), si el estudio está bloqueado y la huella del archivo de claves (para notar si otro programa lo cambia). Guarda los últimos 500 eventos y lo borras con «Borrar historial» | `datos/guardia.json` |
 | Videos exportados desde el editor | `Videos\Ráfaga Studio` |
 | Diseños exportados | `Imágenes\Ráfaga Studio` (o donde elijas) |

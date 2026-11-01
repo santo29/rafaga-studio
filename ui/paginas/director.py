@@ -1,9 +1,11 @@
-"""Página «Director IA»: pides el trabajo por escrito o con la voz y la IA usa todo el estudio para hacerlo.
-Arriba, los ejemplos hechos con Ráfaga Studio (carpeta ejemplos/). Aquí vive también la galería de ejemplos que usan
-el Director e Inicio: la pieza pintada con su video, el mosaico y la fila que se desplaza."""
+"""Página «Director IA»: un chat a página completa (como el de Claude) donde pides el trabajo por escrito o con la voz y
+la IA usa todo el estudio para hacerlo; lo hecho sale en el chat, listo para descargar. Sin mensajes, la portada con los
+ejemplos hechos con Ráfaga Studio (carpeta ejemplos/). Aquí vive también la galería de ejemplos que usan el Director e
+Inicio: la pieza pintada con su video, el mosaico y la fila que se desplaza."""
 import atexit
-import html
 import json
+import os
+import re
 import threading
 import traceback
 from itertools import count, zip_longest
@@ -12,19 +14,35 @@ from pathlib import Path
 from PySide6.QtCore import (QEasingCurve, QObject, QPropertyAnimation, QRect, QRectF, QSize, Qt, QThread, QThreadPool,
                             QTimer, QUrl, Signal, Slot)
 from PySide6.QtGui import (QAction, QBrush, QColor, QDesktopServices, QFont, QImage, QImageReader, QKeySequence,
-                           QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QRadialGradient, QShortcut)
+                           QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QRadialGradient, QShortcut,
+                           QTextCursor)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
-                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QScrollArea,
-                               QSizePolicy, QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QBoxLayout, QCheckBox, QDialog, QFileDialog, QFrame,
+                               QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+                               QPlainTextEdit, QProgressBar, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
-from motor import claves, director, ia, idioma, memoria, roles, voz
+from motor import claves, diseno, director, herramientas, ia, idioma, memoria, roles, seguro, voz
 from motor.idioma import t
-from ui.comun import (boton, etiqueta, mensaje, mensaje_error, Reproductor, seccion, Segmentos, SelectorModelo, Tarea,
-                      tarjeta, ver_imagen)
+from motor.video import ffmpeg
+from ui.comun import (boton, descargar, etiqueta, mensaje, mensaje_error, Reproductor, se_puede_abrir, seccion,
+                      Segmentos, SelectorModelo, Tarea, tarjeta, ver_imagen, ver_video, VisorImagen)
 from ui.iconos import icono, poner
 
 EJEMPLOS = Path(__file__).resolve().parent.parent.parent / "ejemplos"
+DATOS = EJEMPLOS.parent / "datos"
+CONVERSACION = DATOS / "director.json"  # la conversación con el Director, para seguirla al abrir la app otra vez
+MAX_GUARDADOS = 100  # mensajes que se guardan (los de antes se olvidan)
+ANCHO_CHAT = 900  # la columna del chat y la caja del pedido: a 1920 px, líneas de 1600 px no se leían
+ARCHIVOS = "\n\nArchivos que te doy: "  # lo que sigue en el pedido es la lista JSON de adjuntos (la burbuja no lo enseña)
+# Lo que se puede adjuntar sin elegir «Todos los archivos»: lo que usan las herramientas y los textos de un encargo
+# (su texto va en el pedido, ver texto_adjunto; un PDF no, que leerlo pediría otra dependencia)
+TIPOS_ADJUNTOS = "*.png *.jpg *.jpeg *.webp *.mp4 *.mov *.webm *.mp3 *.wav *.m4a *.txt *.md"
+TEXTOS = {".txt", ".md"}
+# Lo que la memoria del estudio no guarda (una clave larga, un número de tarjeta) y no es parte de una ruta: así
+# director.json no lo deja escrito y los archivos de la conversación («sigue con ese video») siguen valiendo
+_SECRETO = re.compile(rf"(?<![\\/.])(?:{memoria._TOKEN.pattern}|{memoria._TARJETA.pattern})(?![\w\\/-]|\.\w)")
+ICONOS_TIPO = {"imagen": "image", "diseno": "palette", "video": "clapperboard", "audio": "music", "serie": "rabbit",
+               "archivo": "file-text"}
 # Piezas que se mueven a la vez en una página (GIF o el MP4 de la elegida del carrusel): cada una es un decodificador.
 # ponytail: medido en un portátil de 4 hilos (3 GIF pequeños cuestan poco); en PCs potentes o con GPU se puede subir a 6
 MAX_VIVAS = 3
@@ -42,7 +60,6 @@ PAGINA = {"crear_video": "Crear con IA", "sacar_shorts": "Shorts mágicos", "cre
           "investigar_nichos": "Nichos virales", "listar_proyectos": "Mis proyectos", "listar_opciones": "Claves de IA",
           "crear_serie": "Dibujos animados", "crear_episodio": "Dibujos animados", "listar_series": "Dibujos animados",
           "programar_publicacion": "Publicar", "recordar_preferencia": "Director IA"}
-IMAGENES = (".png", ".jpg", ".jpeg")  # resultados que no son video: el reproductor no los enseña
 
 
 def ejemplos() -> list[dict]:
@@ -861,11 +878,11 @@ def ver_todo(padre, filas: list, usar_pedido=None) -> QDialog:
     return ventana
 
 
-def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion_de_inicio=False) -> QWidget:
+def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion_de_inicio=False, alto=170) -> QWidget:
     """Los ejemplos hechos con el estudio, videos y diseños intercalados (un video se ve con ver_video(e); un diseño,
     en grande), con «Ver todo» y la casilla «Animar vistas previas». En Inicio es un mosaico con su cabecera de
-    sección; en el Director, una fila que se desplaza de lado. Sin ejemplos, no se ve. Sus piezas, en .tarjetas: quien
-    la pone las vigila con vigilar(), junto con las demás de su página."""
+    sección; en el Director, una fila de piezas de «alto» px que se desplaza de lado. Sin ejemplos, no se ve. Sus
+    piezas, en .tarjetas: quien la pone las vigila con vigilar(), junto con las demás de su página."""
     filas = [f for f in ((t("Videos"), ejemplos(), ver_video),
                          (t("Diseños"), disenos(),
                           lambda d: ver_imagen(padre, foto(d), str(d.get("titulo", ""))))) if f[1]]
@@ -883,7 +900,7 @@ def galeria_ejemplos(padre, ver_video, usar_pedido=None, seccion_de_inicio=False
         lay.addWidget(Mosaico(piezas, columnas_max=4))  # a 1920 px, 6 columnas dejaban un hueco de 300 px debajo
     else:
         caja, lay = tarjeta()
-        fila = fila_ejemplos(piezas)
+        fila = fila_ejemplos(piezas, alto)
         cabecera = QHBoxLayout()
         cabecera.setSpacing(10)
         cabecera.addWidget(etiqueta(t("Hecho con Ráfaga Studio"), "sub"), 1, Qt.AlignVCenter)
@@ -907,6 +924,582 @@ def serie_de_pasos(pasos: list[dict]) -> str:
             # el capítulo está en series/<serie>/episodios/NN
             return (carpeta if p["herramienta"] == "crear_serie" else carpeta.parent.parent).name
     return ""
+
+
+# ---------- El chat: lo que se guarda, sus tarjetas y sus mensajes ----------
+
+TIPOS_TARJETA = ("imagen", "diseno", "video", "audio", "serie")
+FORMATOS = ("9:16", "16:9", "1:1", "4:5")
+
+
+def _tipo(archivo: str) -> str | None:
+    """Qué es un resultado: "diseno" (una imagen con su diseno.json al lado: se edita por capas), "imagen", "video" o
+    "audio"; None si no es nada de eso."""
+    sufijo = Path(archivo).suffix.lower()
+    if sufijo in seguro.IMAGENES:
+        return "diseno" if (Path(archivo).parent / "diseno.json").is_file() else "imagen"
+    return "video" if sufijo in seguro.VIDEOS else "audio" if sufijo in seguro.AUDIOS else None
+
+
+def _textos(valor, maximo: int, largo: int = 600) -> list[str]:
+    """Solo los textos de una lista (lo demás fuera), como mucho «maximo» y recortados."""
+    return [v[:largo] for v in valor if isinstance(v, str)][:maximo] if isinstance(valor, list) else []
+
+
+def tarjetas_de(r: dict) -> list[dict]:
+    """Las tarjetas del chat de lo que hizo el Director: una por archivo y sin repetir (programar_publicacion devuelve
+    otra vez el video que sube), con su tipo; la serie va en sus videos o, si creó una sin video, en su tarjeta. Nunca
+    una ruta de red: abrirla mandaría tu usuario de Windows a ese servidor."""
+    serie, tarjetas, vistos = serie_de_pasos(r.get("pasos") or []), [], set()
+    for x in r.get("resultados") or []:
+        archivo = str(x.get("archivo") or "")
+        if archivo in vistos or seguro.es_ruta_de_red(archivo) or not (tipo := _tipo(archivo)):
+            continue
+        vistos.add(archivo)
+        tarjetas.append({"tipo": tipo, "archivo": archivo, "titulo": str(x.get("titulo") or Path(archivo).stem),
+                         "formato": str(r.get("formato") or ""), "descripcion": str(x.get("descripcion") or ""),
+                         "hashtags": _textos(x.get("hashtags"), 30, 100),
+                         **({"serie": serie} if serie and tipo == "video" else {})})
+    if serie and not any(x["tipo"] == "video" for x in tarjetas):
+        tarjetas.append({"tipo": "serie", "archivo": "", "titulo": serie, "serie": serie})
+    return tarjetas
+
+
+def portada(archivo) -> Path:
+    """La foto de la tarjeta de un video: «<nombre>_portada.jpg» a su lado (ver con_portadas)."""
+    archivo = Path(archivo)
+    return archivo.with_name(f"{archivo.stem}_portada.jpg")
+
+
+def con_portadas(r: dict) -> dict:
+    """En el hilo del trabajo: la portada de cada video para su tarjeta del chat, una vez, con ffmpeg (como las láminas
+    de serie.py). Solo dentro de datos/: junto a un video tuyo de otra carpeta no se deja nada. Si no sale (un video
+    de menos de 1 s), la tarjeta lleva el icono del video."""
+    for x in r.get("resultados") or []:
+        archivo = str(x.get("archivo") or "")
+        if (Path(archivo).suffix.lower() in seguro.VIDEOS and not seguro.es_ruta_de_red(archivo)
+                and Path(archivo).is_file() and Path(archivo).resolve().is_relative_to(DATOS.resolve())
+                and not portada(archivo).is_file()):
+            try:
+                ffmpeg("-ss", "1", "-i", archivo, "-frames:v", "1", "-vf", "scale='min(720,iw)':-2", portada(archivo))
+            except Exception:  # sin portada no se pierde nada: no tumba el trabajo
+                traceback.print_exc()
+    return r
+
+
+def tapar(texto: str) -> str:
+    """El texto con sus claves y números de tarjeta cambiados por «•••», para guardarlo en el disco.
+    ponytail: una contraseña corta no tiene formato y se queda; para taparla haría falta preguntar al escribirla."""
+    return _SECRETO.sub("•••", texto)
+
+
+def texto_adjunto(ruta: str) -> str:
+    """Lo que dice un .txt o .md adjunto (el principio), para que el Director lea el encargo y no solo su nombre. De
+    una carpeta de red o de otro tipo, nada."""
+    if Path(ruta).suffix.lower() not in TEXTOS or seguro.es_ruta_de_red(ruta):
+        return ""
+    try:
+        with open(ruta, encoding="utf-8-sig", errors="replace") as f:
+            return f"\n\nTexto de {Path(ruta).name}:\n{f.read(3000)}"
+    except OSError:
+        return ""
+
+
+def cargar_conversacion(archivo) -> list[dict]:
+    """La conversación guardada (ver PaginaDirector._guardar), sin fiarse del archivo, que se puede tocar a mano: roto,
+    de más de 2 MB o con tipos raros da una conversación vacía, y de cada mensaje solo queda lo que la página sabe
+    enseñar. Nunca una ruta de red en una tarjeta ni en un adjunto (verla mandaría tu usuario de Windows a ese
+    servidor)."""
+    try:
+        if Path(archivo).stat().st_size > 2_000_000:
+            return []
+        mensajes = json.loads(Path(archivo).read_text(encoding="utf-8"))["mensajes"]
+    except (OSError, ValueError, RecursionError, TypeError, KeyError):
+        return []
+    limpios = []
+    for m in mensajes[-MAX_GUARDADOS:] if isinstance(mensajes, list) else []:
+        if not isinstance(m, dict) or m.get("rol") not in ("usuario", "director") or not isinstance(m.get("texto"), str):
+            continue
+        limpio = {"rol": m["rol"], "texto": m["texto"][:6000]}
+        if isinstance(m.get("hecho"), str):
+            limpio["hecho"] = m["hecho"][:6000]
+        for clave, maximo in (("plan", 20), ("hechas", 10), ("fallidas", 10)):
+            if valor := _textos(m.get(clave), maximo):
+                limpio[clave] = valor
+        if adjuntos := [r for r in _textos(m.get("adjuntos"), 20, 1000) if not seguro.es_ruta_de_red(r)]:
+            limpio["adjuntos"] = adjuntos
+        resultados = []
+        for x in m.get("resultados") if isinstance(m.get("resultados"), list) else []:
+            if not (isinstance(x, dict) and x.get("tipo") in TIPOS_TARJETA and isinstance(x.get("archivo"), str)
+                    and isinstance(x.get("titulo"), str)) or seguro.es_ruta_de_red(x["archivo"]):
+                continue
+            serie = x.get("serie") if isinstance(x.get("serie"), str) else ""
+            if (x["tipo"] == "serie" and not (serie and x["archivo"] == "")) or (x["tipo"] != "serie" and Path(
+                    x["archivo"]).suffix.lower() not in seguro.IMAGENES | seguro.VIDEOS | seguro.AUDIOS):
+                continue
+            resultados.append({"tipo": x["tipo"], "archivo": x["archivo"][:1000], "titulo": x["titulo"][:300],
+                               "formato": x.get("formato") if x.get("formato") in FORMATOS else "",
+                               "descripcion": str(x.get("descripcion") or "")[:3000],
+                               "hashtags": _textos(x.get("hashtags"), 30, 100), **({"serie": serie} if serie else {})})
+        if resultados:
+            limpio["resultados"] = resultados[:30]
+        limpios.append(limpio)
+    return limpios
+
+
+def _centrada(w: QWidget) -> QHBoxLayout:
+    """Una fila con w centrado y tan ancho como le dejen su maximumWidth (sin esto, Qt lo pega a la izquierda; con
+    AlignHCenter, lo encoge a su sizeHint)."""
+    fila = QHBoxLayout()
+    fila.addStretch()
+    fila.addWidget(w, 100)
+    fila.addStretch()
+    return fila
+
+
+def _texto(texto: str, nombre: str, seleccionable: bool = False) -> QLabel:
+    """Un texto del chat, siempre plano (lo escribe la IA o viene de un archivo: nunca se lee como HTML), con su
+    emoji si lo lleva (etiqueta() lo quita)."""
+    l = QLabel(str(texto))
+    l.setTextFormat(Qt.PlainText)
+    l.setWordWrap(True)
+    l.setObjectName(nombre)
+    if seleccionable:
+        l.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    return l
+
+
+def _hacer_miniatura(numero, clave, ruta, ancho, alto, radio, dpr):
+    """En un hilo del pool: la foto de una miniatura del chat, leída ya pequeña y sin guardarla en _FOTOS (cien
+    resultados guardados, leídos a LADO px, ocuparían cientos de MB)."""
+    try:
+        lector = QImageReader(str(ruta))
+        lector.setAutoTransform(True)
+        tam = lector.size()
+        if tam.isValid():
+            lector.setScaledSize(tam.scaled(ancho, alto, Qt.KeepAspectRatioByExpanding))
+        lista = _preparar(lector.read(), ancho, alto, 1.0, radio, dpr)
+    except Exception:  # una foto rara: sale el icono de su tipo
+        traceback.print_exc()
+        lista = QImage()
+    _el_puente().capas.emit(numero, clave, QImage(), lista)
+
+
+class Miniatura(Pieza):
+    """La foto pequeña de un adjunto o de lo hecho, en el chat: una Pieza (esquinas redondas, su canto, Tab, Intro y
+    clic) cuya foto se lee en el pool ya a su tamaño (ver _hacer_miniatura). Sin foto, el icono de su tipo."""
+    RADIO = 12
+
+    def __init__(self, ruta, titulo: str, tipo: str, alto: int):
+        super().__init__(None, leyenda=False, vacio=(ICONOS_TIPO[tipo], "#B79CFF"))
+        self.ruta = Path(ruta) if ruta else None
+        self.proporcion = _proporcion(self.ruta) if self.ruta else 1.0
+        self.setFixedSize(round(alto * min(max(self.proporcion, 0.75), 1.78)), alto)
+        self.setAccessibleName(titulo)
+        self.setToolTip(titulo)
+
+    def preparar(self):
+        clave = self._clave()
+        if self.ruta is None or self.width() < 2 or clave == self._pedida or (self._capas and self._capas[0] == clave):
+            return
+        self._pedida = clave
+        _el_puente()
+        dpr = self.devicePixelRatioF()
+        datos = (self.numero, clave, self.ruta, round(self.width() * dpr), round(self.height() * dpr), self.RADIO * dpr,
+                 dpr)
+        QThreadPool.globalInstance().start(lambda: _hacer_miniatura(*datos))
+
+
+def en_grande(padre, x: dict):
+    """Lo hecho o adjuntado, en grande: una imagen en el visor (Descargar, Editar en Diseño…) y un video o un audio en
+    su reproductor, con sonido. Otro archivo (un texto, un PDF) solo va al pedido."""
+    sufijo = Path(x["archivo"]).suffix.lower()
+    if sufijo in seguro.IMAGENES:
+        return ver_imagen(padre, x["archivo"], x["titulo"])
+    if sufijo in seguro.VIDEOS | seguro.AUDIOS:
+        return ver_video(padre, {"formato": x.get("formato") or "9:16", "resultados": [
+            {"archivo": x["archivo"], "titulo": x["titulo"], "descripcion": x.get("descripcion", ""),
+             "hashtags": x.get("hashtags", [])}]})
+    return None
+
+
+def tipo_adjunto(ruta: str) -> str:
+    sufijo = Path(ruta).suffix.lower()
+    return ("imagen" if sufijo in seguro.IMAGENES else "video" if sufijo in seguro.VIDEOS else
+            "audio" if sufijo in seguro.AUDIOS else "archivo")
+
+
+def ficha(padre, ruta: str, alto: int, quitar=None) -> QFrame:
+    """Un archivo adjunto: su miniatura (o el icono de su tipo) y su nombre; pulsarla lo ve en grande. Con quitar(), la
+    «×» que lo saca del pedido. De una carpeta de red no se lee nada (Windows mandaría tu usuario a ese servidor)."""
+    caja = QFrame()
+    caja.setObjectName("adjunto")
+    fila = QHBoxLayout(caja)
+    fila.setContentsMargins(4, 4, 4 if quitar else 10, 4)
+    fila.setSpacing(8)
+    tipo, nombre, de_red = tipo_adjunto(ruta), Path(ruta).name, seguro.es_ruta_de_red(ruta)
+    vista = Miniatura(ruta if tipo == "imagen" and not de_red else None, nombre, tipo, alto)
+    if tipo == "archivo" or de_red:
+        vista.setFocusPolicy(Qt.NoFocus)
+        vista.setCursor(Qt.ArrowCursor)
+    else:
+        vista.clicked.connect(lambda: en_grande(padre, {"archivo": ruta, "titulo": nombre}))
+    texto = _texto(vista.fontMetrics().elidedText(nombre, Qt.ElideMiddle, 170), "sub")
+    texto.setWordWrap(False)
+    texto.setToolTip(ruta)
+    fila.addWidget(vista)
+    fila.addWidget(texto)
+    if quitar:
+        x = boton("", "quitar")
+        x.setIcon(icono("x"))
+        x.setToolTip(t("Quitar {nombre}", nombre=nombre))  # su nombre accesible sale de aquí (ver boton)
+        x.clicked.connect(quitar)
+        fila.addWidget(x)
+    return caja
+
+
+class CampoPedido(QPlainTextEdit):
+    """El pedido: Intro lo manda (Mayúsculas+Intro, otra línea), Tab sale del campo y crece solo de 1 a 6 líneas (luego
+    se desplaza). Un pedido largo pegado o traído de Inicio se ve entero, con sus escenas en líneas. Un archivo soltado
+    o pegado (Ctrl+V) se adjunta (soltados) en vez de escribirse como «file:///…»."""
+    enviar = Signal()
+    soltados = Signal(list)
+    LINEAS = 6
+
+    def __init__(self):
+        super().__init__()
+        self.setTabChangesFocus(True)  # si no, el Tab se escribe y el teclado queda atrapado aquí
+        self.document().documentLayout().documentSizeChanged.connect(self._crecer)
+        self._crecer()
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and not e.modifiers() & Qt.ShiftModifier:
+            return self.enviar.emit()
+        super().keyPressEvent(e)
+
+    def canInsertFromMimeData(self, m) -> bool:
+        return m.hasUrls() or super().canInsertFromMimeData(m)
+
+    def insertFromMimeData(self, m):
+        if rutas := [u.toLocalFile() for u in m.urls() if u.isLocalFile()]:
+            return self.soltados.emit(rutas)
+        super().insertFromMimeData(m)  # un enlace web o un texto: se escribe
+
+    def text(self) -> str:  # como el campo de una línea de antes: lo usan app.py, la voz y las pruebas
+        return self.toPlainText()
+
+    def setText(self, texto: str):
+        self.setPlainText(texto)
+        self.moveCursor(QTextCursor.End)
+
+    def showEvent(self, e):
+        self._crecer()  # ya con la letra de la hoja de estilo
+        super().showEvent(e)
+
+    def _crecer(self, *_):
+        # En un QPlainTextEdit, el alto del documento son sus líneas (con las que parte al ancho del campo)
+        lineas = max(1, round(self.document().size().height()))
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if lineas > self.LINEAS else Qt.ScrollBarAlwaysOff)
+        self.setFixedHeight(min(self.LINEAS, lineas) * self.fontMetrics().lineSpacing() + self.contentsMargins().top()
+                            + self.contentsMargins().bottom() + round(2 * self.document().documentMargin()) + 2)
+
+
+class Mensaje(QWidget):
+    """Un mensaje del chat, en texto plano. El tuyo va a la derecha, en su burbuja, con lo que adjuntaste; el del
+    Director, a la izquierda y sin caja (como en Claude): lo que va diciendo, en qué paso está mientras trabaja y, al
+    terminar, lo hecho y sus tarjetas."""
+
+    def __init__(self, quien: str, tuyo: bool = False):
+        super().__init__()
+        self.quien, self.tuyo, self.lineas, self.plan, self.trabajo = quien, tuyo, [], [], None
+        fila = QHBoxLayout(self)
+        fila.setContentsMargins(0, 0, 0, 0)
+        self.caja = QFrame()
+        self.dentro = QVBoxLayout(self.caja)
+        self.dentro.setSpacing(8)
+        if tuyo:
+            self.caja.setObjectName("burbuja_tu")
+            self.dentro.setContentsMargins(16, 10, 16, 12)
+            fila.addStretch()
+        else:
+            self.dentro.setContentsMargins(0, 0, 0, 0)
+            self.dentro.addWidget(_texto(t("Director"), "nombre_director"))
+        fila.addWidget(self.caja, 0 if tuyo else 1)
+        self.setAccessibleName(quien)
+
+    def anadir(self, w: QWidget, linea: str = "") -> QWidget:
+        """Un trozo más, en el orden en que llega; mientras trabaja, encima de la línea del paso."""
+        self.dentro.insertWidget(self.dentro.indexOf(self.trabajo) if self.trabajo else self.dentro.count(), w)
+        if linea:
+            self.lineas.append(linea)
+        return w
+
+    def parrafo(self, texto: str) -> QWidget:
+        return self.anadir(_texto(texto, "texto_tu" if self.tuyo else "texto_director", True), texto)
+
+    def linea(self, nombre: str, color: str, texto: str) -> QWidget:
+        """Una línea con su icono: nada depende solo del color."""
+        caja = QWidget()
+        fila = QHBoxLayout(caja)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(6)
+        dibujo = QLabel()
+        dibujo.setPixmap(icono(nombre, color).pixmap(16, 16))
+        fila.addWidget(dibujo, 0, Qt.AlignTop)
+        fila.addWidget(_texto(texto, "paso"), 1)
+        return self.anadir(caja, texto)
+
+    def adjuntos(self, rutas: list[str], padre):
+        caja = QWidget()
+        rejilla = QGridLayout(caja)
+        rejilla.setContentsMargins(0, 0, 0, 0)
+        rejilla.setSpacing(6)
+        for i, ruta in enumerate(rutas):
+            rejilla.addWidget(ficha(padre, ruta, 64), i // 2, i % 2)
+        self.anadir(caja, "\n".join(Path(r).name for r in rutas))
+
+    def trabajando(self):
+        """La línea de lo que hace ahora, con su barra fina: cambia sin añadir líneas (no llena el chat)."""
+        self.trabajo = QWidget()
+        lay = QGridLayout(self.trabajo)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setHorizontalSpacing(6)
+        lay.setVerticalSpacing(4)
+        dibujo = QLabel()
+        dibujo.setPixmap(icono("loader-circle", "#B79CFF").pixmap(16, 16))
+        self.ahora, self.detalle_txt = _texto(t("Pensando…"), "paso_actual"), _texto("", "paso")
+        self.barra = QProgressBar()
+        self.barra.setObjectName("barra_fina")
+        self.barra.setTextVisible(False)
+        self.barra.setFixedHeight(4)
+        lay.addWidget(dibujo, 0, 0, Qt.AlignTop)
+        lay.addWidget(self.ahora, 0, 1)
+        lay.addWidget(self.detalle_txt, 1, 1)
+        lay.addWidget(self.barra, 2, 0, 1, 2)
+        lay.setColumnStretch(1, 1)
+        self.dentro.addWidget(self.trabajo)
+
+    def paso(self, nombre: str):
+        """La herramienta que empieza (en negrita); su progreso va debajo, en gris."""
+        if self.trabajo:
+            self.ahora.setText(nombre)
+            self.detalle_txt.setText("")
+
+    def detalle(self, texto: str, fraccion: float):
+        if self.trabajo:
+            self.detalle_txt.setText(texto)
+            self.barra.setValue(int(fraccion * 100))
+
+    def parar(self):
+        if self.trabajo:
+            self.dentro.removeWidget(self.trabajo)
+            self.trabajo.deleteLater()
+            self.trabajo = None
+
+    def terminar(self, m: dict, pagina):
+        """Lo que queda del trabajo, igual al acabar que al abrir la app otra vez: qué hizo (y qué no salió), su
+        respuesta (si no repite lo último que dijo) y las tarjetas de lo hecho."""
+        self.parar()
+        if m.get("hechas"):
+            self.linea("circle-check", "#7CFFB2", t("Hecho: {lista}", lista=", ".join(map(herramientas.nombre,
+                                                                                            m["hechas"]))))
+        if m.get("fallidas"):
+            self.linea("triangle-alert", "#FFB454", t("No salió: {lista}", lista=", ".join(map(herramientas.nombre,
+                                                                                                m["fallidas"]))))
+        if m["texto"] not in self.plan[-1:]:
+            self.parrafo(m["texto"])
+        for x in m.get("resultados", []):
+            self.anadir(TarjetaResultado(x, pagina), x["titulo"])
+
+    def texto_plano(self) -> str:
+        return "\n".join([self.quien, *self.lineas])
+
+    def acomodar(self, ancho: int):
+        """Al cambiar el ancho de la columna: la burbuja mide lo que su texto, hasta el 72 % (con wordWrap, QLabel pedía
+        su mínimo y partía «ahora anímala, que salga el humo» en tres líneas); cada tarjeta, de lado o no."""
+        if self.tuyo:
+            tope = int(ancho * 0.72)
+            self.caja.setMaximumWidth(tope)
+            for l in self.caja.findChildren(QLabel, "texto_tu"):
+                l.ensurePolished()
+                largo = max((l.fontMetrics().horizontalAdvance(x) for x in l.text().splitlines()), default=0)
+                l.setMinimumWidth(min(largo + 4, tope - 32))
+        for x in self.findChildren(TarjetaResultado):
+            x.acomodar(ancho)
+
+
+class TarjetaResultado(QFrame):
+    """Lo hecho, en el chat: su miniatura (pulsarla lo ve en grande), qué es y dónde quedó, y lo que se hace con ello:
+    Descargar, Editar en Diseño o Editar, Animar, Abrir en Dibujos animados y Abrir carpeta. Si el archivo ya no está,
+    lo dice y sus botones se apagan."""
+    ALTO = 150
+
+    def __init__(self, x: dict, pagina):
+        super().__init__()
+        self.setObjectName("tarjeta")
+        tipo, titulo = x["tipo"], x["titulo"]
+        archivo = Path(x["archivo"]) if x["archivo"] else None
+        existe = archivo is not None and archivo.is_file()
+        activa = existe or (tipo == "serie" and pagina.abrir_serie is not None)
+        foto = archivo if tipo in ("imagen", "diseno") else portada(archivo) if tipo == "video" else None
+        self.miniatura = Miniatura(foto if existe and foto and foto.is_file() else None, titulo, tipo, self.ALTO)
+        self.miniatura.setToolTip(t("Ver en grande") if tipo != "serie" else "")
+        self.miniatura.clicked.connect(lambda: pagina.abrir_serie(x["serie"]) if tipo == "serie" else
+                                       en_grande(pagina, x))
+        self.miniatura.setEnabled(activa)
+        partes = [{"imagen": t("Imagen"), "diseno": t("Diseño"), "video": t("Video"), "audio": t("Audio"),
+                   "serie": t("Dibujos animados")}[tipo]]
+        if tipo in ("imagen", "diseno") and existe and (tam := QImageReader(str(archivo)).size()).isValid():
+            partes.append(f"{tam.width()} × {tam.height()}")
+        elif tipo == "video" and x.get("formato"):
+            partes.append(x["formato"])
+        textos = QVBoxLayout()
+        textos.setSpacing(4)
+        textos.addWidget(_texto(titulo, "resultado_titulo", True))
+        textos.addWidget(_texto(" · ".join(partes) if existe or tipo == "serie" else t("Ya no está en tu PC"),
+                                "resultado_meta"))
+        if existe and se_puede_abrir(archivo.parent):  # dónde quedó, a la vista y copiable (un ejemplo no se enseña)
+            textos.addWidget(_texto(t("Guardado en: {carpeta}", carpeta=archivo.parent), "resultado_meta", True))
+        textos.addStretch()
+        self.botones = QWidget()
+        fila = QHBoxLayout(self.botones)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(8)
+
+        def accion(texto, funcion, ayuda=""):
+            b = boton(texto)
+            b.setToolTip(ayuda)
+            b.clicked.connect(lambda _=False: funcion())
+            b.setEnabled(activa)
+            fila.addWidget(b)
+        if tipo != "serie":
+            accion(f"⬇  {t('Descargar')}", lambda: descargar(pagina, archivo, titulo), t("Guardar una copia donde quieras"))
+        if tipo == "diseno" and pagina.abrir_diseno:
+            accion(f"🎨  {t('Editar en Diseño')}", lambda: pagina.abrir_diseno(archivo.parent),
+                   t("Cambiar sus textos, colores y capas en la página Diseño"))
+        elif tipo == "imagen" and VisorImagen.al_disenar:  # por la clase: guardado en ella, no se ata a nada
+            accion(f"🎨  {t('Editar en Diseño')}", lambda: VisorImagen.al_disenar(str(archivo), titulo),
+                   t("Ponerla en un diseño nuevo para añadirle textos y formas"))
+        if tipo in ("imagen", "diseno"):
+            accion(f"🎬  {t('Animar')}", lambda: pagina._animar(str(archivo)),
+                   t("Que el Director la anime aquí mismo (si cuesta, te lo pregunta antes)"))
+        if tipo == "video" and Reproductor.al_editar:
+            accion(f"✂️  {t('Editar')}", lambda: Reproductor.al_editar(str(archivo), x.get("formato") or "9:16"),
+                   t("Abrir este resultado en el editor de video"))
+        if x.get("serie") and pagina.abrir_serie:
+            accion(f"🐰  {t('Abrir en {programa}', programa=t('Dibujos animados'))}",
+                   lambda: pagina.abrir_serie(x["serie"]))
+        if archivo and se_puede_abrir(archivo.parent):
+            accion("📂", lambda: os.startfile(archivo.parent), t("Abrir carpeta"))
+        fila.addStretch()
+        self.lay = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.lay.setContentsMargins(12, 12, 12, 12)
+        self.lay.setSpacing(14)
+        self.lay.addWidget(self.miniatura, 0, Qt.AlignTop | Qt.AlignLeft)
+        derecha = QVBoxLayout()
+        derecha.setSpacing(10)
+        derecha.addLayout(textos, 1)
+        derecha.addWidget(self.botones)
+        self.lay.addLayout(derecha, 1)
+
+    def acomodar(self, ancho: int):
+        """De lado si caben la miniatura y los botones en la columna; si no (una ventana estrecha, el francés), la
+        miniatura arriba: los botones nunca se cortan."""
+        de_lado = ancho - self.miniatura.width() - 38 >= self.botones.sizeHint().width()
+        self.lay.setDirection(QBoxLayout.LeftToRight if de_lado else QBoxLayout.TopToBottom)
+
+
+class Conversacion(QScrollArea):
+    """El chat: una columna centrada de ANCHO_CHAT px como mucho, con la portada (sin mensajes) y los mensajes. Se
+    desplaza sola (la página nunca: la caja del pedido siempre se ve) y baja con cada mensaje nuevo o lo que crece, salvo
+    si subiste a leer."""
+
+    def __init__(self, portada_: QWidget):
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        dentro = QWidget()
+        centro = QVBoxLayout(dentro)
+        centro.setContentsMargins(0, 0, 0, 0)
+        self.columna = QWidget()
+        self.columna.setMaximumWidth(ANCHO_CHAT)
+        centro.addLayout(_centrada(self.columna))
+        self.lay = QVBoxLayout(self.columna)
+        self.lay.setContentsMargins(0, 8, 0, 16)
+        self.lay.setSpacing(18)
+        self.portada = portada_
+        self.lay.addWidget(portada_)
+        self.lay.addStretch()
+        self.setWidget(dentro)
+        barra, self._abajo = self.verticalScrollBar(), True
+        barra.valueChanged.connect(lambda v: setattr(self, "_abajo", v >= barra.maximum() - 80))
+        barra.rangeChanged.connect(lambda _, maximo: self._abajo and barra.setValue(maximo))
+
+    def sizeHint(self):
+        # Ocupa lo que sobra (stretch), sin pedir alto: el QScrollArea de app.py mide la página con heightForWidth, que
+        # suma los sizeHint, y con un pedido largo la página crecía más que la ventana y se desplazaba
+        return QSize(super().sizeHint().width(), 100)
+
+    def mensajes(self) -> list[Mensaje]:
+        return [w for i in range(self.lay.count()) if isinstance(w := self.lay.itemAt(i).widget(), Mensaje)]
+
+    def anadir(self, m: Mensaje) -> Mensaje:
+        self.lay.insertWidget(self.lay.count() - 1, m)
+        m.acomodar(min(ANCHO_CHAT, self.viewport().width()))
+        self._abajo = True  # lo nuevo se ve
+        return m
+
+    def vaciar(self):
+        for m in self.mensajes():
+            self.lay.removeWidget(m)
+            m.hide()
+            m.deleteLater()
+
+    def toPlainText(self) -> str:
+        """«Quién» y lo que dijo, mensaje por mensaje (con los adjuntos, lo hecho y los títulos de sus tarjetas)."""
+        return "\n".join(m.texto_plano() for m in self.mensajes())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # La portada llena el alto (centrada); si no cabe, su contenido manda y se desplaza
+        self.portada.setMinimumHeight(max(self.viewport().height() - 24, self.portada.layout().minimumSize().height()))
+        for m in self.mensajes():
+            m.acomodar(min(ANCHO_CHAT, self.viewport().width()))
+
+
+ESTILO_DIRECTOR = """
+#barra_chat #secundario { padding: 6px 12px; font-size: 14px; border-radius: 9px; }
+#titulo_chat { font-size: 18px; font-weight: 700; color: #FFFFFF; }
+#vacio_titulo { font-size: 30px; font-weight: 800; color: #FFFFFF; }
+#vacio_lema { font-size: 15px; color: #A9A9B6; }
+#compositor { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(28, 24, 44, 0.95), stop:1 rgba(13, 12, 18, 0.95));
+              border: 1px solid rgba(150, 125, 255, 0.34); border-top-color: rgba(222, 212, 255, 0.55); border-radius: 22px; }
+#compositor QPlainTextEdit { background: transparent; border: none; font-size: 16px; padding: 0;
+                             selection-background-color: rgba(124, 92, 255, 0.50); }
+#pista { color: #8D8D9A; font-size: 13px; }
+#burbuja_tu { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150, 125, 255, 0.30),
+                                          stop:1 rgba(124, 92, 255, 0.16));
+              border: 1px solid rgba(150, 125, 255, 0.30); border-top-color: rgba(222, 212, 255, 0.45);
+              border-radius: 18px; border-bottom-right-radius: 6px; }
+#burbuja_tu QLabel { color: #FFFFFF; font-size: 15px; background: transparent; }
+#nombre_director { color: #B79CFF; font-size: 13px; font-weight: 600; }
+#texto_director { font-size: 15px; color: #ECECF1; }
+#paso { color: #A9A9B6; font-size: 13px; }
+#paso_actual { color: #ECECF1; font-size: 13px; font-weight: 600; }
+#resultado_titulo { font-size: 16px; font-weight: 700; color: #FFFFFF; }
+#resultado_meta { font-size: 13px; color: #8D8D9A; }
+#tarjeta #secundario { padding: 6px 12px; font-size: 14px; border-radius: 9px; }
+#barra_fina { background: rgba(255, 255, 255, 0.06); border: none; border-radius: 2px; }
+#barra_fina::chunk { border-radius: 2px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7C5CFF, stop:1 #FF4D8D); }
+#adjunto { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
+           border-top-color: rgba(255, 255, 255, 0.22); border-radius: 12px; }
+#adjunto QLabel { color: #DCDCE6; font-size: 13px; background: transparent; }
+#quitar { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 4px; }
+#quitar:hover { background: rgba(255, 77, 141, 0.22); border-color: rgba(255, 77, 141, 0.45); }
+#quitar:focus { border-color: #3DF5FF; }
+"""
 
 
 def ver_memoria(padre) -> QDialog:
@@ -994,82 +1587,31 @@ class PaginaDirector(QWidget):
         super().__init__()
         self.brillo, self.historial, self.adjuntos = brillo, [], []
         self.abrir_diseno, self.abrir_serie = abrir_diseno, abrir_serie
-        self.diseno_hecho, self.serie_hecha = None, ""
         self.tarea = self.escucha = self.lectura = None
+        self.bloque = None  # el mensaje del Director del trabajo en marcha: ahí se escribe lo que va haciendo
+        # Dónde se guarda la conversación: nada hasta restaurar(), que llama app.py (las pruebas no tocan tus datos)
+        self.archivo = None
         self._viejas = []  # lecturas en voz que ya no interesan pero siguen corriendo (soltarlas tumbaría la app)
         self.por_voz = False  # el pedido llegó hablando: la luz sigue mientras trabaja y contesta
         # La pregunta de costo abierta (su ventana), su respuesta y el aviso al hilo del Director, que espera
         self.caja, self.respuesta, self.contestada, self.intentos = None, False, threading.Event(), 0
         self.cerrada = False  # la app se cierra: lo que cueste dinero ya no se pregunta, se deja sin hacer
         self.preguntar.connect(self._preguntar)
-        self.plan.connect(lambda texto: self._decir("Director", texto))
+        self.plan.connect(self._plan)
+        self.usando.connect(lambda nombre: self.bloque and self.bloque.paso(herramientas.nombre(nombre)))
+        self.setStyleSheet(ESTILO_DIRECTOR)
+        # Un chat a página completa: arriba su barra, el chat ocupa lo que sobra y la caja del pedido va siempre abajo,
+        # a la vista (antes la galería se comía la mitad y, a 1280×720, el pedido quedaba bajo el borde)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(32, 28, 32, 28)
-        lay.setSpacing(14)
-        lay.addWidget(etiqueta(t("Director IA"), "titulo"))
-        lay.addWidget(etiqueta(t("Pídeme el trabajo como se lo pedirías a tu equipo. Yo uso todo el estudio (guiones, "
-                                 "imágenes, video, diseño, música y edición) y te entrego el resultado."), "sub"))
-        lay.addWidget(self._galeria())
-
-        caja, caja_lay = tarjeta()
-        self.chat = QTextBrowser()
-        self.chat.setOpenLinks(False)
-        self.chat.setMinimumHeight(240)
-        caja_lay.addWidget(self.chat, 1)
-        self.adjuntos_txt = etiqueta("", "sub")
-        self.adjuntos_txt.hide()
-        caja_lay.addWidget(self.adjuntos_txt)
-        fila = QHBoxLayout()
-        adjuntar = boton("📎")
-        adjuntar.setToolTip(t("Adjuntar fotos, videos o audios para el trabajo"))
-        adjuntar.clicked.connect(self._adjuntar)
-        self.pedido = QLineEdit()
-        self.pedido.setPlaceholderText(t("Ej.: Hazme un anuncio de 20 segundos para mi barbería y un post para Instagram"))
-        self.pedido.returnPressed.connect(self.enviar)
-        # Con qué modelo se hace el video de este pedido (como en CapCut); Automático: lo de «Claves de IA»
-        self.modelo = SelectorModelo("director")
-        self.micro = boton(f"🎙️  {t('Hablar')}")
-        self.micro.setToolTip(t("Pulsa y habla: te escucha hasta que terminas (Ctrl+Espacio)"))
-        self.micro.clicked.connect(self.alternar_voz)
-        self.enviar_btn = boton(f"✨  {t('Hacer')}", "principal")
-        self.enviar_btn.clicked.connect(self.enviar)
-        for w, estira in ((adjuntar, 0), (self.pedido, 1), (self.modelo, 0), (self.micro, 0), (self.enviar_btn, 0)):
-            fila.addWidget(w, estira)
-        caja_lay.addLayout(fila)
-        self.en_voz = QCheckBox(t("Responder en voz alta"))
-        self.en_voz.setChecked(True)
-        nota = QHBoxLayout()
-        nota.addWidget(self.en_voz)
-        nota.addWidget(etiqueta(t("Solo te escucha cuando pulsas «Hablar» o Ctrl+Espacio, y se para cuando terminas. "
-                                  "Tu voz se entiende en este PC."), "sub"), 1)
-        recuerdos = boton(f"🧠  {t('Memoria del estudio')}")
-        recuerdos.setToolTip(t("Lo que el Director recuerda de tus gustos: verlo y borrarlo"))
-        recuerdos.clicked.connect(lambda: ver_memoria(self))
-        nota.addWidget(recuerdos)
-        caja_lay.addLayout(nota)
-        lay.addWidget(caja, 1)
-
-        self.estado = etiqueta("", "sub")
-        self.progreso = QProgressBar()
-        self.progreso.setRange(0, 100)
-        self.progreso.hide()
-        lay.addWidget(self.progreso)
-        lay.addWidget(self.estado)
-        acciones = QHBoxLayout()
-        self.ir_diseno = boton(f"🎨  {t('Abrir en {programa}', programa=t('Diseño'))}")
-        # varios diseños en un trabajo: el botón los ofrece uno por uno en su menú, y el clic no abre además el último
-        self.menu_disenos = QMenu(self.ir_diseno)
-        self.ir_diseno.clicked.connect(lambda: None if self.ir_diseno.menu() else self.abrir_diseno(self.diseno_hecho))
-        self.ir_serie = boton(f"🐰  {t('Abrir en {programa}', programa=t('Dibujos animados'))}")
-        self.ir_serie.clicked.connect(lambda: self.abrir_serie(self.serie_hecha))
-        for b in (self.ir_diseno, self.ir_serie):
-            b.hide()
-            acciones.addWidget(b)
-        acciones.addStretch()
-        lay.addLayout(acciones)
-        self.reproductor = Reproductor()
-        self.reproductor.hide()
-        lay.addWidget(self.reproductor, 1)
+        lay.setContentsMargins(24, 12, 24, 10)
+        lay.setSpacing(8)
+        lay.addWidget(self._barra())
+        self.chat = Conversacion(self._portada())
+        lay.addWidget(self.chat, 1)
+        lay.addLayout(_centrada(self._compositor()))
+        pista = etiqueta(t("Intro envía · Mayús+Intro, otra línea · Ctrl+Espacio para hablar"), "pista")
+        pista.setAlignment(Qt.AlignHCenter)
+        lay.addWidget(pista)
 
         self.altavoz = QMediaPlayer(self)
         self.salida = QAudioOutput(self)
@@ -1078,26 +1620,119 @@ class PaginaDirector(QWidget):
         # un MP3 que no se puede reproducir solo da error, sin cambiar de estado: la luz se quedaba encendida y la
         # pregunta «¿Lo hago?» nunca pasaba a escuchar la respuesta
         self.altavoz.errorOccurred.connect(lambda *_: self._fin_de_voz(QMediaPlayer.StoppedState))
-        self._decir("Director", t("¡Hola! Soy tu Director. Dime qué quieres crear hoy: un video, un anuncio, un "
-                                  "diseño, una canción… y me encargo de todo."))
+
+    def _barra(self) -> QWidget:
+        barra = QWidget()
+        barra.setObjectName("barra_chat")
+        fila = QHBoxLayout(barra)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(10)
+        fila.addWidget(etiqueta(t("Director IA"), "titulo_chat"))
+        self.lenta = boton(f"🔑  {t('IA gratis lenta')}")  # sin IA de texto conectada (ver consejo_claves)
+        self.lenta.setIcon(icono("key-round", "#FFB454"))
+        self.lenta.setStyleSheet("color: #FFB454;")
+        self.lenta.hide()
+        fila.addWidget(self.lenta)
+        fila.addStretch()
+        self.nueva = boton(t("Nueva conversación"))
+        self.nueva.setIcon(icono("square-pen"))
+        self.nueva.setToolTip(t("Empieza de cero. Lo que hiciste sigue en «Mis proyectos»."))
+        self.nueva.clicked.connect(self.nueva_conversacion)
+        recuerdos = boton(f"🧠  {t('Memoria del estudio')}")
+        recuerdos.setToolTip(t("Lo que el Director recuerda de tus gustos: verlo y borrarlo"))
+        recuerdos.clicked.connect(lambda: ver_memoria(self))
+        fila.addWidget(self.nueva)
+        fila.addWidget(recuerdos)
+        return barra
+
+    def _portada(self) -> QWidget:
+        """Lo que se ve sin mensajes: «¿Qué creamos hoy?» y los ejemplos. Se va con el primer mensaje y solo vuelve
+        con «Nueva conversación»."""
+        caja = QWidget()
+        lay = QVBoxLayout(caja)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+        lay.addStretch(2)
+        for w in (etiqueta(t("¿Qué creamos hoy?"), "vacio_titulo"),
+                  etiqueta(t("Pídemelo como a tu equipo: yo escribo, dibujo, animo, diseño y hago la música. Lo hecho "
+                             "sale aquí mismo, listo para descargar."), "vacio_lema")):
+            w.setAlignment(Qt.AlignHCenter)
+            lay.addWidget(w)
+        lay.addSpacing(6)
+        self.galeria = galeria_ejemplos(self, self.ver_ejemplo, self.usar_pedido, alto=110)
+        self.vigia = vigilar(self, self.galeria.tarjetas)
+        lay.addWidget(self.galeria)
+        lay.addStretch(3)
+        return caja
+
+    def _compositor(self) -> QFrame:
+        """La caja del pedido, como la de Inicio: los adjuntos con su miniatura y su «×», el pedido (crece con lo que
+        escribes) y, debajo, adjuntar, el modelo de video, los avisos de la voz, «Responder en voz alta», «Hablar» y
+        «Hacer»."""
+        caja = QFrame()
+        caja.setObjectName("compositor")
+        caja.setMaximumWidth(ANCHO_CHAT)
+        dentro = QVBoxLayout(caja)
+        dentro.setContentsMargins(18, 12, 12, 10)
+        dentro.setSpacing(8)
+        self.caja_adjuntos = QWidget()
+        # ponytail: en una fila; con muchos adjuntos los últimos quedan cortados a la derecha (no ensanchan la página)
+        self.caja_adjuntos.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.fila_adjuntos = QHBoxLayout(self.caja_adjuntos)
+        self.fila_adjuntos.setContentsMargins(0, 0, 0, 0)
+        self.fila_adjuntos.setSpacing(8)
+        self.caja_adjuntos.hide()
+        dentro.addWidget(self.caja_adjuntos)
+        self.pedido = CampoPedido()
+        self.pedido.setPlaceholderText(t("Ej.: Hazme un anuncio de 20 segundos para mi barbería y un post para Instagram"))
+        self.pedido.setAccessibleName(t("Pedido para el Director"))
+        self.pedido.enviar.connect(self.enviar)
+        self.pedido.soltados.connect(self._sumar)
+        dentro.addWidget(self.pedido)
+        fila = QHBoxLayout()
+        fila.setSpacing(8)
+        adjuntar = boton("📎")
+        adjuntar.setToolTip(t("Adjuntar fotos, videos, audios o textos para el trabajo"))
+        adjuntar.clicked.connect(self._adjuntar)
+        # Con qué modelo se hace el video de este pedido (como en CapCut); Automático: lo de «Claves de IA»
+        self.modelo = SelectorModelo("director")
+        self.estado = etiqueta("", "sub")  # los avisos de la voz y «Espera…»: aquí siempre se ven
+        self.estado.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.en_voz = boton("")
+        self.en_voz.setCheckable(True)
+        self.en_voz.setChecked(True)
+        self.en_voz.setIcon(icono("volume-2"))
+        self.en_voz.toggled.connect(lambda si: self.en_voz.setIcon(icono("volume-2" if si else "volume-x")))
+        nota = t("Solo te escucha cuando pulsas «Hablar» o Ctrl+Espacio, y se para cuando terminas. Tu voz se entiende "
+                 "en este PC.")
+        self.en_voz.setToolTip(f"{t('Responder en voz alta')}\n{nota}")
+        self.en_voz.setAccessibleName(t("Responder en voz alta"))  # después de la ayuda: si no, la tomaría entera
+        self.micro = boton(f"🎙️  {t('Hablar')}")
+        self.micro.setToolTip(t("Pulsa y habla: te escucha hasta que terminas (Ctrl+Espacio)"))
+        self.micro.clicked.connect(self.alternar_voz)
+        self.enviar_btn = boton(f"✨  {t('Hacer')}", "principal")
+        self.enviar_btn.clicked.connect(self.enviar)
+        for w, estira in ((adjuntar, 0), (self.modelo, 0), (self.estado, 1), (self.en_voz, 0), (self.micro, 0),
+                          (self.enviar_btn, 0)):
+            fila.addWidget(w, estira)
+        dentro.addLayout(fila)
+        return caja
 
     def consejo_claves(self, ir_a_claves):
-        """Sin IA de texto conectada: funciona con la gratis sin clave, pero tarda (1 respuesta cada 30 s)."""
-        self._decir("Director", t("Consejo: ahora pienso con la IA gratis sin clave, que es lenta. Conecta Groq o "
-                                  "Gemini (gratis) en «Claves de IA» y trabajaré mucho más rápido y mejor."))
-        ir = boton(f"🔑  {t('Ir a Claves de IA')}")
-        ir.clicked.connect(ir_a_claves)
-        self.layout().insertWidget(2, ir, 0, Qt.AlignLeft)
+        """Sin IA de texto conectada: funciona con la gratis sin clave, pero tarda (1 respuesta cada 30 s). La
+        pastilla de arriba lo dice y lleva a «Claves de IA»."""
+        consejo = t("Consejo: ahora pienso con la IA gratis sin clave, que es lenta. Conecta Groq o Gemini (gratis) en "
+                    "«Claves de IA» y trabajaré mucho más rápido y mejor.")
+        self.lenta.setToolTip(consejo)
+        self.lenta.setAccessibleDescription(consejo)
+        self.lenta.clicked.connect(ir_a_claves)
+        self.lenta.show()
 
-    # ---------- Ejemplos ----------
-
-    def _galeria(self):
-        self.galeria = galeria_ejemplos(self, self.ver_ejemplo, self.usar_pedido)
-        self.vigia = vigilar(self, self.galeria.tarjetas)
-        return self.galeria
+    # ---------- Ejemplos y portada ----------
 
     def showEvent(self, e):
-        self.vigia.start()
+        if not self.chat.portada.isHidden():  # sin portada no hay galería que mover
+            self.vigia.start()
         super().showEvent(e)
 
     def hideEvent(self, e):
@@ -1106,109 +1741,220 @@ class PaginaDirector(QWidget):
         quietas(self.galeria.tarjetas)
         super().hideEvent(e)
 
+    def _cerrar_portada(self):
+        """Con el primer mensaje, la portada (y su galería) se va y el chat ocupa la página."""
+        self.vigia.stop()
+        quietas(self.galeria.tarjetas)
+        self.chat.portada.hide()
+
     def usar_pedido(self, pedido: str):
         """«Usar este pedido» de un ejemplo: queda escrito para cambiarlo y pulsar «Hacer». No se envía solo: un
         trabajo puede gastar cuota o dinero, y eso lo decide el usuario."""
         self.pedido.setText(pedido)
         self.pedido.setFocus()
-        self._a_la_vista(self.pedido)  # setFocus no desplaza la página
-
-    def _a_la_vista(self, widget):
-        """Desplaza la página hasta el widget: la galería deja el chat y el estado debajo, fuera de la pantalla (a
-        1280×720 con 150 %, ningún aviso de la voz se veía: solo la luz)."""
-        area = self.parentWidget().parentWidget() if self.parentWidget() else None  # app.py la pone en un QScrollArea
-
-        def bajar():
-            # El campo entero y un poco de aire: ensureWidgetVisible se conforma con que se vea el cursor de un campo
-            # de texto, y el campo podía quedar cortado por abajo
-            self.layout().activate()  # recién enseñada (venir de Inicio), su sitio puede no estar puesto aún
-            centro = widget.mapTo(area.widget(), widget.rect().center())
-            area.ensureVisible(centro.x(), centro.y(), 0, widget.height() // 2 + 24)
-        if isinstance(area, QScrollArea):
-            QTimer.singleShot(0, bajar)
 
     def ver_ejemplo(self, e: dict):
-        self.reproductor.show()
-        self.reproductor.mostrar(proyecto_ejemplo(e))
+        return ver_video(self, proyecto_ejemplo(e))
 
     # ---------- Conversación ----------
 
     def _decir(self, quien: str, texto: str):
-        color = "#7C5CFF" if quien == "Director" else "#FF4D8D"
-        cuerpo = html.escape(str(texto)).replace("\n", "<br>")  # lo que dice la IA nunca se interpreta como HTML
-        self.chat.append(f"<p><b style='color:{color}'>{html.escape(quien)}</b><br>{cuerpo}</p>")
+        """Un mensaje suelto (los avisos de la voz): «Director» a la izquierda; el de otro, a la derecha."""
+        self._cerrar_portada()
+        m = Mensaje(t("Director")) if quien == "Director" else Mensaje(quien, tuyo=True)
+        m.parrafo(str(texto))
+        self.chat.anadir(m)
+
+    def _plan(self, texto: str):
+        """Lo que dice el Director mientras trabaja (su plan, un aviso antes de empezar, la pregunta de lo que cuesta):
+        en el mensaje del trabajo, en el orden en que llega."""
+        if self.bloque:
+            self.bloque.parrafo(texto)
+            self.bloque.plan.append(texto)
+        else:
+            self._decir("Director", texto)
+
+    def _pintar(self, m: dict) -> Mensaje:
+        """Un mensaje del historial en el chat: el tuyo con sus adjuntos; el del Director con lo que dijo, lo que hizo
+        y sus tarjetas."""
+        if m["rol"] == "usuario":
+            b = Mensaje(t("Tú"), tuyo=True)
+            b.parrafo(m["texto"].split(ARCHIVOS, 1)[0])  # la lista de rutas es para la IA
+            if m.get("adjuntos"):
+                b.adjuntos(m["adjuntos"], self)
+        else:
+            b = Mensaje(t("Director"))
+            for texto in m.get("plan", []):
+                b.parrafo(texto)
+            b.plan = list(m.get("plan", []))
+            b.terminar(m, self)
+        return self.chat.anadir(b)
 
     def _adjuntar(self):
-        rutas, _ = QFileDialog.getOpenFileNames(self, t("Adjuntar archivos"), "", t("Fotos, videos y audios ({tipos})",
-                                                tipos="*.png *.jpg *.jpeg *.webp *.mp4 *.mov *.webm *.mp3 *.wav *.m4a"))
-        self.adjuntos += [r for r in rutas if r not in self.adjuntos]
-        self.adjuntos_txt.setText(t("Adjuntos: {nombres}", nombres=", ".join(Path(r).name for r in self.adjuntos)))
-        self.adjuntos_txt.setVisible(bool(self.adjuntos))
+        rutas, _ = QFileDialog.getOpenFileNames(
+            self, t("Adjuntar archivos"), "",
+            f"{t('Fotos, videos, audios y textos ({tipos})', tipos=TIPOS_ADJUNTOS)};;{t('Todos los archivos')} (*)")
+        self._sumar(rutas)
+
+    def _sumar(self, rutas: list[str]):
+        """Adjunta los elegidos, soltados o pegados (sin repetir)."""
+        self.adjuntos += [r for r in dict.fromkeys(rutas) if r not in self.adjuntos]
+        self._fichas()
+
+    def _fichas(self):
+        """Los adjuntos del pedido, encima del campo: cada uno con su miniatura y su «×»."""
+        while (item := self.fila_adjuntos.takeAt(0)) is not None:
+            if item.widget():
+                item.widget().deleteLater()
+        for ruta in self.adjuntos:
+            self.fila_adjuntos.addWidget(ficha(self, ruta, 40, lambda _=False, r=ruta: self._quitar(r)))
+        self.fila_adjuntos.addStretch()
+        self.caja_adjuntos.setVisible(bool(self.adjuntos))
+
+    def _quitar(self, ruta: str):
+        self.adjuntos.remove(ruta)
+        self._fichas()
+        self.pedido.setFocus()
 
     def ocupado(self) -> bool:
         return bool(self.tarea and self.tarea.isRunning())
 
+    def _avisar(self, texto: str):
+        """Un aviso corto junto a «Hacer», 3 s."""
+        self.estado.setText(texto)
+        QTimer.singleShot(3000, lambda: self.estado.text() == texto and self.estado.setText(""))
+
     def enviar(self, por_voz: bool = False):
         texto = self.pedido.text().strip()
-        if not texto or self.ocupado():
+        if not texto:
             return
+        if self.ocupado():  # el campo sigue activo para ir escribiendo lo siguiente
+            return self._avisar(t("Espera a que termine el trabajo actual."))
         self.por_voz = por_voz
+        adjuntos, self.adjuntos = self.adjuntos, []
+        self._fichas()
         self.pedido.clear()
-        self._decir(t("Tú"), texto + (f"\n📎 {', '.join(Path(r).name for r in self.adjuntos)}" if self.adjuntos else ""))
-        pedido = texto + (f"\n\nArchivos que te doy: {json.dumps(self.adjuntos, ensure_ascii=False)}"
-                          if self.adjuntos else "")
-        self.adjuntos = []
-        self.adjuntos_txt.hide()
+        # La lista va antes de los textos adjuntos: si el pedido se recorta, se recorta el texto y no una ruta
+        pedido = texto + (f"{ARCHIVOS}{json.dumps(adjuntos, ensure_ascii=False)}" if adjuntos else "") + "".join(
+            map(texto_adjunto, adjuntos))
+        usuario = {"rol": "usuario", "texto": pedido, **({"adjuntos": adjuntos} if adjuntos else {})}
+        self._cerrar_portada()
+        self._pintar(usuario)
+        self.bloque = self.chat.anadir(Mensaje(t("Director")))
+        self.bloque.trabajando()
         self.enviar_btn.setEnabled(False)
-        self.progreso.show()
-        self.progreso.setValue(0)
+        self.nueva.setEnabled(False)
         if self.brillo and por_voz:
             self.brillo.poner("pensando")
-        self.tarea = Tarea(director.dirigir, pedido=pedido, historial=list(self.historial), al_usar=self.usando.emit,
-                           confirmar=self._confirmar, al_decir=self.plan.emit, modelo_video=self.modelo.valor())
-        self.historial.append({"rol": "usuario", "texto": pedido})
-        self.tarea.progreso.connect(lambda txt, f: (self.estado.setText(txt), self.progreso.setValue(int(f * 100))))
+        # La portada de los videos, en el hilo del trabajo; director.dirigir se busca al llamarla (las pruebas la
+        # cambian)
+        self.tarea = Tarea(lambda **datos: con_portadas(director.dirigir(**datos)), pedido=pedido,
+                           historial=list(self.historial), al_usar=self.usando.emit, confirmar=self._confirmar,
+                           al_decir=self.plan.emit, modelo_video=self.modelo.valor(), adjuntos=adjuntos)
+        self.historial.append(usuario)
+        self._guardar()
+        self.tarea.progreso.connect(self.bloque.detalle)
         self.tarea.listo.connect(self._listo)
         self.tarea.fallo.connect(self._fallo)
         self.tarea.finished.connect(self._fin_de_tarea)
         self.tarea.start()
 
+    def _terminar(self, m: dict):
+        """Cierra el mensaje del trabajo con lo que queda de él y lo guarda en la conversación."""
+        if self.bloque is None:
+            self._cerrar_portada()
+            self.bloque = self.chat.anadir(Mensaje(t("Director")))
+        if self.bloque.plan:
+            m["plan"] = list(self.bloque.plan)
+        self.bloque.terminar(m, self)
+        self.bloque = None  # cerrado: lo siguiente va en otro mensaje
+        self.historial.append(m)
+        self._guardar()
+
     def _listo(self, r: dict):
-        self._decir("Director", r["mensaje"])
+        pasos = r.get("pasos") or []
+        fallo = [str(p.get("resultado", "")).startswith("ERROR") for p in pasos]
+        hechas = list(dict.fromkeys(p["herramienta"] for p, f in zip(pasos, fallo) if not f))
+        fallidas = list(dict.fromkeys(p["herramienta"] for p, f in zip(pasos, fallo) if f))
         # con lo hecho y sus archivos: «sigue» o «cámbiale la música» se refieren a eso
-        self.historial.append({"rol": "director", "texto": r["mensaje"],
-                               **({"hecho": r["resumen"]} if r.get("resumen") else {})})
-        imagenes = [x for x in r["resultados"] if Path(x["archivo"]).suffix.lower() in IMAGENES]
-        videos = [x for x in r["resultados"] if x not in imagenes]
-        if videos:
-            self.reproductor.show()
-            self.reproductor.mostrar({**r, "resultados": videos})
-        elif imagenes:  # solo diseños: el video del trabajo anterior no se queda debajo como si fuera lo nuevo
-            self.reproductor.player.stop()
-            self.reproductor.hide()
-        for x in imagenes:  # cada diseño se ve en grande y se sigue editando en su página
-            ver_imagen(self, x["archivo"], x["titulo"])
-        hechos = [x for x in imagenes if (Path(x["archivo"]).parent / "diseno.json").is_file()]
-        self.diseno_hecho = Path(hechos[-1]["archivo"]).parent if hechos else None
-        self.menu_disenos.clear()
-        for x in hechos:  # «&&»: un «&» del título no se toma como atajo de teclado
-            self.menu_disenos.addAction(x["titulo"].replace("&", "&&")).triggered.connect(
-                lambda _=False, c=Path(x["archivo"]).parent: self.abrir_diseno(c))
-        self.ir_diseno.setMenu(self.menu_disenos if len(hechos) > 1 else None)
-        self.serie_hecha = serie_de_pasos(r.get("pasos", []))
-        self.ir_diseno.setVisible(bool(hechos and self.abrir_diseno))
-        self.ir_serie.setVisible(bool(self.serie_hecha and self.abrir_serie))
+        m = {"rol": "director", "texto": r["mensaje"]}
+        for clave, valor in (("hecho", r.get("resumen")), ("hechas", hechas), ("fallidas", fallidas),
+                             ("resultados", tarjetas_de(r))):
+            if valor:
+                m[clave] = valor
+        self._terminar(m)
         if self.en_voz.isChecked() and self.por_voz:
             self._leer_en_voz(r["mensaje"])
 
     def _fallo(self, error: str):
-        self._decir("Director", t("No pude terminar: {error}", error=error))
+        self._terminar({"rol": "director", "texto": t("No pude terminar: {error}", error=error)})
         if self.en_voz.isChecked() and self.por_voz:
             self._leer_en_voz(t("No pude terminar. Te dejé el motivo en el chat."))
 
+    # ---------- Guardar la conversación ----------
+
+    def _guardar(self):
+        """Los últimos MAX_GUARDADOS mensajes, en datos/director.json (de una vez: un corte de luz no lo deja a
+        medias), con las claves y las tarjetas tapadas (ver tapar). Si no se puede escribir, se sigue igual."""
+        del self.historial[:-MAX_GUARDADOS]
+        if self.archivo is None:
+            return
+        mensajes = [{**m, "texto": tapar(m["texto"]), **({"plan": list(map(tapar, m["plan"]))} if "plan" in m else {})}
+                    for m in self.historial]
+        try:
+            diseno.escribir_json(self.archivo, {"version": 1, "mensajes": mensajes})
+        except OSError:
+            traceback.print_exc()
+
+    def restaurar(self, archivo=CONVERSACION):
+        """Al abrir la app: la conversación de la última vez, con sus tarjetas, y desde ahora se guarda ahí."""
+        self.archivo = Path(archivo)
+        self.historial = cargar_conversacion(self.archivo)
+        for m in self.historial:
+            self._pintar(m)
+        if self.historial:
+            self._cerrar_portada()
+
+    def nueva_conversacion(self):
+        """Empieza de cero (lo hecho sigue en su carpeta y en «Mis proyectos»): vuelve la portada y se borra lo
+        guardado. Mientras trabaja no se puede."""
+        if self.ocupado():
+            return
+        self.chat.vaciar()
+        self.historial.clear()
+        self.adjuntos.clear()
+        self._fichas()
+        self.bloque = None
+        self.chat.portada.show()
+        if self.isVisible():
+            self.vigia.start()
+        if self.archivo:
+            try:
+                self.archivo.unlink(missing_ok=True)
+            except OSError:
+                traceback.print_exc()
+        self.pedido.setFocus()
+
+    def _animar(self, ruta: str):
+        """«Animar» de una tarjeta: se le pide al Director con la imagen adjunta. Se envía sin preguntar (el clic ya
+        es la decisión); si cuesta dinero, el Director pregunta antes con su precio. Lo que estabas escribiendo y
+        adjuntando se queda en la caja."""
+        if self.ocupado():
+            return self._avisar(t("Espera a que termine el trabajo actual."))
+        borrador, extra = self.pedido.text(), self.adjuntos
+        self.adjuntos = [ruta]
+        self.pedido.setText(t("Anima esta imagen."))
+        self.enviar()
+        self.pedido.setText(borrador)
+        self.adjuntos = extra
+        self._fichas()
+
     def _fin_de_tarea(self):
+        if self.bloque:
+            self.bloque.parar()
+            self.bloque = None
         self.enviar_btn.setEnabled(True)
-        self.progreso.hide()
+        self.nueva.setEnabled(True)
         self.estado.setText("")
         self.termino.emit()
         if self.brillo and not (self.lectura and self.lectura.isRunning()) and \
@@ -1231,7 +1977,7 @@ class PaginaDirector(QWidget):
         """La pregunta con su costo, en el chat y en una ventana con «Sí» y «No». Si el pedido llegó hablando, también
         en voz alta, y luego escucha «sí» o «no»."""
         # En el chat, solo la pregunta del código (va primero; lo de la IA va detrás): el plan ya está en el chat
-        self._decir("Director", pregunta.split("\n\n", 1)[0])
+        self._plan(pregunta.split("\n\n", 1)[0])
         self.caja = caja = QMessageBox(QMessageBox.Question, t("¿Lo hago?"), pregunta,
                                        QMessageBox.Yes | QMessageBox.No, self)
         caja.setTextFormat(Qt.PlainText)  # parte del texto lo escribió la IA: nunca se interpreta como HTML
@@ -1310,7 +2056,6 @@ class PaginaDirector(QWidget):
         self.escucha.start()
         poner(self.micro, f"⏹  {t('Parar')}")
         self.estado.setText(t("Te escucho… habla y haz una pausa al terminar."))
-        self._a_la_vista(self.estado)  # con Ctrl+Espacio desde otra página, la de arriba es la galería
         if self.brillo:
             self.brillo.poner("escuchando")
 

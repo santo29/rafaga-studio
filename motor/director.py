@@ -374,7 +374,8 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
     confirmar(pregunta) -> bool: la app pregunta al usuario antes de un paso que cuesta dinero o publica; sin su sí no
     se hace. al_decir(texto): lo que va a hacer (el plan), dicho en la conversación antes del primer paso.
     modelo_video: el que eligió el usuario en el selector «Modelo de video» del chat (solo para este pedido).
-    adjuntos: las rutas de los archivos que adjuntó a este pedido: las fotos, la IA las ve (ia.con_fotos).
+    adjuntos: las rutas de los archivos que adjuntó (también van al final del pedido, como «Archivos que te doy»); las
+    fotos, la IA las ve (ia.con_fotos).
     Devuelve {"mensaje", "pasos", "resultados", "formato", "resumen"}: resultados son los videos y audios listos para
     ver; resumen, lo hecho y sus archivos (para recordarlo en la conversación: «sigue», «cámbiale la música»…)."""
     pedido = str(pedido or "").strip()[:4000]

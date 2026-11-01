@@ -560,6 +560,8 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     ancho, alto = video.FORMATOS[formato]
     crear_imagen = crear_imagen or ia.imagen
     partes, n, quietas = [], len(guion["escenas"]), 0  # quietas: las escenas que van sin movimiento real
+    # El acabado (video.unir) tarda como una escena: tiene su tramo de la barra, del nuevo `hasta` al de antes (`fin`)
+    hasta, fin = desde + (hasta - desde) * n / (n + 1), hasta
     animar_ia = True  # se apaga solo si la IA de video falla una vez, para no esperar en cada escena
     pagados, mios, k_gasto = {"clips": 0} if pagados is None else pagados, 0, None
     ultima = respaldo  # la última imagen que sí existe: se repite cuando una falla
@@ -576,9 +578,11 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         if e["narracion"].strip():
             # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
             palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
-        else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío
-            video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", SEGUNDOS_SIN_VOZ, audio.name,
-                         cwd=carpeta)
+        else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío. Dura
+            # lo que le dio el usuario («ESCENA 2 (4-9 s)», ver generar), con tope: el guion puede venir de fuera
+            dura = e.get("segundos")
+            dura = min(dura, 30) if isinstance(dura, (int, float)) and dura >= 1 else SEGUNDOS_SIN_VOZ
+            video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", dura, audio.name, cwd=carpeta)
             palabras = []
         paso_imagen = paso + 0.3 * (hasta - desde) / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
@@ -640,7 +644,11 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     if quietas and notas is not None:  # el porqué de cada una ya está en su nota; si no hay, que no pase callado
         notas.append(t("Sin movimiento real en {n} de {total} escenas: van con su imagen y un zoom suave.",
                        n=quietas, total=n))
-    aviso(t("Uniendo escenas…"), hasta)
+    if notas is not None and not musica and not hablados and not any(e["narracion"].strip() for e in guion["escenas"]):
+        notas.append(t("El video va en silencio: no lleva voz ni música."))  # nunca mudo sin decirlo
+    acabado = t("Acabado: color, fundidos y sonido…")
+    aviso(acabado, hasta)
     return video.unir(partes, carpeta / f"{nombre}.mp4", formato,
                       [e.get("texto_pantalla") or "" for e in guion["escenas"]],
-                      video.look_de(guion.get("estilo_visual", "")), musica)
+                      video.look_de(guion.get("estilo_visual", "")), musica,
+                      lambda f: aviso(acabado, hasta + (fin - hasta) * f))

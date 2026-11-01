@@ -1,7 +1,8 @@
 """El acabado de estudio de los videos que hace el estudio, con ffmpeg de verdad sobre entradas pequeñas y sin red:
-un clip de IA más corto que su escena no vuelve a empezar (va más lento y se queda en su último cuadro), las escenas
-se funden, el sonido sale a -14 LUFS en estéreo, la música baja bajo la voz y lleva el video donde no hay voz, y el
-texto en pantalla se ve (no se dice). python -m pruebas.acabado"""
+un clip de IA más corto que su escena no vuelve a empezar ni se queda quieto (va más lento y su último cuadro se
+acerca despacio), las escenas se funden, el sonido sale a -14 LUFS en estéreo, la música baja bajo la voz y lleva el
+video donde no hay voz, el texto en pantalla se ve (no se dice), un video mudo lo dice y el look solo va si el estilo
+lo pide. python -m pruebas.acabado"""
 import json
 import os
 import re
@@ -15,7 +16,7 @@ import numpy as np
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from motor import desde_prompt, ia, marca, video  # noqa: E402
+from motor import anuncios, desde_prompt, ia, marca, video  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-acabado-"))
 marca.ARCHIVO = tmp / "marca.json"  # nunca la marca del usuario
@@ -50,9 +51,11 @@ def estandar(archivo: Path) -> None:
     assert "48000 Hz, stereo" in datos, datos
 
 
-# ---------- 1. Un clip de IA más corto que su escena: más lento y quieto al final, nunca vuelve a empezar ----------
-# Se aclara con el tiempo (de negro a blanco en 2 s): si volviera a empezar, se vería oscuro otra vez
-clip = hacer("clip.mp4", "-f", "lavfi", "-i", "color=c=gray:s=320x568:r=30:d=2,geq=lum='255*T/2':cb=128:cr=128",
+# ---------- 1. Un clip de IA más corto que su escena: más lento, nunca vuelve a empezar y nunca se queda quieto ------
+# Se aclara con el tiempo (de negro a casi blanco en 2 s) y lleva rayas: si volviera a empezar, se vería oscuro otra
+# vez; si se quedara en una foto fija, las rayas no se moverían
+clip = hacer("clip.mp4", "-f", "lavfi", "-i",
+             "color=c=gray:s=320x568:r=30:d=2,geq=lum='200*T/2+50*mod(floor(X/8),2)':cb=128:cr=128",
              "-c:v", "libx264", "-pix_fmt", "yuv420p")
 voz = hacer("voz.wav", "-f", "lavfi", "-i", "sine=frequency=300:duration=3.6,volume=0.05")
 ultimo = cuadro(clip, 1.95).mean()
@@ -62,9 +65,12 @@ for hecho, dura in ((video.escena_de_clip(clip, voz, "9:16", [], tmp / "escena_c
     brillo = [cuadro(hecho, s / 4).mean() for s in range(int(dura * 4))]
     assert all(b2 >= b1 - 2 for b1, b2 in zip(brillo, brillo[1:])), (hecho.name, brillo)  # nunca vuelve a oscurecer
     assert brillo[0] < 40 and abs(brillo[-1] - ultimo) < 4, (hecho.name, brillo, ultimo)  # acaba en su último cuadro
-    assert abs(brillo[-1] - brillo[-2]) < 1, brillo  # 1,5× más lento llega a 3 s: lo demás, quieto
+    # 1,5× más lento, el clip llega a 3 s: lo demás es su último cuadro acercándose despacio, no una foto fija
+    cola = [cuadro(hecho, s) for s in (3.1, 3.45, dura - 0.05)]
+    cambios = [np.abs(b - a).mean() for a, b in zip(cola, cola[1:])]
+    assert min(cambios) > 1, (hecho.name, cambios)  # quieta: 0,0; acercándose: ~4
     assert re.search(r"yuv420p\(tv, bt709", video._leer_ffmpeg("-i", hecho))
-print("Clips sin volver a empezar pasados.")
+print("Clips sin volver a empezar ni quedarse quietos pasados.")
 
 # ---------- 2. El acabado: fundido, look, texto en pantalla, -14 LUFS, estéreo ----------
 rojo = hacer("rojo.png", "-f", "lavfi", "-i", "color=c=0xC02020:s=576x1024", "-frames:v", "1")
@@ -75,8 +81,10 @@ partes = [video.escena_de_imagen(rojo, voz_a, "9:16", [], tmp / "e0.mp4", 0),
           video.escena_de_imagen(azul, voz_b, "9:16", [], tmp / "e1.mp4", 1)]
 largos = [video.duracion(p) for p in partes]
 LEMA = "EL SABOR QUE TE HACE VOLVER"
-final = video.unir(partes, tmp / "final.mp4", "9:16", ["", LEMA], "dorado")
+avances = []
+final = video.unir(partes, tmp / "final.mp4", "9:16", ["", LEMA], "dorado", None, avances.append)
 estandar(final)
+assert avances and avances == sorted(avances) and avances[-1] > 0.9, avances  # lo que lleva, de ffmpeg (-progress)
 assert abs(video.duracion(final) - (sum(largos) - video.CRUCE)) < 0.08, (video.duracion(final), largos)
 corte = largos[0] - video.CRUCE  # donde empieza la 2.ª escena (y el fundido)
 a, medio, b = (cuadro(final, s).mean(axis=(0, 1)) for s in (corte - 0.4, corte + video.CRUCE / 2, corte + 0.6))
@@ -138,19 +146,37 @@ guion = {"estilo_visual": "cinematic food photography, warm light", "escenas": [
     {"narracion": "Mira esta hamburguesa.", "imagen": "a cheeseburger on a board",
      "movimiento": "slow dolly in; the cheese melts, steam rises", "texto_pantalla": ""},
     {"narracion": "Recién hecha.", "imagen": "a chef at the grill"},  # sin los campos nuevos: sigue valiendo
-    {"narracion": "", "imagen": "the burger logo on black", "texto_pantalla": LEMA}]}
+    # sin voz: dura los segundos que le dio el usuario («ESCENA 3 (10-15 segundos)»; generar los pone en «segundos»)
+    {"narracion": "", "imagen": "the burger logo on black", "texto_pantalla": LEMA, "segundos": 5}]}
+MUDO = "El video va en silencio: no lleva voz ni música."
+ACABADO = "Acabado: color, fundidos y sonido…"
+dibujar = lambda p, w, h, d: d.write_bytes(b"\x89PNG") and d  # noqa: E731
+avisos, notas, mudas, con_musica = [], [], [], []
+sin_voz = {"estilo_visual": "s", "escenas": [{"narracion": "", "imagen": "a"}, {"narracion": " ", "imagen": "b"}]}
 try:
-    notas, carpeta = [], tmp / "montar"
-    carpeta.mkdir()
-    desde_prompt.montar(guion, carpeta, "9:16", "es-DO-EmilioNeural", lambda *x: None,
-                        crear_imagen=lambda p, w, h, d: d.write_bytes(b"\x89PNG") and d, notas=notas)
+    (tmp / "montar").mkdir()
+    desde_prompt.montar(guion, tmp / "montar", "9:16", "es-DO-EmilioNeural", lambda texto, f: avisos.append((texto, f)),
+                        crear_imagen=dibujar, notas=notas)
+    unidos[0][4](1.0)  # el avance que da unir, al 100 %
+    for nombre, lista, fondo in (("mudo", mudas, None), ("con_musica", con_musica, musica)):
+        (tmp / nombre).mkdir()
+        desde_prompt.montar(sin_voz, tmp / nombre, "9:16", "es-DO-EmilioNeural", lambda *x: None,
+                            crear_imagen=dibujar, notas=lista, musica=fondo)
 finally:
     desde_prompt.narrar, ia.video_desde_imagen, video.escena_de_imagen, video.escena_de_clip, video.unir = reales
-assert pedidos == ["slow dolly in; the cheese melts, steam rises", "a chef at the grill",
-                   "the burger logo on black"], pedidos
+assert pedidos[:3] == ["slow dolly in; the cheese melts, steam rises", "a chef at the grill",
+                       "the burger logo on black"], pedidos
 assert narradas == ["Mira esta hamburguesa.", "Recién hecha."], narradas  # el texto en pantalla no se dice
-assert abs(video.duracion(carpeta / "video_final_voz_02.mp3") - desde_prompt.SEGUNDOS_SIN_VOZ) < 0.1
+assert abs(video.duracion(tmp / "montar" / "video_final_voz_02.mp3") - 5) < 0.1
+assert abs(video.duracion(tmp / "mudo" / "video_final_voz_00.mp3") - desde_prompt.SEGUNDOS_SIN_VOZ) < 0.1
 assert notas == ["Sin movimiento real en 2 de 3 escenas: van con su imagen y un zoom suave."], notas
-assert unidos == [("9:16", ["", "", LEMA], "dorado", None)], unidos
-assert video.look_de("3D Pixar cartoon, food") == "" and video.look_de("documentary photo") == "cine"
-print("Montar con movimiento, texto en pantalla y escenas quietas dichas pasado.")
+assert mudas[-1] == MUDO and MUDO not in con_musica, (mudas, con_musica)  # nunca mudo sin decirlo
+assert unidos[0][:4] == ("9:16", ["", "", LEMA], "dorado", None), unidos
+# La barra: el acabado tiene su tramo después de las escenas (como una más) y su avance la lleva hasta el final
+assert [f for texto, f in avisos] == sorted(f for texto, f in avisos), avisos
+assert [texto for texto, f in avisos[-2:]] == [ACABADO] * 2, avisos
+assert abs(avisos[-2][1] - (0.1 + 0.87 * 3 / 4)) < 1e-9 and abs(avisos[-1][1] - 0.97) < 1e-9, avisos
+# Sin look si el estilo no lo pide: un anuncio UGC tiene que verse casero, con los colores reales de la marca
+assert [video.look_de(x) for x in anuncios.ESTILOS.values()] == ["", "", "cine", "", ""]
+assert video.look_de("3D Pixar cartoon, food") == "" == video.look_de("UGC selfie video, cinematic warm light")
+print("Montar con movimiento, texto en pantalla, escenas quietas y videos mudos dichos pasado.")

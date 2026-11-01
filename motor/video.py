@@ -242,13 +242,19 @@ def escena_de_imagen(imagen: Path, audio: Path, formato: str, palabras: list[dic
 
 def _sin_bucle(clip: Path, formato: str, mueve: float, total: float) -> str:
     """Filtros que hacen durar un clip de IA `total` s sin que se vea volver a empezar (repetido, a los 5 s saltaba a su
-    principio): más lento, hasta 1,5×, para que se mueva durante `mueve` s, y lo que falte, quieto en su último
-    cuadro."""
-    lento = min(1.5, max(1.0, mueve / duracion(clip)))
+    principio): más lento, hasta 1,5×, para que se mueva durante `mueve` s, y lo que falte, su último cuadro con el
+    acercamiento lento de escena_de_imagen (quieto, en un tramo musical de 13 s eran 5,6 s de foto fija)."""
+    largo = duracion(clip)
+    lento = min(1.5, max(1.0, mueve / largo))
+    # Lo que se recorta por cada lado al acercar. Con perspective, que mueve menos de un píxel por cuadro: zoompan iba
+    # a tirones (medido: de 0,26 a 2,07 de cambio entre cuadros). Solo en la cola (enable): el clip ni pasa por él
+    lado = f"(1-1/min(1+0.0007*max(in-{round(lento * largo * 30)},0),1.18))/2"
     # ponytail: más lento repitiendo cuadros (fps); en un plano muy movido se nota a saltos. Si molesta, minterpolate
     # (cuadros inventados, mucho más suave) a cambio de tardar varias veces más por escena
     return (f"setpts={lento:.4f}*PTS,{filtro_formato(formato, 'recortar')},fps=30,"
-            f"tpad=stop_mode=clone:stop_duration={total:.2f}")
+            f"tpad=stop_mode=clone:stop_duration={total:.2f},"
+            f"perspective=x0='W*{lado}':y0='H*{lado}':x1='W*(1-{lado})':y1='H*{lado}':x2='W*{lado}':"
+            f"y2='H*(1-{lado})':x3='W*(1-{lado})':y3='H*(1-{lado})':eval=frame:enable='gte(t,{lento * largo:.3f})'")
 
 
 def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], destino: Path) -> Path:
@@ -363,18 +369,20 @@ CRUCE = 0.25  # s de fundido entre escenas: cabe en la cola sin voz que lleva ca
 # Lo que piden las redes (YouTube, TikTok, Instagram): -14 LUFS con picos reales de -1 dBTP. La voz gratis salía a -19,8
 SONORIDAD = "I=-14:TP=-1:LRA=11"
 # El look de color de todo el video (uno de render_edicion._FILTROS), por su estilo visual: el primero que encaja.
-# Los dibujos van sin look: sus colores son el estilo
-LOOKS = ((r"cartoon|anime|pixar|disney|\b3d\b|animat|illustrat|drawing|comic|clay|watercolou?r|painting", ""),
+# Sin look los dibujos (sus colores son el estilo) y lo casero, como el anuncio UGC (tiene que verse real)
+LOOKS = ((r"cartoon|anime|pixar|disney|\b3d\b|animat|illustrat|drawing|comic|clay|watercolou?r|painting|ugc|selfie|"
+          r"smartphone|documentar", ""),
          (r"noir|black.and.white|monochrome", "noir"),
          (r"vintage|retro|analog|polaroid|\b[5-9]0s\b", "retro"),
          (r"neon|cyberpunk|synthwave", "neon"),
          (r"food|burger|pizza|cook|kitchen|chef|bak|coffee|dessert|restaurant|gourmet|golden", "dorado"),
-         (r"beach|caribbean|tropical|ocean|island|summer", "caribe"))
+         (r"beach|caribbean|tropical|ocean|island|summer", "caribe"),
+         (r"cinemat|film|movie|blockbuster", "cine"))
 
 
 def look_de(estilo: str) -> str:
-    """El look para un estilo visual (en inglés); «cine» si no encaja ninguno."""
-    return next((look for patron, look in LOOKS if re.search(patron, estilo, re.I)), "cine")
+    """El look para un estilo visual (en inglés); ninguno ("") si no pide uno: el color de sus imágenes, tal cual."""
+    return next((look for patron, look in LOOKS if re.search(patron, estilo, re.I)), "")
 
 
 def _titulos_ass(textos: list[str], inicios: list[float], finales: list[float], formato: str, destino: Path) -> Path:
@@ -399,11 +407,12 @@ def _titulos_ass(textos: list[str], inicios: list[float], finales: list[float], 
 
 
 def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str] = (), look: str = "",
-         musica: Path | None = None) -> Path:
+         musica: Path | None = None, avance=lambda f: None) -> Path:
     """Une las escenas. Sin formato (el video musical, ya cortado al ritmo): tal cual, sin volver a codificar.
     Con el formato de las escenas, el acabado de estudio: fundidos cortos entre escenas (CRUCE, en la cola sin voz de
     cada una: no se come ninguna palabra), un mismo look de color (render_edicion), el texto en pantalla de cada escena
-    (textos, "" si no lleva), la música (si hay) bajo la voz y el sonido a SONORIDAD, en estéreo a 48 kHz."""
+    (textos, "" si no lleva), la música (si hay) bajo la voz y el sonido a SONORIDAD, en estéreo a 48 kHz.
+    avance(fracción, de 0 a 1): lo que lleva el acabado, que tarda (medido: 6 escenas de 6 s, 21 s; con look, 52 s)."""
     if not formato:
         lista = destino.with_suffix(".txt")
         lista.write_text("".join(f"file '{p.name}'\n" for p in partes), encoding="utf-8")
@@ -411,7 +420,7 @@ def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str]
                destino.name, cwd=destino.parent)
         return destino
     import json
-    from .render_edicion import _BAJAR, _FILTROS  # aquí: render_edicion importa este módulo
+    from .render_edicion import _BAJAR, _FILTROS, _correr  # aquí: render_edicion importa este módulo
     largos = [duracion(p) for p in partes]
     n, cruce = len(partes), min(CRUCE, min(largos) / 2)
     inicios = [sum(largos[:i]) - i * cruce for i in range(n)]
@@ -442,9 +451,9 @@ def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str]
                   "[dice][bajada]amix=inputs=2:normalize=0:duration=first[mezcla]"]
         sonido = "mezcla"
     crudo = destino.with_name(destino.stem + "_sin_mezclar.mkv")
-    ffmpeg(*entradas, "-filter_complex", ";".join(grafo), "-map", "[v]", "-map", f"[{sonido}]",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
-           crudo.name, cwd=destino.parent)
+    _correr([*entradas, "-filter_complex", ";".join(grafo), "-map", "[v]", "-map", f"[{sonido}]",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+             crudo.name], destino.parent, total, avance)
     # Sonoridad en dos pasadas (la de una sola, medida, se quedaba en -15,3): se mide y luego se ajusta
     medida = _leer_ffmpeg("-i", crudo, "-vn", "-af", f"loudnorm={SONORIDAD}:print_format=json", "-f", "null", "-")
     m = json.loads(medida[medida.rindex("{"):medida.rindex("}") + 1])

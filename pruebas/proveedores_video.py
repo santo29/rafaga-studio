@@ -237,7 +237,7 @@ desde_prompt.narrar = lambda texto, voz, destino: []
 video.duracion = lambda p: 1.0
 video.escena_de_clip = lambda clip, audio, formato, palabras, escena: escena
 video.escena_de_imagen = lambda img, audio, formato, palabras, escena, i: escena
-video.unir = lambda partes, destino: destino
+video.unir = lambda partes, destino, *a: destino
 
 
 def dibujar(prompt, ancho, alto, destino):  # como en serie: lo que ya está dibujado no se vuelve a pedir

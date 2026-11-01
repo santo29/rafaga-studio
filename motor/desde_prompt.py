@@ -228,6 +228,7 @@ async def _voz(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> l
 SEGUNDOS_HABLADO = 8  # lo que dura cada escena animada con voz (Omni hace clips de 3 a 10 s)
 MAX_HABLADAS = 15  # tope de gasto por video (~US$12): las escenas de más se hacen con imagen y narración
 MAX_CLIPS_PAGO = 15  # con Kling o Seedance para animar, clips de pago por trabajo como mucho: el resto, zoom suave
+SEGUNDOS_SIN_VOZ = 3  # lo que dura una escena sin narración (montar): lo justo para leer su texto en pantalla
 
 
 def proveedor_voz() -> str | None:
@@ -507,7 +508,7 @@ def escena_hablada(clip: Path, texto: str, formato: str, destino: Path) -> Path:
         palabras = ia.transcribir(voz, pista=texto)
     except Exception:  # sin subtítulos antes que sin escena
         palabras = []
-    # escena_de_clip alarga 0,25 s repitiendo el clip desde el principio: se corta antes, sin comerse la voz
+    # escena_de_clip alarga 0,25 s con el último cuadro quieto: se corta antes (acaba en movimiento), sin comerse la voz
     largo = video.duracion(clip)
     if palabras:
         ultima = min(palabras[-1]["fin"], largo)
@@ -542,8 +543,10 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
            nombre: str = "video_final", crear_imagen: Callable | None = None, desde: float = 0.1,
            hasta: float = 0.97, respaldo: Path | None = None, notas: list | None = None,
            hablados: dict[int, Path] | None = None, pagados: dict | None = None, pago: str | None = None,
-           sin_pago=frozenset(), velocidad: float = 1.0) -> Path:
-    """Convierte un guion (escenas con narración e imagen) en un video terminado.
+           sin_pago=frozenset(), velocidad: float = 1.0, musica: Path | None = None) -> Path:
+    """Convierte un guion (escenas con narración e imagen; opcionales: «movimiento», lo que se mueve en el plano, y
+    «texto_pantalla», lo que se lee sin decirse) en un video terminado, con el acabado de estudio de video.unir.
+    musica: una pista de fondo (sin voz) que baja cuando se habla; sin narración, lleva el video.
     velocidad: la de la voz (1.2 = un 20 % más rápida), para que la narración del usuario quepa en lo pedido.
     crear_imagen(prompt, ancho, alto, destino) permite cambiar cómo se hacen las imágenes (p. ej. con el producto).
     respaldo: imagen que existe y se usa si falla una imagen y todavía no hay ninguna buena (p. ej. la foto).
@@ -556,7 +559,7 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     no llegaron): no se pagan otra vez con un clip mudo."""
     ancho, alto = video.FORMATOS[formato]
     crear_imagen = crear_imagen or ia.imagen
-    partes, n = [], len(guion["escenas"])
+    partes, n, quietas = [], len(guion["escenas"]), 0  # quietas: las escenas que van sin movimiento real
     animar_ia = True  # se apaga solo si la IA de video falla una vez, para no esperar en cada escena
     pagados, mios, k_gasto = {"clips": 0} if pagados is None else pagados, 0, None
     ultima = respaldo  # la última imagen que sí existe: se repite cuando una falla
@@ -570,8 +573,13 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
             continue
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
-        # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
-        palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
+        if e["narracion"].strip():
+            # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
+            palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
+        else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío
+            video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", SEGUNDOS_SIN_VOZ, audio.name,
+                         cwd=carpeta)
+            palabras = []
         paso_imagen = paso + 0.3 * (hasta - desde) / n
         aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
         # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería
@@ -608,7 +616,8 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
                 notas.append(nota)
         elif animar_ia and nueva and not (pago and i in sin_pago):
             try:
-                clip = ia.video_desde_imagen(img, e["imagen"], formato, video.duracion(audio), clip_ia, pago)
+                clip = ia.video_desde_imagen(img, e.get("movimiento") or e["imagen"], formato, video.duracion(audio),
+                                             clip_ia, pago)
             except Exception as error:  # cuota gratis agotada o servicio caído: se sigue con zoom suave
                 cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
                 causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
@@ -625,7 +634,13 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
                         k_gasto = len(notas)
                         notas.append("")
                     notas[k_gasto] = ia.nota_pago(pago, mios)
+        quietas += not clip
         partes.append(video.escena_de_clip(clip, audio, formato, palabras, escena) if clip
                       else video.escena_de_imagen(img, audio, formato, palabras, escena, i))
+    if quietas and notas is not None:  # el porqué de cada una ya está en su nota; si no hay, que no pase callado
+        notas.append(t("Sin movimiento real en {n} de {total} escenas: van con su imagen y un zoom suave.",
+                       n=quietas, total=n))
     aviso(t("Uniendo escenas…"), hasta)
-    return video.unir(partes, carpeta / f"{nombre}.mp4")
+    return video.unir(partes, carpeta / f"{nombre}.mp4", formato,
+                      [e.get("texto_pantalla") or "" for e in guion["escenas"]],
+                      video.look_de(guion.get("estilo_visual", "")), musica)

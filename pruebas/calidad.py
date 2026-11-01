@@ -243,7 +243,7 @@ try:
     video.duracion = lambda p: 1.0
     escenas_de = []
     video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escenas_de.append(img) or escena
-    video.unir = lambda partes, d: d
+    video.unir = lambda partes, d, *a: d
     video.cierre = lambda m, texto, f, d, producto=None: cierres.append((texto, producto)) or d
     try:
         # La IA (como Groq) no escribió «the product» en ninguna escena: la foto va en la del medio y en el cierre
@@ -269,7 +269,7 @@ try:
             carpeta_nueva()
             r = anuncios.crear(str(foto), "Café Brisa Alta", "", "", "", "Demostración del producto", variantes=1,
                                segundos=15)
-            assert len(pegadas) == n + 1 and len(r["avisos"]) == 2, r["avisos"]
+            assert len(pegadas) == n + 1 and len(r["avisos"]) == 3, r["avisos"]  # y «Sin movimiento real…»
             assert "La edición con la imagen de referencia falló (" in r["avisos"][1] and "402" in r["avisos"][1] \
                 and "foto encima de un fondo nuevo" in r["avisos"][1], r["avisos"]
             assert "https://" not in r["avisos"][1] and "mozilla" not in r["avisos"][1]  # solo el servicio, sin enlaces
@@ -451,7 +451,7 @@ ia.imagen = lambda prompt, w, h, d, *a: dibujos.append(prompt) or d
 desde_prompt.narrar = lambda texto, voz, destino: []
 video.duracion = lambda p: 1.0
 video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escena
-video.unir = lambda partes, d: d
+video.unir = lambda partes, d, *a: d
 try:
     carpeta_nueva()
     r = desde_prompt.generar("merengue", segundos=20)

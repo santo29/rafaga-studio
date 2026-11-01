@@ -370,7 +370,8 @@ try:
     guardado = json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))
     assert guardado["estilo_visual"] == serie.ESTILOS["Cartoon 2D"]
     assert len(dibujos) == 3 and all(d.endswith(serie.ESTILOS["Cartoon 2D"]) for d in dibujos), dibujos
-    assert "Estilo visual obligatorio: " + serie.ESTILOS["Cartoon 2D"] in pedidos[-1]
+    assert "Estilo elegido en el menú (úsalo salvo que el pedido nombre otro estilo): " + serie.ESTILOS["Cartoon 2D"] \
+        in pedidos[-1]
     assert "Idioma de la narración: English" in pedidos[-1]
     # Un guion de fuera (MCP) sin «entendido» sigue valiendo, y sin estilo se queda el suyo
     mio = {k: v for k, v in guion_ia.items() if k != "entendido"}
@@ -473,7 +474,7 @@ print("Pruebas de guiones fieles pasadas.")
 for prueba in ("diseno_recursos", "diseno", "diseno_ia", "diseno_ui", "diseno_pro", "edicion", "render_edicion",
                "edicion_ui", "grabarte", "director", "estudio", "serie", "inicio", "musica", "publicar", "idioma",
                "textos", "coherencia", "video_pago", "proveedores_video", "modelo_video", "guardia", "conexiones",
-               "calidad", "visor", "descargas", "rapidez", "rapidez_ia", "compatibles", "avatar"):
+               "calidad", "visor", "descargas", "rapidez", "rapidez_ia", "compatibles", "avatar", "cerebro"):
     subprocess.run([sys.executable, "-m", f"pruebas.{prueba}"], check=True, cwd=RAIZ,
                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "QT_QPA_PLATFORM": "offscreen"})
 print("Pruebas del estudio de diseño, del editor de video y del Director pasadas.")

@@ -58,28 +58,38 @@ En cada paso responde:
 Reglas:
 - """ + FALTAS + """
   Si corriges una palabra que cambia el sentido, dilo en tu mensaje («Entendí calavera; si querías el barco, dímelo»).
+- Eres un director creativo profesional: si el pedido se entiende, lo haces ya, sin preguntar. Lo que no dijo
+  (formato, duración, estilo, tono, público, voz, música) lo decides tú con criterio para su red y su negocio, y en
+  tu mensaje dices en una frase qué supusiste («Lo hice vertical para Reels; si lo quieres horizontal, dímelo»). Si
+  hay dos lecturas, eliges la más probable y al terminar ofreces la otra.
+- Pregunta (herramienta "") solo si falta un archivo que no dio y sin el que no se puede hacer (p. ej. la canción de
+  su video musical), y entonces una sola pregunta corta. Si una herramienta devuelve una pregunta, házsela.
+- Si te da fotos, van con el pedido y las ves: saca de ellas el producto, la marca que se lee, los colores y el tipo
+  de negocio. Nunca preguntes lo que se ve en una foto. Si solo ves su nombre, tampoco: la herramienta la mira.
 - Elige la herramienta por lo que quiere recibir:
   · diseño, imagen, logo, post, flyer, miniatura o tarjeta → crear_diseno. Dibujo para camiseta, taza o sticker →
     crear_diseno con tipo "estampado". Una foto, algo real o realista («una mariposa real en un jardín») o una
     escena con un lugar sin pedir dibujo (en un jardín, en la playa, un paisaje) → crear_diseno con tipo "foto": la
-    foto llena todo el lienzo.
+    foto llena todo el lienzo. Un anuncio sin foto suya → crear_diseno con tipo "anuncio".
+  · Una foto suya y un anuncio («hazme una versión de anuncio», «un anuncio con esta foto») → crear_anuncios con
+    esa foto, directo. "producto": lo que ves en la foto o lo que dijo; si no lo sabes, "" (la herramienta mira la
+    foto).
+  · Una foto suya para moverla, animarla o hacerla video → crear_video con "imagen" y "solo_animar": true.
   · Dibujos animados (dibujo animado, caricatura, cartoon o serie con personajes) → crear_serie y, en este mismo
     pedido, crear_episodio con el "nombre" que devuelve. Estilo "Cartoon 2D" si no dijo otro; formato 9:16 si es
     para TikTok, Reels o Shorts.
-  · video narrado o de un personaje que habla (una fruta, un animal, un objeto) → crear_video.
-  · anuncio de su negocio con la foto de su producto → crear_anuncios. Canción o pista → crear_cancion. Nichos,
-    tendencias o ideas virales → investigar_nichos.
+  · video (narrado, publicitario, de un personaje que habla, de una receta…) → crear_video, con "imagen" si dio
+    una foto para él. Canción o pista → crear_cancion. Nichos, tendencias o ideas virales → investigar_nichos.
 - En prompt, pedido, idea o tema pon TODO lo que pidió, con sus palabras (solo corrige la ortografía): el tema, el
-  estilo, para qué es, los colores, los textos exactos y el público. No lo resumas. El guion, la biblia y el diseño
-  los escribe cada herramienta con su especialista: no los escribas tú.
-- Nunca inventes datos de su negocio (precios, ofertas, materiales, horarios, teléfonos): si no los dio, no van.
+  estilo, para qué es, los colores, los textos exactos, el público y las escenas, tiempos y sonidos que escribió.
+  No lo resumas. Si habla de un trabajo anterior («otro como el de la hamburguesa»), añade lo que pedía aquel. El
+  guion, la biblia y el diseño los escribe cada herramienta con su especialista: no los escribas tú.
+- Nunca inventes datos de su negocio (precios, ofertas, materiales, horarios, teléfonos): si no los dio, no van, y
+  no es motivo para preguntar.
 - En géneros, estilos, voces y tipos usa solo los valores de la lista de cada herramienta.
 - Haz lo que pidió, con las herramientas justas. No repitas una herramienta que ya funcionó.
 - Si el pedido necesita varias herramientas, en el mensaje del primer paso di el plan entero en una frase («Primero
   hago la canción y luego su video musical»).
-- Decide tú los detalles que no cambian el fondo (formato, duración, estilo, voz) según el pedido y la red social.
-  Pregunta (herramienta "") solo lo imprescindible: la foto de su producto real o un pedido con dos lecturas igual
-  de probables. Si una herramienta devuelve una pregunta, házsela al usuario.
 - Lo que cuesta dinero o publica en su canal, la app se lo pregunta al usuario con su costo antes de hacerlo: no lo
   preguntes tú antes. Si una herramienta responde que el usuario no lo aceptó, no la repitas: ofrécele lo gratis o
   termina.
@@ -182,9 +192,8 @@ def _solo_anima(args: dict) -> bool:
 # Cuántas imágenes de IA hace como mucho cada herramienta: con una IA de imágenes de pago, cada una se paga. Animado,
 # las escenas que pasan del tope de Omni (o que le fallan) se hacen con imagen: por lo alto, todas
 FOTOS = {"crear_diseno": lambda a: diseno_ia.MAX_FOTOS,
-         "crear_video": lambda a: 0 if _solo_anima(a) else
-         max(1, round(_numero(a.get("segundos"), 45, 15, 600) / desde_prompt.SEGUNDOS_HABLADO))
-         if a.get("animado") is True else max(3, round(_numero(a.get("segundos"), 45, 15, 600) / 6)) + 2,
+         "crear_video": lambda a: 0 if _solo_anima(a) else desde_prompt.escenas_maximas(  # las mismas que generar
+             _numero(a.get("segundos"), 45, 15, 600), str(a.get("prompt", "")), a.get("animado") is True),
          "crear_video_musical": lambda a: video_musical.MAX_ESCENAS,
          "crear_serie": lambda a: _numero(a.get("personajes"), 3, 1, serie.MAX_PERSONAJES),
          # rehacer (numero): se dibujan los planos que falten de su guion guardado, no los que diga «planos»
@@ -225,7 +234,8 @@ def usos(nombre: str, args: dict) -> list[str]:
         lista.append("musica")
     if nombre in ANIMAN:
         lista.append("video")
-    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args):
+    if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) and \
+            not desde_prompt.sin_voz(str(args.get("prompt", ""))):  # sin narración no hay escenas que hablan
         lista.append("video_voz")
     return lista
 
@@ -275,7 +285,7 @@ def _costo(nombre: str, args: dict) -> str | None:
     usd = 0.0
     if nombre == "crear_video" and args.get("animado") is True and not _solo_anima(args) \
             and desde_prompt.proveedor_voz():  # sin nadie para las escenas que hablan, falla antes de gastar
-        usd += desde_prompt.costo_hablado(_numero(args.get("segundos"), 45, 15, 600))[1]
+        usd += desde_prompt.costo_hablado(_numero(args.get("segundos"), 45, 15, 600), str(args.get("prompt", "")))[1]
     pago = ia.video_de_pago()
     if pago:  # Kling o Seedance animan cada escena: por lo alto, todas (también las que no salgan con voz)
         usd += clips(nombre, args) * ia.precio_video(pago)
@@ -355,18 +365,30 @@ def _usar(nombre: str, argumentos, aviso, al_usar, del_usuario: str, de_todos: s
 
 
 def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lambda nombre: None,
-            confirmar=lambda pregunta: False, al_decir=lambda texto: None, modelo_video: str = "auto") -> dict:
+            confirmar=lambda pregunta: False, al_decir=lambda texto: None, modelo_video: str = "auto",
+            adjuntos=()) -> dict:
     """Hace el trabajo pedido usando las herramientas que hagan falta. historial: [{"rol": "usuario"|"director",
-    "texto", "hecho" (opcional: el resumen de esa respuesta)}] de la conversación. al_usar(nombre) avisa de cada herramienta que empieza (la app ilumina su página).
+    "texto", "hecho" (opcional: el resumen de esa respuesta)}] de la conversación (también la guardada de otra
+    sesión: lo que no tenga esa forma se salta). al_usar(nombre) avisa de cada herramienta que empieza (la app
+    ilumina su página).
     confirmar(pregunta) -> bool: la app pregunta al usuario antes de un paso que cuesta dinero o publica; sin su sí no
     se hace. al_decir(texto): lo que va a hacer (el plan), dicho en la conversación antes del primer paso.
     modelo_video: el que eligió el usuario en el selector «Modelo de video» del chat (solo para este pedido).
+    adjuntos: las rutas de los archivos que adjuntó a este pedido: las fotos, la IA las ve (ia.con_fotos).
     Devuelve {"mensaje", "pasos", "resultados", "formato", "resumen"}: resultados son los videos y audios listos para
     ver; resumen, lo hecho y sus archivos (para recordarlo en la conversación: «sigue», «cámbiale la música»…)."""
     pedido = str(pedido or "").strip()[:4000]
     if not pedido:
         raise ValueError(t("Dime qué trabajo quieres que haga."))
-    recuerdos = "\n".join(f"- {d}: {'; '.join(lista)}" for d, lista in memoria.cargar().items() if lista)
+    adjuntos = [str(r) for r in adjuntos or () if str(r).strip()]
+    # Las rutas, en el pedido (si la página no las puso ya): la IA las pasa a la herramienta y _sin_permiso las da
+    # por del usuario
+    if faltan := [r for r in adjuntos if _norma(r) not in _norma(pedido)]:
+        pedido += f"\n\nArchivos que te doy: {json.dumps(faltan, ensure_ascii=False)}"
+    historial = [m for m in historial or () if isinstance(m, dict) and isinstance(m.get("texto"), str)
+                 and m.get("rol") in ("usuario", "director")]
+    recuerdos = ("\n".join(f"- {d}: {'; '.join(lista)}" for d, lista in memoria.cargar().items() if lista)
+                 + memoria.de_marca() + memoria.recientes()).strip()
 
     def instrucciones(enteras=None):
         return (INSTRUCCIONES.replace("{catalogo}", catalogo(enteras)).replace("{departamentos}", roles.manual())
@@ -401,6 +423,8 @@ def dirigir(pedido: str, historial=(), aviso=lambda texto, f: None, al_usar=lamb
         enteras = None if not pasos else usadas | {h for d in roles.DEPARTAMENTOS.values() for h in d["herramientas"]
                                                    if usadas & set(d["herramientas"])}
         contexto = _contexto(pedido, historial, pasos)
+        if n == 0:  # las fotos, al decidir qué hacer; luego ya ve lo que hizo (cada foto se paga en cada paso)
+            contexto = ia.con_fotos(contexto, adjuntos)
         try:
             # rapido: elegir el paso no necesita que el modelo piense antes (ver ia._sin_razonar); los guiones y los
             # diseños los escribe cada herramienta con toda su calidad. charla: con Claude, las instrucciones en caché

@@ -405,7 +405,7 @@ assert voz.si_o_no("espérate") is False and voz.si_o_no("aguanta un momento") i
 # ---------- El examen del Director, comprobado con una IA falsa (el de verdad gasta: no va aquí) ----------
 from pruebas import examen_director as examen  # noqa: E402
 
-assert 15 <= len(examen.CASOS) <= 20 and all(c["ejemplo"][0] in c["valen"] for c in examen.CASOS)
+assert 15 <= len(examen.CASOS) <= 21 and all(c["ejemplo"][0] in c["valen"] for c in examen.CASOS)
 examen.PAUSA = 0
 real = director._usar
 

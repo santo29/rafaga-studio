@@ -415,16 +415,71 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
                          "(gratis) en «Claves de IA» para más calidad.", problema=problema))
 
 
-def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto", rapido: bool = False) -> dict:
+VEN_IMAGENES = ("anthropic", "openai", "gemini")  # las IA de texto que ven fotos (Gemini, por su API compatible)
+MAX_FOTOS_VISTAS, LADO_FOTO_VISTA = 4, 768  # unos 800 tokens por foto con Claude: céntimos de dólar
+
+
+def ve_fotos(uso: str = "texto") -> bool:
+    """Si la IA de texto elegida ve las fotos que se le dan (con_fotos); si no, solo lee su nombre."""
+    c = claves.para(uso) or {}
+    return bool(c.get("clave")) and c.get("proveedor") in VEN_IMAGENES
+
+
+def con_fotos(texto: str, rutas, uso: str = "texto") -> str | list:
+    """El pedido con las fotos que dio el usuario, para que la IA de texto las VEA y no solo su nombre (pasó: con
+    «hazme una versión de anuncio» y una foto, Claude solo veía «IMG_2041.jpg» y preguntaba qué era): el texto y hasta
+    MAX_FOTOS_VISTAS fotos en JPEG pequeño, si la IA elegida ve imágenes (VEN_IMAGENES). Si no, o no hay ninguna foto
+    (un video, un audio, un archivo que no está), el texto tal cual. Si al final responde otra IA que no las ve,
+    recibe solo el texto (_para)."""
+    if not ve_fotos(uso):
+        return texto
+    from PySide6.QtCore import QBuffer, QIODevice, Qt
+    from PySide6.QtGui import QImageReader
+    bloques = []
+    for ruta in rutas or ():
+        if len(bloques) == 2 * MAX_FOTOS_VISTAS:
+            break
+        try:  # una carpeta de red ni se toca (seguro.archivo_medio)
+            lector = QImageReader(str(seguro.archivo_medio(ruta, seguro.IMAGENES, t("imagen"))))
+        except ValueError:
+            continue
+        lector.setAutoTransform(True)  # la foto del móvil, derecha
+        imagen, jpeg = lector.read(), QBuffer()
+        jpeg.open(QIODevice.WriteOnly)
+        if imagen.isNull() or not imagen.scaled(LADO_FOTO_VISTA, LADO_FOTO_VISTA, Qt.KeepAspectRatio,
+                                                Qt.SmoothTransformation).save(jpeg, "JPEG", 85):
+            continue
+        bloques += [{"type": "text", "text": f"Foto {Path(ruta).name}:"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.b64encode(bytes(jpeg.data())).decode()}}]
+    return [{"type": "text", "text": texto}, *bloques] if bloques else texto
+
+
+def _para(c: dict, pedido):
+    """El pedido como lo entiende esa IA: las fotos (con_fotos) como bloque «image» para Claude o «image_url» para
+    OpenAI y Gemini; a una que no ve imágenes (Groq, la gratis), solo los textos."""
+    if isinstance(pedido, str):
+        return pedido
+    if c.get("proveedor") not in VEN_IMAGENES:
+        return "\n\n".join(b["text"] for b in pedido if b.get("type") == "text")
+    if c["proveedor"] == "anthropic":
+        return pedido
+    return [{"type": "image_url", "image_url": {"url": f"data:{b['source']['media_type']};base64,"
+                                                      f"{b['source']['data']}"}} if b.get("type") == "image" else b
+            for b in pedido]
+
+
+def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str = "texto",
+               rapido: bool = False) -> dict:
     """Pide a la IA de texto una respuesta JSON que cumpla `esquema`. uso: «texto», o «diseno» para la IA que diseña
     (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona).
     Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual.
     rapido: para lo que no necesita que el modelo piense antes (cada paso del Director, entender un pedido); ver
-    _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad."""
+    _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad. pedido: un texto, o el de con_fotos."""
     instrucciones = f"{instrucciones}\n\n{TEXTO_PLANO}"
     c = claves.para(uso)
     if not c or not c.get("clave"):
-        return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+        return _limpio(_texto_gratis(instrucciones, _para({}, pedido), esquema))
     try:
         return _pedir(c, instrucciones, pedido, esquema, rapido)
     except SinServicio as fallo:
@@ -448,7 +503,7 @@ def texto_json(instrucciones: str, pedido: str, esquema: dict, uso: str = "texto
               f"{claves.nombre(otro)}.", file=sys.stderr, flush=True)
         return resultado
     try:
-        return _limpio(_texto_gratis(instrucciones, pedido, esquema))
+        return _limpio(_texto_gratis(instrucciones, _para({}, pedido), esquema))
     except Exception:  # noqa: BLE001  ni la gratis: el motivo que se enseña es el de la IA elegida
         raise primero from None
 
@@ -505,11 +560,12 @@ def _saltado(c: dict) -> SinServicio | None:
     return fallo
 
 
-def _pedir(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: bool = False) -> dict:
-    """_texto_con, salvo que ya se sepa que esa IA no atiende (_saltado): entonces falla sin esperar a su servicio."""
+def _pedir(c: dict, instrucciones: str, pedido: str | list, esquema: dict, rapido: bool = False) -> dict:
+    """_texto_con, salvo que ya se sepa que esa IA no atiende (_saltado): entonces falla sin esperar a su servicio.
+    Las fotos del pedido, como las ve esa IA (_para)."""
     if fallo := _saltado(c):
         raise fallo
-    return _texto_con(c, instrucciones, pedido, esquema, rapido)
+    return _texto_con(c, instrucciones, _para(c, pedido), esquema, rapido)
 
 
 def _sin_razonar(proveedor: str, modelo: str) -> dict:
@@ -741,12 +797,12 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
     idioma = idioma if idioma in IDIOMAS else actual()
     corregidos, por_ia = list(textos), set()
     pendientes = [i for i, x in enumerate(textos) if isinstance(x, str) and x.strip()]
-    todas, elegida = claves.cargar(), claves.para("texto")
-    # ponytail: un solo intento (Groq, si no la elegida); la gratis sin clave no, porque espera 30 s entre pedidos.
-    # Se salta la que ya se sabe que no atiende (sin saldo, sin cuota, clave caducada) si la otra puede; si ninguna,
-    # a la que no tiene saldo o tiene la clave mal ni se le pide (_pedir): queda en la actividad y en el aviso
-    candidatas = [x for x in (todas.get("groq"), elegida) if x and x.get("clave")]
-    c = next((x for x in candidatas if not claves._vigente(x["proveedor"])), candidatas[0] if candidatas else None)
+    groq = claves.cargar().get("groq") or {}
+    # ponytail: un solo intento; la gratis sin clave no, porque espera 30 s entre pedidos. Con Groq (gratis)
+    # conectado, solo Groq: si no atiende, el texto sigue sin repaso y se dice, nunca se paga a la elegida (pasó: con
+    # la clave de Groq caducada, cada repaso iba a Claude). Sin Groq, la elegida. A la que no tiene saldo o tiene la
+    # clave mal ni se le pide (_pedir): queda en la actividad y en el aviso
+    c = groq if groq.get("clave") else claves.para("texto")
     if pendientes and c and c.get("clave"):
         try:
             pedido = json.dumps({"idioma": IDIOMAS[idioma], "textos": [textos[i] for i in pendientes]},

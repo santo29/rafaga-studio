@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout
 
-from motor import anuncios
+from motor import anuncios, ia
 from motor.idioma import t
 from ui.comun import boton, mensaje, PaginaTrabajo, SelectorFormato, SelectorVoz
 
@@ -25,7 +25,7 @@ class PaginaAnuncios(PaginaTrabajo):
         elegir.clicked.connect(self._elegir_foto)
         datos = QVBoxLayout()
         self.producto = QLineEdit()
-        self.producto.setPlaceholderText(t("Producto o servicio (ej.: Crema reafirmante Aloe+, Barbería Los Panas)"))
+        self._pista()
         self.detalles = QLineEdit()
         self.detalles.setPlaceholderText(t("Qué hace, beneficios, precio"))
         self.publico = QLineEdit()
@@ -65,6 +65,16 @@ class PaginaAnuncios(PaginaTrabajo):
         self.form_lay.addLayout(fila)
         self.form_lay.addWidget(self.iniciar, 0, Qt.AlignRight)
 
+    def _pista(self):
+        """El nombre es opcional solo si la IA de texto ve la foto (Claude, OpenAI o Gemini)."""
+        self.producto.setPlaceholderText(
+            t("Producto o servicio (opcional, la IA lo ve en tu foto; ej.: Barbería Los Panas)") if ia.ve_fotos()
+            else t("Producto o servicio (ej.: Crema reafirmante Aloe+, Barbería Los Panas)"))
+
+    def showEvent(self, e):  # la IA de texto pudo cambiar en «Claves de IA» después de abrir la app
+        self._pista()
+        super().showEvent(e)
+
     def _elegir_foto(self):
         ruta, _ = QFileDialog.getOpenFileName(self, t("Foto del producto"), "",
                                               t("Imágenes ({tipos})", tipos="*.png *.jpg *.jpeg *.webp"))
@@ -73,8 +83,11 @@ class PaginaAnuncios(PaginaTrabajo):
             self.vista.setPixmap(QPixmap(ruta).scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _iniciar(self):
-        if not self.foto or not self.producto.text().strip():
-            return mensaje(self, t("Faltan datos"), t("Elige la foto del producto y escribe su nombre."))
+        if not self.foto:
+            return mensaje(self, t("Faltan datos"), t("Elige la foto de tu producto o de tu negocio."))
+        if not self.producto.text().strip() and not ia.ve_fotos():  # el nombre, solo si la IA no ve la foto
+            return mensaje(self, t("Faltan datos"), t("Escribe qué anuncias: tu IA de texto no ve fotos (Claude, "
+                                                      "OpenAI y Gemini sí las ven)."))
         self.lanzar(self.iniciar, anuncios.crear, foto=self.foto, producto=self.producto.text(),
                     detalles=self.detalles.text(), publico=self.publico.text(), oferta=self.oferta.text(),
                     estilo=self.estilo.currentData(), formato=self.formato.valor(), voz=self.voz.currentData(),

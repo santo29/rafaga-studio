@@ -179,10 +179,11 @@ try:
     assert "Tu narración no cabía en los 30 s pedidos: la voz va un 20 % más rápida." in r["avisos"], r["avisos"]
     assert any("Tu narración se usó tal cual la escribiste: el video dura 41 s y pediste 30 s." == a
                for a in r["avisos"]), r["avisos"]
-    # Animado: cada escena es un clip de pago de 8 s; a 30 s caben 4 y se dice qué línea se quitó y cuál es larga
+    # Animado: cada escena es un clip de pago de 8 s; sin escenas numeradas, a 30 s caben 4 y se dice qué línea se
+    # quitó y cuál es larga
     desde_prompt.proveedor_voz, desde_prompt.clips_hablados = lambda: "gemini", lambda *a, **k: {}
     desde_prompt.PROYECTOS, velocidades[:] = Path(tempfile.mkdtemp(dir=tmp)), []
-    r = desde_prompt.generar(PEDIDO, segundos=30, animado=True)
+    r = desde_prompt.generar(PEDIDO.replace("Escena ", "Paso "), segundos=30, animado=True)
     guion = json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))
     assert [e["narracion"] for e in guion["escenas"]] == LINEAS[:3] + LINEAS[4:], guion
     assert "Tu narración tiene 5 líneas y en este video caben 4 escenas: se quitaron las líneas del medio que " \
@@ -191,6 +192,11 @@ try:
     assert largas == ["La línea 2 de tu narración tiene 21 palabras: en una escena animada de 8 s puede no caber "
                       "entera."], r["avisos"]
     assert not any("tal cual" in a or "más rápida" in a for a in r["avisos"]) and velocidades == [1.0] * 4, r["avisos"]
+    # Con sus 5 escenas numeradas, las 5: y lo que se pregunta antes de pagar cuenta esas 5
+    desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
+    r = desde_prompt.generar(PEDIDO, segundos=30, animado=True)
+    assert [e["narracion"] for e in json.loads((Path(r["carpeta"]) / "guion.json").read_text(encoding="utf-8"))[
+        "escenas"]] == LINEAS and desde_prompt.costo_hablado(30, PEDIDO)[0] == 5
     # Sin narración escrita: la IA escribe para la voz elegida (ElevenLabs habla más rápido que Edge)
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     desde_prompt.generar("Un video de gatos", segundos=30, voz="eleven:sarah")

@@ -14,6 +14,7 @@ O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 [![Idiomas: ES, EN, PT, FR](https://img.shields.io/badge/idiomas-ES%20%7C%20EN%20%7C%20PT%20%7C%20FR-f59e0b)](idiomas)
 
 [Descargar para Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
+[Configuración gratis](#configuración-gratis-3-videos-al-día) ·
 [Ver la demostración](ejemplos/presentacion-app.mp4) ·
 [Read in English](README.md)
 
@@ -91,7 +92,33 @@ Requisitos: Windows 10 u 11 de 64 bits, unos 3 GB libres y conexión a internet.
 3. Al terminar, míralo en el reproductor, abre su carpeta o envíalo al editor de video.
 
 Funciona sin ninguna clave, con servicios gratis que pueden ser más lentos y dar resultados más simples. Conectar Groq y
-Cloudflare toma unos dos minutos, no cuesta nada y da un primer video mucho mejor.
+Cloudflare toma unos dos minutos, no cuesta nada y da un primer video mucho mejor. Mira la
+[configuración gratis](#configuración-gratis-3-videos-al-día).
+
+## Configuración gratis: 3 videos al día
+
+No necesitas un plan de pago para empezar. Crea estas claves gratis, pega cada una en **Claves de IA** y podrás hacer unos
+tres videos cortos al día sin costo.
+
+| Servicio | Qué hace | Lo que da gratis | Dónde conseguirla |
+|---|---|---|---|
+| Groq | Escribe los guiones | Plan gratis | [Crear clave](https://console.groq.com/keys) |
+| Cloudflare Workers AI | Dibuja las imágenes | Unas 100 imágenes al día | [Crear token](https://dash.cloudflare.com/profile/api-tokens) |
+| Modal (opcional) | Añade movimiento real con Wan 2.2 | US$30 de cómputo al mes | [Crear token](https://modal.com/settings/tokens) |
+
+Las voces (Microsoft Edge) y los subtítulos (Whisper, en tu PC) ya vienen incluidos y no necesitan clave.
+
+Lo que cabe en estas cuotas:
+
+- **Tres videos de 45 segundos al día** usan hasta 30 imágenes, muy por debajo de la cuota diaria de Cloudflare.
+- **El crédito de Modal** alcanza para unas 85 escenas con movimiento al mes: cerca de 3 al día, o unos 8 videos de 45
+  segundos animados por completo. Las demás escenas llevan un zoom suave.
+- **Sin Modal**, un Space público y gratis de Hugging Face anima unas pocas escenas al día, con fila de espera. No necesita
+  clave.
+
+El crédito de US$30 de Modal pide una tarjeta registrada, así que [pon un límite de uso de US$30](https://modal.com/settings/usage)
+y no pagas nada. Cada servicio fija sus límites, y pueden cambiar. Las voces gratis de Edge no están garantizadas para uso
+comercial.
 
 ## Conecta tus servicios de IA
 

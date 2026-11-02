@@ -14,6 +14,7 @@ Or connect your favorite AI through MCP and direct the whole studio from your ch
 [![Languages: EN, ES, PT, FR](https://img.shields.io/badge/languages-EN%20%7C%20ES%20%7C%20PT%20%7C%20FR-f59e0b)](idiomas)
 
 [Download for Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
+[Free setup](#free-setup-3-videos-a-day) ·
 [Watch the demo](ejemplos/presentacion-app-en.mp4) ·
 [Leer en español](README.es.md)
 
@@ -90,7 +91,32 @@ Requirements: 64-bit Windows 10 or 11, about 3 GB of free space and an internet 
 3. When it finishes, watch it in the player, open its folder, or send it to the video editor.
 
 This works with no key at all, using free services that can be slower and produce simpler results. Connecting Groq and
-Cloudflare takes about two minutes, costs nothing and gives a much better first video.
+Cloudflare takes about two minutes, costs nothing and gives a much better first video. See the
+[free setup](#free-setup-3-videos-a-day).
+
+## Free setup: 3 videos a day
+
+You don't need a paid plan to start. Create these free keys, paste each one into **AI keys**, and you can make about three
+short videos a day at no cost.
+
+| Service | What it does | Free allowance | Get it |
+|---|---|---|---|
+| Groq | Writes the scripts | Free plan | [Create a key](https://console.groq.com/keys) |
+| Cloudflare Workers AI | Draws the images | About 100 images a day | [Create a token](https://dash.cloudflare.com/profile/api-tokens) |
+| Modal (optional) | Adds real motion with Wan 2.2 | US$30 of compute a month | [Create a token](https://modal.com/settings/tokens) |
+
+Voices (Microsoft Edge) and subtitles (Whisper, on your PC) are included and need no key.
+
+What fits in these allowances:
+
+- **Three 45-second videos a day** use up to 30 images, well within Cloudflare's daily allowance.
+- **Modal's credit** covers about 85 moving scenes a month: roughly 3 a day, or about 8 fully animated 45-second videos.
+  Any other scene uses a gentle zoom.
+- **Without Modal**, a free public Hugging Face Space animates a few scenes a day, with a waiting line. It needs no key.
+
+Modal's US$30 credit requires a card on file, so [set a US$30 usage limit](https://modal.com/settings/usage) and you pay
+nothing. Each service sets its own limits, and they can change. The free Edge voices are not guaranteed for commercial
+use.
 
 ## Connect your AI services
 

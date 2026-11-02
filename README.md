@@ -4,6 +4,8 @@
 
 # Ráfaga Studio
 
+Ráfaga Studio exists to help content creators make their videos easily, without heavy editing and without paying for many tools at once.
+
 The AI creative studio for Windows. Describe your idea, connect your own API key, and get a finished video.<br>
 Or connect your favorite AI through MCP and direct the whole studio from your chat.
 
@@ -20,7 +22,7 @@ Or connect your favorite AI through MCP and direct the whole studio from your ch
 
 https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 
-<sub>This demo was edited with Ráfaga Studio's own video editor.</sub>
+<sub>This video was made with Ráfaga Studio itself: the real app on screen and the studio's own editor.</sub>
 
 </div>
 

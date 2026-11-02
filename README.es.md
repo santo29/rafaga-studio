@@ -4,6 +4,8 @@
 
 # Ráfaga Studio
 
+Ráfaga Studio existe para ayudar a los creadores de contenido a hacer sus videos fácilmente, sin tanta edición y sin pagar muchas herramientas a la vez.
+
 El estudio creativo con IA para Windows. Describe tu idea, conecta tu propia clave y recibe un video terminado.<br>
 O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 
@@ -20,7 +22,7 @@ O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 
 <a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="680" alt="Demostración de Ráfaga Studio"></a>
 
-<sub>Esta demostración se editó con el propio editor de video de Ráfaga Studio.</sub>
+<sub>Este video se hizo con el propio Ráfaga Studio: la app real en pantalla y su propio editor.</sub>
 
 </div>
 

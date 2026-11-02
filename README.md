@@ -16,7 +16,7 @@ The AI creative studio for Windows. Describe your idea, connect your own API key
 [Watch the demo](ejemplos/presentacion-app-en.mp4) ·
 [Leer en español](README.es.md)
 
-<a href="ejemplos/presentacion-app-en.mp4"><img src="ejemplos/presentacion-app-en.gif" width="680" alt="Ráfaga Studio demo"></a>
+https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 
 <sub>This demo was edited with Ráfaga Studio's own video editor.</sub>
 

@@ -26,7 +26,7 @@ The `.bat` creates `.venv` with the exact, hash-pinned versions of `requirements
 ```
 
 The whole suite runs offline, with fake AI services and no keys. **Every pull request must pass it.** If you add a
-feature, add a small test next to the similar ones: engine tests go in `pruebas/__main__.py` or `pruebas/seguridad.py` (MIT);
+feature, add a small test next to the similar ones: engine tests go in `pruebas/__main__.py` or `pruebas/seguridad.py`;
 the other `pruebas/*.py` test the app.
 
 ## Code style · Estilo del código
@@ -48,8 +48,8 @@ the other `pruebas/*.py` test the app.
 
 ## Licensing of contributions · Licencia de lo que aportas
 
-The engine (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py`, `ejemplos/`)
-is MIT: contributions to it are accepted under the MIT license. The desktop app (`app.py`, `ui/`) is source-available
-with all rights reserved, and so are the other tests (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py` and
-`instalador/`: by contributing to them you agree that the owner may use your contribution in Ráfaga Studio
-under its own license.
+Ráfaga Studio is [GPL-3.0](LICENSE): contributions are accepted under that same license. The name and logo stay
+trademarks of the owner.
+
+Ráfaga Studio tiene licencia [GPL-3.0](LICENSE): lo que aportas se acepta con esa misma licencia. El nombre y el logo
+siguen siendo marcas del titular.

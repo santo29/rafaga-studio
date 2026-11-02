@@ -11,7 +11,7 @@ Pides un video en una frase y te entrega el guion, las escenas, la voz, los subt
 [![Descargar para Windows 10/11](https://img.shields.io/badge/Descargar_para_Windows_10%2F11-gratis-7c5cff?style=for-the-badge)](https://github.com/santo29/rafaga-studio/releases/latest)
 
 [![Sin programar](https://img.shields.io/badge/sin_programar-instala%2C_pega_tu_clave%2C_crea-22c55e)](#-sin-saber-programar-tu-primer-video-en-5-minutos)
-[![Motor: MIT](https://img.shields.io/badge/motor-MIT-22c55e)](LICENSE)
+[![Licencia: GPL-3.0](https://img.shields.io/badge/licencia-GPL--3.0-22c55e)](LICENSE)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](#-sin-saber-programar-tu-primer-video-en-5-minutos)
 [![Servidor MCP](https://img.shields.io/badge/MCP-17%20herramientas-7c5cff)](#-úsalo-desde-claude-mcp)
 [![Idiomas](https://img.shields.io/badge/idiomas-ES%20%C2%B7%20EN%20%C2%B7%20PT%20%C2%B7%20FR-f59e0b)](idiomas)
@@ -50,7 +50,7 @@ servicios gratis atienden por turno.
 
 ### 1. Descarga e instala
 
-1. Baja `RafagaStudio-Setup-1.0.0.exe` (unos 42 MB) de [Versiones](https://github.com/santo29/rafaga-studio/releases/latest)
+1. Baja `RafagaStudio-Setup-1.0.0.exe` (unos 52 MB) de [Versiones](https://github.com/santo29/rafaga-studio/releases/latest)
    y ábrelo. En «Assets», pulsa `RafagaStudio-Setup-1.0.0.exe` (no «Source code»). Si el navegador dice que el
    archivo no se descarga con frecuencia, pulsa «…» y «Conservar».
 2. **Windows te muestra un aviso azul: «Windows protegió su PC».** Sale porque el instalador todavía no lleva firma
@@ -320,20 +320,17 @@ shorts.generar("https://youtu.be/…", formato="9:16", cantidad=3)
 cabina.sesion("beat.mp3", "mi_voz.wav", estilo="Dembow / urbano (seco y al frente)")
 ```
 
-## 📄 Open core: qué es abierto
+## 📄 Licencia: qué es abierto
+
+Ráfaga Studio es software libre con licencia [GNU GPL-3.0](LICENSE): puedes usarlo, estudiarlo, cambiarlo y repartirlo,
+también con fines comerciales, siempre que quien reciba tu versión reciba también su código con la misma licencia. Se
+ofrece sin garantía.
 
 | Parte | Licencia |
 |---|---|
-| `motor/` — el motor sin interfaz, se usa como librería | **MIT** (abierto) |
-| `idiomas/` — las traducciones que usa el motor | **MIT** (abierto) |
-| `mcp_server.py` — para que Claude u otro agente use el estudio | **MIT** (abierto) |
-| `modal_app.py` — video IA en tu propia nube de Modal | **MIT** (abierto) |
-| `pruebas/__main__.py` y `pruebas/seguridad.py` — pruebas sin internet ni claves (`python -m pruebas`) | **MIT** (abierto) |
-| `ejemplos/` — los videos de ejemplo y cómo se hicieron (`python ejemplos/crear.py`) | **MIT** (abierto) |
+| Todo el código: la app de escritorio, el motor, las traducciones, las pruebas, el instalador y los ejemplos | **GPL-3.0** |
 | `assets/iconos` (Lucide) y `assets/fuentes` (Google Fonts), ver `assets/LEEME.md` | ISC (iconos) y OFL (fuentes) |
 | `assets/icono.*`, `assets/portada-github.png` y `assets/mascota.jpg` — logo, portada y mascota | Marca Ráfaga Studio™, todos los derechos reservados |
-| Las demás pruebas (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py` e `instalador/` | Parte de la app, todos los derechos reservados |
-| `app.py` y `ui/` — la app de escritorio | Código visible, todos los derechos reservados (Ráfaga Studio Pro): no es open source |
 
 Hecho con: FFmpeg, faster-whisper, yt-dlp, Pedalboard (Spotify), Demucs (Meta), Matchering, librosa, PSOLA/Praat,
 Wan 2.2, FLUX, edge-tts, Lucide, Google Fonts.
@@ -364,6 +361,6 @@ Hecho por un dominicano con Dios y su mejor amigo, Claude. Si te ayuda a crear, 
 
 - [Aviso de privacidad](PRIVACIDAD.md) · [Términos de uso](TERMINOS.md) · [Avisos de terceros](AVISOS_DE_TERCEROS.md)
   · [Licencia](LICENSE)
-- **Ráfaga Studio™**: el nombre, el logo y la identidad visual son marcas de **Santo Montilla**. La licencia MIT del
-  motor no da permiso para usar la marca.
-- © 2026 Santo Montilla. La app de escritorio (`app.py` y `ui/`) tiene todos los derechos reservados.
+- **Ráfaga Studio™**: el nombre, el logo y la identidad visual son marcas de **Santo Montilla**. La GPL-3.0 no da
+  permiso para usar la marca: si repartes una versión modificada, ponle otro nombre y otro logo.
+- © 2026 Santo Montilla. Código con licencia GPL-3.0.

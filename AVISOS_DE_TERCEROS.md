@@ -16,15 +16,8 @@ servidor MCP:
 Qué significa:
 
 - **Usar la app en tu PC:** no impone nada.
-- **El motor libre (MIT):** se puede publicar con ellas. Quien distribuya el conjunto debe respetar la GPLv3.
-- **Distribuir o vender la app («Pro», sin licencia libre):** si lleva estas librerías, la GPLv3 podría obligar a publicar su
-  código.
-
-Antes de distribuir la app Pro hay dos opciones:
-
-1. Separar la Cabina (y la herramienta «producir canción») como un complemento libre (GPLv3), que se instale aparte y que la app use como un programa
-   independiente.
-2. Cambiar esas cuatro librerías por otras de licencia permisiva.
+- **Repartir la app, con cambios o sin ellos:** Ráfaga Studio entero tiene licencia GPL-3.0, compatible con estas
+  librerías. Quien la reparta debe respetar la GPLv3: dar también el código, con la misma licencia.
 
 Además, el programa **FFmpeg** que instala imageio-ffmpeg es una compilación **GPLv3** (con x264) y lo usan todas las
 exportaciones de video. La app lo ejecuta como un programa aparte, así que no obliga a publicar el código de la app.

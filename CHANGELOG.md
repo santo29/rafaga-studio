@@ -1,8 +1,10 @@
 # Changelog · Historial de versiones
 
-## 1.0.0 · 2026-10-27
+## 1.0.0 · 2026-11-02
 
 First public version · Primera versión.
+
+- **GPL-3.0:** all the code is now free software · Todo el código es ahora software libre.
 
 - **A new home screen:** describe your idea in one box and choose Video, Image, Design, Music or Director; a carousel of
   real motion made with the studio (the talking apple, the anime, an AI merengue, the brand ad) that moves by itself;

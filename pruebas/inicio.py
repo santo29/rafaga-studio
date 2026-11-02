@@ -582,8 +582,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     for archivo in legal.DOCUMENTOS:
         doc = legal.ver_documento(padre, archivo)
         texto = doc.findChild(QTextBrowser).toPlainText()
-        # Markdown de verdad (también LICENSE): sin `comillas`, ** ni ## a la vista
-        assert len(texto) > 200 and not any(m in texto for m in ("`", "**", "## ", "](")), archivo
+        # Markdown de verdad: sin `comillas`, ** ni ## a la vista. LICENSE es el texto oficial de la GPL, tal cual
+        assert len(texto) > 200 and (archivo == "LICENSE" or not any(m in texto for m in ("`", "**", "## ", "]("))), \
+            archivo
         doc.close()
     # Un enlace a otro documento legal lo abre en su ventana; uno de GitHub no navega a ningún sitio
     doc = legal.ver_documento(padre, "PRIVACIDAD.md")
@@ -596,8 +597,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     assert any("Santo Montilla" in w.text() for w in acerca.findChildren(QLabel))
     acerca.close()
     del doc, acerca, padre  # se destruyen ya, con Qt vivo
-    assert "Santo Montilla" in legal.marca() and "Santo Montilla" in open(
-        Path(inicio.__file__).resolve().parent.parent.parent / "LICENSE", encoding="utf-8").read()
+    assert "Santo Montilla" in legal.marca() and "GPL-3.0" in legal.marca()
+    assert open(Path(inicio.__file__).resolve().parent.parent.parent / "LICENSE",
+                encoding="utf-8").read().lstrip().startswith("GNU GENERAL PUBLIC LICENSE")
 
     # ---------- La ventana: abre en Inicio y sus accesos llevan a la página de verdad ----------
     import app as aplicacion

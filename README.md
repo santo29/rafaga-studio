@@ -11,7 +11,7 @@ Ask for a video in one sentence and get the script, the scenes, the voice, the s
 [![Download for Windows 10/11](https://img.shields.io/badge/Download_for_Windows_10%2F11-free-7c5cff?style=for-the-badge)](https://github.com/santo29/rafaga-studio/releases/latest)
 
 [![No code](https://img.shields.io/badge/no--code-install%2C_paste_a_key%2C_create-22c55e)](#-no-coding-your-first-video-in-5-minutes)
-[![Engine license: MIT](https://img.shields.io/badge/engine-MIT-22c55e)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-22c55e)](LICENSE)
 [![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#-no-coding-your-first-video-in-5-minutes)
 [![MCP server](https://img.shields.io/badge/MCP-17%20tools-7c5cff)](#-drive-it-from-claude-mcp)
 [![Languages](https://img.shields.io/badge/UI-ES%20%C2%B7%20EN%20%C2%B7%20PT%20%C2%B7%20FR-f59e0b)](idiomas)
@@ -50,7 +50,7 @@ services work through a queue.
 
 ### 1. Download and install
 
-1. Download `RafagaStudio-Setup-1.0.0.exe` (about 42 MB) from
+1. Download `RafagaStudio-Setup-1.0.0.exe` (about 52 MB) from
    [Releases](https://github.com/santo29/rafaga-studio/releases/latest) and open it. Under "Assets", click
    `RafagaStudio-Setup-1.0.0.exe` (not "Source code"). If your browser says the file isn't commonly downloaded, click
    "…" and "Keep".
@@ -312,7 +312,7 @@ flowchart LR
     C["Claude / MCP agents"] --> M["MCP server"]
     D --> T["17 studio tools<br/>motor/herramientas.py"]
     M --> T
-    T --> E["Engine (MIT)<br/>script · images · video · voice<br/>subtitles · music · design · edit"]
+    T --> E["Engine<br/>script · images · video · voice<br/>subtitles · music · design · edit"]
     E --> R["Cloud rotation<br/>free quota → your PC → credits → paid"]
     R --> P["15 providers you connect<br/>Gemini · Claude · OpenAI · Groq<br/>Cloudflare · Hugging Face · Modal<br/>Kling · Seedance…"]
     E --> F["FFmpeg render<br/>on your PC"]
@@ -358,18 +358,19 @@ Ráfaga Studio was built by a Dominican creator with no big budget, just faith i
 
 ## 📄 License
 
-Open core:
+Ráfaga Studio is free software under the [GNU GPL-3.0](LICENSE): use it, study it, change it and share it, also
+commercially, as long as whoever receives your version also receives its source code under the same license. It comes
+with no warranty.
 
 | Part | License |
 |---|---|
-| Engine: `motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py`, `ejemplos/` | **MIT** |
-| Desktop app: `app.py` and `ui/` (Ráfaga Studio Pro) | Source-available, all rights reserved |
-| Other tests (`pruebas/*.py`), `pruebas/real.py`, `instalador/actualizar_lock.py`, `instalador/` | Part of the app, all rights reserved |
+| All the code: desktop app, engine, translations, tests, installer and examples | **GPL-3.0** |
 | Icons (`assets/iconos`, Lucide) and fonts (`assets/fuentes`, Google Fonts) | ISC and OFL |
 | Logo, cover and mascot (`assets/icono.*`, `assets/portada-github.png`, `assets/mascota.jpg`) | Ráfaga Studio™ trademark, all rights reserved |
 
 See [LICENSE](LICENSE), [Terms](TERMINOS.md) and [Third-party notices](AVISOS_DE_TERCEROS.md).
-**Ráfaga Studio™**, its name, logo and visual identity are trademarks of **Santo Montilla**. © 2026 Santo Montilla.
+**Ráfaga Studio™**, its name, logo and visual identity are trademarks of **Santo Montilla**: if you share a modified
+version, give it another name and logo. © 2026 Santo Montilla.
 
 Use your own content or content you have permission for, and label realistic AI-generated content: YouTube, TikTok
 and Meta require it.

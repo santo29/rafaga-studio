@@ -1,6 +1,6 @@
 # Términos de uso de Ráfaga Studio
 
-**Versión 5 · 25 de octubre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
+**Versión 6 · 2 de noviembre de 2026** · Titular: **Santo Montilla**, titular de la marca Ráfaga Studio™.
 
 Al instalar o usar Ráfaga Studio aceptas estos términos y el [Aviso de privacidad](PRIVACIDAD.md). Si no estás de
 acuerdo, no uses la app.
@@ -9,14 +9,15 @@ acuerdo, no uses la app.
 
 Ráfaga Studio es un estudio creativo con IA que funciona en tu PC.
 
-- **El motor** (`motor/`, `idiomas/`, `mcp_server.py`, `modal_app.py`, `pruebas/__main__.py`, `pruebas/seguridad.py` y
-  `ejemplos/`) es software libre con [licencia MIT](LICENSE). Las demás pruebas de la carpeta `pruebas/` (incluida
-  `pruebas/real.py`) y `instalador/actualizar_lock.py` forman parte de la app y siguen su licencia.
-- **La app de escritorio** (`app.py` y `ui/`, «Ráfaga Studio Pro») viene en el repositorio para que funcione, pero no
-  es software libre: es propiedad del titular. Puedes usarla para crear tu contenido, también con fines comerciales. No puedes revender, redistribuir, alquilar ni publicar la app, ni una
-  versión modificada, sin permiso escrito del titular.
+- **Todo su código** (la app de escritorio, el motor, las traducciones, las pruebas, el instalador y los ejemplos) es
+  software libre con [licencia GPL-3.0](LICENSE). Puedes usarlo, estudiarlo, cambiarlo y repartirlo, también con fines
+  comerciales, siempre que quien reciba tu versión reciba también su código con la misma licencia.
+- **El logo, la portada y la mascota** (`assets/icono.*`, `assets/portada-github.png` y `assets/mascota.jpg`) no entran
+  en esa licencia: son marca del titular (ver «Marca»).
 - Las librerías, modelos, fuentes e iconos de terceros conservan sus propias licencias: ver
   [Avisos de terceros](AVISOS_DE_TERCEROS.md).
+- Estos términos no le quitan a nadie los derechos que da la GPL-3.0: si algo chocara con ella en lo que toca al
+  código, manda la GPL-3.0.
 
 ## 2. Tus claves, tus cuentas y tus costos
 
@@ -77,9 +78,10 @@ El titular no reclama ningún derecho sobre tu contenido.
 
 ## 6. Marca
 
-«Ráfaga Studio», su nombre, su logo y su identidad visual son marcas del titular. La licencia MIT del motor no da
-permiso para usar la marca. Puedes decir que tu contenido está «hecho con Ráfaga Studio». No puedes usar la marca ni
-el logo para otro producto, ni dar a entender que el titular respalda tu trabajo sin su permiso.
+«Ráfaga Studio», su nombre, su logo y su identidad visual son marcas del titular. La licencia GPL-3.0 no da permiso
+para usar la marca. Puedes decir que tu contenido está «hecho con Ráfaga Studio». Si repartes una versión modificada,
+ponle otro nombre y otro logo. No puedes usar la marca ni el logo para otro producto, ni dar a entender que el titular
+respalda tu trabajo sin su permiso.
 
 ## 7. Sin garantía
 

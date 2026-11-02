@@ -14,7 +14,7 @@ from motor.idioma import t
 from ui.comun import boton, etiqueta
 
 RAIZ = Path(__file__).resolve().parent.parent
-VERSION = "13"  # súbela cuando cambien PRIVACIDAD.md o TERMINOS.md: la app los vuelve a mostrar
+VERSION = "14"  # súbela cuando cambien PRIVACIDAD.md o TERMINOS.md: la app los vuelve a mostrar
 ARCHIVO = RAIZ / "datos" / "legal.json"
 TITULAR, ANIO = "Santo Montilla", 2026
 DOCUMENTOS = {"PRIVACIDAD.md": t("Aviso de privacidad"), "TERMINOS.md": t("Términos de uso"),
@@ -23,7 +23,7 @@ DOCUMENTOS = {"PRIVACIDAD.md": t("Aviso de privacidad"), "TERMINOS.md": t("Térm
 
 
 def marca() -> str:
-    return t("Ráfaga Studio™ · © {anio} {titular}. Todos los derechos reservados.", anio=ANIO, titular=TITULAR)
+    return t("Ráfaga Studio™ · © {anio} {titular}. Software libre con licencia GPL-3.0.", anio=ANIO, titular=TITULAR)
 
 
 def pendiente() -> bool:
@@ -51,7 +51,8 @@ def ver_documento(padre, archivo: str) -> QDialog:
         contenido = (RAIZ / archivo).read_text(encoding="utf-8")
     except OSError:
         contenido = t("No encuentro {archivo} en la carpeta de la app.", archivo=archivo)
-    texto.setMarkdown(contenido)  # LICENSE también es Markdown: sin `comillas` ni líneas cortadas a 80 columnas
+    # LICENSE es el texto oficial de la GPL, sin Markdown: se enseña tal cual
+    texto.setPlainText(contenido) if archivo == "LICENSE" else texto.setMarkdown(contenido)
     lay.addWidget(texto)
     cerrar = boton(t("Cerrar"))
     cerrar.clicked.connect(ventana.accept)

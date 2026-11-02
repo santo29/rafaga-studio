@@ -4,12 +4,13 @@
 
 # Ráfaga Studio
 
-El estudio creativo con IA para Windows. Describe tu idea, conecta tu propia clave y recibe un video terminado.
+El estudio creativo con IA para Windows. Describe tu idea, conecta tu propia clave y recibe un video terminado.<br>
+O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 
 [![Última versión](https://img.shields.io/github/v/release/santo29/rafaga-studio?color=7c5cff&label=versión)](https://github.com/santo29/rafaga-studio/releases/latest)
 [![Licencia: GPL-3.0](https://img.shields.io/github/license/santo29/rafaga-studio?color=22c55e&label=licencia)](LICENSE)
 [![Windows 10 y 11](https://img.shields.io/badge/plataforma-Windows%2010%20%7C%2011-0078d4)](#instalación)
-[![MCP: 17 herramientas](https://img.shields.io/badge/MCP-17%20herramientas-7c5cff)](#úsalo-desde-claude-mcp)
+[![MCP: 17 herramientas](https://img.shields.io/badge/MCP-17%20herramientas-7c5cff)](#conecta-tu-ia-favorita-mcp)
 [![Idiomas: ES, EN, PT, FR](https://img.shields.io/badge/idiomas-ES%20%7C%20EN%20%7C%20PT%20%7C%20FR-f59e0b)](idiomas)
 
 [Descargar para Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
@@ -27,6 +28,7 @@ El estudio creativo con IA para Windows. Describe tu idea, conecta tu propia cla
 Ráfaga Studio convierte una frase en contenido terminado: guion, escenas, voz, subtítulos y montaje final. Funciona en
 tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
 
+- **Tu IA favorita dirige el estudio.** Conéctala por MCP, pide desde tu chat y gasta menos en tu API.
 - **Un solo cuadro para todas las claves.** Pegas una clave y la app reconoce de qué servicio es.
 - **Movimiento real.** Texto a video y foto a video, en tu propia nube Modal o en el servicio de video con IA que elijas.
 - **Un Director con IA.** Pides por texto o por voz, adjuntas tus fotos, y planifica el trabajo y usa las herramientas
@@ -50,6 +52,26 @@ tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
 | Dibujos animados | Series animadas con personajes coherentes, guion gráfico y voces |
 | Nichos virales | Investiga datos reales de YouTube y propone nichos con ideas listas |
 | Publicar | Programa videos en YouTube con tu propia app de Google |
+
+## Conecta tu IA favorita (MCP)
+
+Convierte la IA que ya usas en un estudio creativo completo. Conéctala una vez y pide lo que quieras desde tu chat:
+
+> Haz un video vertical de 30 segundos sobre tres lugares de la República Dominicana.
+
+Tu IA dirige. Ráfaga Studio produce las imágenes, el movimiento, la voz, los subtítulos y el montaje final, y entrega el
+archivo terminado.
+
+- **Gasta menos en tu API.** Tu IA puede escribir los guiones y los diseños, así el estudio no hace llamadas propias a
+  una IA de texto para ese trabajo. Las imágenes y el video usan los servicios elegidos en **Claves de IA**, donde siempre
+  hay opciones gratis.
+- **Crea mucho más que video.** Sus 17 herramientas cubren shorts, anuncios, canciones, videos musicales, diseño, edición,
+  series animadas, investigación de nichos y programación en YouTube.
+- **Mantén el control.** Lo que gasta dinero, publica o guarda en la memoria espera tu aprobación en una ventana de Ráfaga
+  Studio.
+
+Para conectarla, abre **Conexión MCP** en la app y elige conectar. Ráfaga Studio se registra en Claude Code y Claude
+Desktop. Otros clientes [MCP](https://modelcontextprotocol.io) pueden iniciar `mcp_server.py` con el Python de la app.
 
 ## Instalación
 
@@ -126,15 +148,6 @@ Todo lo siguiente se hizo con Ráfaga Studio. Las marcas y las personas son fict
 
 Los pedidos y los diseños por capas de estos ejemplos están en [`ejemplos/`](ejemplos), y se pueden reproducir con
 `python ejemplos/crear.py` y `python ejemplos/crear_disenos.py`.
-
-## Úsalo desde Claude (MCP)
-
-Abre **Conexión MCP** en la app y elige conectar. Ráfaga Studio se registra en Claude Code y Claude Desktop. Después
-pídele a Claude: *«Haz un video vertical de 30 segundos sobre tres lugares de la República Dominicana.»*
-
-El servidor [MCP](https://modelcontextprotocol.io) integrado ofrece 17 herramientas, las mismas que usa el Director
-dentro de la app. Lo que gasta dinero, publica o guarda en la memoria necesita tu aprobación en una ventana de Ráfaga
-Studio.
 
 ## Privacidad y seguridad
 

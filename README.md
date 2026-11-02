@@ -4,12 +4,13 @@
 
 # Ráfaga Studio
 
-The AI creative studio for Windows. Describe your idea, connect your own API key, and get a finished video.
+The AI creative studio for Windows. Describe your idea, connect your own API key, and get a finished video.<br>
+Or connect your favorite AI through MCP and direct the whole studio from your chat.
 
 [![Latest release](https://img.shields.io/github/v/release/santo29/rafaga-studio?color=7c5cff)](https://github.com/santo29/rafaga-studio/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/santo29/rafaga-studio?color=22c55e)](LICENSE)
 [![Platform: Windows 10 and 11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#install)
-[![MCP: 17 tools](https://img.shields.io/badge/MCP-17%20tools-7c5cff)](#use-it-from-claude-mcp)
+[![MCP: 17 tools](https://img.shields.io/badge/MCP-17%20tools-7c5cff)](#connect-your-favorite-ai-mcp)
 [![Languages: EN, ES, PT, FR](https://img.shields.io/badge/languages-EN%20%7C%20ES%20%7C%20PT%20%7C%20FR-f59e0b)](idiomas)
 
 [Download for Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
@@ -27,6 +28,7 @@ https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 Ráfaga Studio turns one sentence into a finished piece of content: script, scenes, voice, subtitles and the final cut.
 It runs on your PC, with no coding, no terminal, no account and no subscription.
 
+- **Your favorite AI, directing the studio.** Connect it through MCP, ask from your chat, and spend less on your API.
 - **One key box for every service.** Paste a key and the app recognizes which service it belongs to.
 - **Real motion.** Text to video and photo to video, on your own Modal cloud or on the AI video service you choose.
 - **An AI Director.** Ask by text or voice, attach your photos, and it plans the work and runs the right tools.
@@ -49,6 +51,25 @@ It runs on your PC, with no coding, no terminal, no account and no subscription.
 | Cartoons | Animated series with consistent characters, storyboards and voices |
 | Viral niches | Researches real YouTube data and suggests niches with ready-to-use ideas |
 | Publish | Schedules videos on YouTube with your own Google app |
+
+## Connect your favorite AI (MCP)
+
+Turn the AI you already use into a complete creative studio. Connect it once, then ask for what you want from your chat:
+
+> Make a 30-second vertical video about three places in the Dominican Republic.
+
+Your AI directs. Ráfaga Studio produces the images, motion, voice, subtitles and final cut, and delivers the finished
+file.
+
+- **Spend less on your API.** Your AI can write the scripts and designs itself, so the studio makes no text AI calls of
+  its own for that work. Images and video use the services set in **AI keys**, where free options are always available.
+- **Create more than video.** 17 tools cover shorts, ads, songs, music videos, design, editing, animated series, niche
+  research and YouTube scheduling.
+- **Stay in control.** Anything that spends money, publishes or saves to memory waits for your approval in a Ráfaga
+  Studio window.
+
+To connect, open **MCP connection** in the app and select connect. Ráfaga Studio registers itself in Claude Code and
+Claude Desktop. Other [MCP](https://modelcontextprotocol.io) clients can launch `mcp_server.py` with the app's Python.
 
 ## Install
 
@@ -126,14 +147,6 @@ Everything below was made with Ráfaga Studio. Brands and people are fictional.
 
 The requests and layered designs behind these examples are in [`ejemplos/`](ejemplos), so they can be reproduced with
 `python ejemplos/crear.py` and `python ejemplos/crear_disenos.py`.
-
-## Use it from Claude (MCP)
-
-Open **MCP connection** in the app and select connect. Ráfaga Studio registers itself in Claude Code and Claude Desktop.
-Then ask Claude: *"Make a 30-second vertical video about three places in the Dominican Republic."*
-
-The built-in [MCP](https://modelcontextprotocol.io) server exposes 17 tools, the same ones the Director uses inside the
-app. Anything that spends money, publishes or saves to memory needs your approval in a Ráfaga Studio window.
 
 ## Privacy and security
 

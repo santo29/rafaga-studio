@@ -120,7 +120,30 @@ Lo que cabe en estas cuotas:
 
 El crédito de US$30 de Modal pide una tarjeta registrada, así que [pon un límite de uso de US$30](https://modal.com/settings/usage)
 y no pagas nada. Cada servicio fija sus límites, y pueden cambiar. Las voces gratis de Edge no están garantizadas para uso
-comercial.
+comercial. Los modelos gratis también pueden cometer errores: mira
+[modelos gratis y económicos](#modelos-gratis-y-económicos).
+
+## Modelos gratis y económicos
+
+Los modelos gratis son una buena forma de empezar, pero pueden cometer errores o alejarse de lo que pediste: una escena
+puede perder un detalle, mostrar algo que no pediste o no coincidir con la narración. Esto puede pasar aunque Claude u otra
+IA dirija el estudio por MCP. Tu IA escribe el guion y los pedidos, pero las imágenes y el video los hacen los servicios
+que conectaste.
+
+Para los videos que vayas a publicar, recomendamos un modelo económico para las imágenes, como Nano Banana en Gemini.
+
+Este es el mismo pedido enviado a dos modelos durante una prueba real de Ráfaga Studio:
+
+| Pedido | Gratis: FLUX.1 schnell en Cloudflare | Económico: Nano Banana en Gemini, unos US$0,03 por imagen |
+|---|---|---|
+| Semillas espinosas de bardana sobre lana y pelo de perro | <img src="ejemplos/calidad-gratis-1.jpg" width="240" alt="Modelo gratis: semillas en forma de estrella"> | <img src="ejemplos/calidad-economico-1.jpg" width="240" alt="Modelo económico: semillas redondas y espinosas"> |
+| Un zapato deportivo blanco con correa de tela y sin cordones | <img src="ejemplos/calidad-gratis-2.jpg" width="240" alt="Modelo gratis: dos zapatos, uno con cordones"> | <img src="ejemplos/calidad-economico-2.jpg" width="240" alt="Modelo económico: un zapato con correa y sin cordones"> |
+
+Los resultados cambian según el modelo y el pedido, y ningún modelo acierta siempre. Para obtener mejores resultados:
+
+- Describe cada escena con detalle, también lo que no debe aparecer.
+- Elige tus servicios de imágenes y video en **Claves de IA**.
+- Revisa cada escena antes de publicar.
 
 ## Conecta tus servicios de IA
 

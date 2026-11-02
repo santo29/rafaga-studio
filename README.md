@@ -118,7 +118,29 @@ What fits in these allowances:
 
 Modal's US$30 credit requires a card on file, so [set a US$30 usage limit](https://modal.com/settings/usage) and you pay
 nothing. Each service sets its own limits, and they can change. The free Edge voices are not guaranteed for commercial
-use.
+use. Free models can also make mistakes: see [free and low-cost models](#free-and-low-cost-models).
+
+## Free and low-cost models
+
+Free models are a good way to start, but they can make mistakes or drift from your request: a scene may miss a detail,
+show something you did not ask for, or not match the narration. This can happen even when Claude or another AI directs
+the studio through MCP. Your AI writes the script and the requests, but the images and video are still made by the
+services you connected.
+
+For videos you plan to publish, we recommend a low-cost model for images, such as Nano Banana on Gemini.
+
+This is the same request sent to two models during a real test of Ráfaga Studio:
+
+| Request | Free: FLUX.1 schnell on Cloudflare | Low-cost: Nano Banana on Gemini, about US$0.03 per image |
+|---|---|---|
+| Spiky burdock burrs on wool and dog fur | <img src="ejemplos/calidad-gratis-1.jpg" width="240" alt="Free model: star-shaped burrs"> | <img src="ejemplos/calidad-economico-1.jpg" width="240" alt="Low-cost model: spiky round burrs"> |
+| A white sneaker with a fabric strap and no shoelaces | <img src="ejemplos/calidad-gratis-2.jpg" width="240" alt="Free model: two sneakers, one with laces"> | <img src="ejemplos/calidad-economico-2.jpg" width="240" alt="Low-cost model: one sneaker with a strap and no laces"> |
+
+Results vary with each model and request, and no model gets everything right. To get the best results:
+
+- Describe each scene in detail, including what must not appear.
+- Choose your image and video services in **AI keys**.
+- Review every scene before you publish.
 
 ## Connect your AI services
 

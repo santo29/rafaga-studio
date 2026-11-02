@@ -31,11 +31,12 @@ https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 Ráfaga Studio turns one sentence into a finished piece of content: script, scenes, voice, subtitles and the final cut.
 It runs on your PC, with no coding, no terminal, no account and no subscription.
 
-- **Your favorite AI, directing the studio.** Connect it through MCP, ask from your chat, and spend less on your API.
+- **Your favorite AI, directing the studio.** Connect it through MCP, ask from your chat, and let it write the scripts.
 - **One key box for every service.** Paste a key and the app recognizes which service it belongs to.
 - **Real motion.** Text to video and photo to video, on your own Modal cloud or on the AI video service you choose.
 - **An AI Director.** Ask by text or voice, attach your photos, and it plans the work and runs the right tools.
-- **No surprise costs.** Free options are always available, and anything paid shows its maximum cost and asks first.
+- **No membership and no surprise costs.** Free options are always available, and anything paid shows its maximum cost
+  and asks first. See [what a video costs](#what-a-video-costs).
 - **Your data stays yours.** No servers of ours, no analytics. Keys are stored encrypted on your PC.
 
 ## Features
@@ -64,8 +65,9 @@ Turn the AI you already use into a complete creative studio. Connect it once, th
 Your AI directs. Ráfaga Studio produces the images, motion, voice, subtitles and final cut, and delivers the finished
 file.
 
-- **Spend less on your API.** Your AI can write the scripts and designs itself, so the studio makes no text AI calls of
-  its own for that work. Images and video use the services set in **AI keys**, where free options are always available.
+- **Save on text.** Your AI can write the scripts and designs itself, so the studio makes no text AI calls of its own for
+  that work. Most of a video's cost is images and motion, which use the services set in **AI keys**, where free options
+  are always available.
 - **Create more than video.** 17 tools cover shorts, ads, songs, music videos, design, editing, animated series, niche
   research and YouTube scheduling.
 - **Stay in control.** Anything that spends money, publishes or saves to memory waits for your approval in a Ráfaga
@@ -112,8 +114,8 @@ Voices (Microsoft Edge) and subtitles (Whisper, on your PC) are included and nee
 What fits in these allowances:
 
 - **Three 45-second videos a day** use up to 30 images, well within Cloudflare's daily allowance.
-- **Modal's credit** covers about 85 moving scenes a month: roughly 3 a day, or about 8 fully animated 45-second videos.
-  Any other scene uses a gentle zoom.
+- **Modal's credit** covers at least 85 moving scenes a month, the app's default limit, which you can change in **AI
+  keys**: roughly 3 a day, or about 8 fully animated 45-second videos. Any other scene uses a gentle zoom.
 - **Without Modal**, a free public Hugging Face Space animates a few scenes a day, with a waiting line. It needs no key.
 
 Modal's US$30 credit requires a card on file, so [set a US$30 usage limit](https://modal.com/settings/usage) and you pay
@@ -141,6 +143,29 @@ Results vary with each model and request, and no model gets everything right. To
 - Describe each scene in detail, including what must not appear.
 - Choose your image and video services in **AI keys**.
 - Review every scene before you publish.
+
+## What a video costs
+
+There is no membership. You pay each service directly for what you use, free options are always available, and the app
+shows the maximum cost before anything paid.
+
+This is what a 30-second vertical video with six moving scenes cost in a real test in November 2026:
+
+| Step | Service | Cost |
+|---|---|---|
+| Script | Claude Opus 5.5 (Groq is free) | US$0.06 |
+| 6 images | Nano Banana on Gemini (Cloudflare is free) | US$0.20 |
+| 6 moving clips | Wan 2.2 on your Modal cloud | About US$0.91, from Modal's monthly credit |
+| Voice, subtitles and editing | Microsoft Edge voices and your PC | Free |
+| **Total** | | **About US$1.17** |
+
+At those prices, and using Modal's US$30 monthly credit, a month would cost about US$3 for 10 videos, US$8 for 30 and
+US$75 for 90. Without that credit, it would be about US$12, US$35 and US$105.
+
+These figures come from one test and change with each video's length, the models you choose and each service's prices.
+That video took about 11 minutes to make. Premium video models can give better results at a higher price, and you can
+connect Kling or Seedance in **AI keys**. If you make many videos with one premium model, that service's own plan may
+suit you better.
 
 ## Connect your AI services
 

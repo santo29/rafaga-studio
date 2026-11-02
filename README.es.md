@@ -31,12 +31,13 @@ O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 Ráfaga Studio convierte una frase en contenido terminado: guion, escenas, voz, subtítulos y montaje final. Funciona en
 tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
 
-- **Tu IA favorita dirige el estudio.** Conéctala por MCP, pide desde tu chat y gasta menos en tu API.
+- **Tu IA favorita dirige el estudio.** Conéctala por MCP, pide desde tu chat y deja que escriba los guiones.
 - **Un solo cuadro para todas las claves.** Pegas una clave y la app reconoce de qué servicio es.
 - **Movimiento real.** Texto a video y foto a video, en tu propia nube Modal o en el servicio de video con IA que elijas.
 - **Un Director con IA.** Pides por texto o por voz, adjuntas tus fotos, y planifica el trabajo y usa las herramientas
   adecuadas.
-- **Sin costos sorpresa.** Siempre hay opciones gratis, y lo de pago enseña su costo máximo y pregunta antes.
+- **Sin membresía y sin costos sorpresa.** Siempre hay opciones gratis, y lo de pago enseña su costo máximo y pregunta
+  antes. Mira [cuánto cuesta un video](#cuánto-cuesta-un-video).
 - **Tus datos son tuyos.** Sin servidores nuestros y sin analítica. Las claves se guardan cifradas en tu PC.
 
 ## Funciones
@@ -65,9 +66,9 @@ Convierte la IA que ya usas en un estudio creativo completo. Conéctala una vez 
 Tu IA dirige. Ráfaga Studio produce las imágenes, el movimiento, la voz, los subtítulos y el montaje final, y entrega el
 archivo terminado.
 
-- **Gasta menos en tu API.** Tu IA puede escribir los guiones y los diseños, así el estudio no hace llamadas propias a
-  una IA de texto para ese trabajo. Las imágenes y el video usan los servicios elegidos en **Claves de IA**, donde siempre
-  hay opciones gratis.
+- **Ahorra en texto.** Tu IA puede escribir los guiones y los diseños, así el estudio no hace llamadas propias a una IA de
+  texto para ese trabajo. La mayor parte del costo de un video son las imágenes y el movimiento, que usan los servicios
+  elegidos en **Claves de IA**, donde siempre hay opciones gratis.
 - **Crea mucho más que video.** Sus 17 herramientas cubren shorts, anuncios, canciones, videos musicales, diseño, edición,
   series animadas, investigación de nichos y programación en YouTube.
 - **Mantén el control.** Lo que gasta dinero, publica o guarda en la memoria espera tu aprobación en una ventana de Ráfaga
@@ -113,8 +114,9 @@ Las voces (Microsoft Edge) y los subtítulos (Whisper, en tu PC) ya vienen inclu
 Lo que cabe en estas cuotas:
 
 - **Tres videos de 45 segundos al día** usan hasta 30 imágenes, muy por debajo de la cuota diaria de Cloudflare.
-- **El crédito de Modal** alcanza para unas 85 escenas con movimiento al mes: cerca de 3 al día, o unos 8 videos de 45
-  segundos animados por completo. Las demás escenas llevan un zoom suave.
+- **El crédito de Modal** alcanza como mínimo para 85 escenas con movimiento al mes, el límite de fábrica de la app, que
+  puedes cambiar en **Claves de IA**: cerca de 3 al día, o unos 8 videos de 45 segundos animados por completo. Las demás
+  escenas llevan un zoom suave.
 - **Sin Modal**, un Space público y gratis de Hugging Face anima unas pocas escenas al día, con fila de espera. No necesita
   clave.
 
@@ -144,6 +146,29 @@ Los resultados cambian según el modelo y el pedido, y ningún modelo acierta si
 - Describe cada escena con detalle, también lo que no debe aparecer.
 - Elige tus servicios de imágenes y video en **Claves de IA**.
 - Revisa cada escena antes de publicar.
+
+## Cuánto cuesta un video
+
+No hay membresía. Pagas directamente a cada servicio lo que usas, siempre hay opciones gratis y la app enseña el costo
+máximo antes de cualquier cosa de pago.
+
+Esto costó un video vertical de 30 segundos con seis escenas en movimiento, en una prueba real de noviembre de 2026:
+
+| Paso | Servicio | Costo |
+|---|---|---|
+| Guion | Claude Opus 5.5 (Groq es gratis) | US$0,06 |
+| 6 imágenes | Nano Banana en Gemini (Cloudflare es gratis) | US$0,20 |
+| 6 clips con movimiento | Wan 2.2 en tu nube Modal | Unos US$0,91, del crédito mensual de Modal |
+| Voz, subtítulos y edición | Voces de Microsoft Edge y tu PC | Gratis |
+| **Total** | | **Unos US$1,17** |
+
+Con esos precios y con el crédito de US$30 al mes de Modal, un mes costaría unos US$3 con 10 videos, US$8 con 30 y US$75
+con 90. Sin ese crédito, serían unos US$12, US$35 y US$105.
+
+Estas cifras salen de una sola prueba y cambian según la duración de cada video, los modelos que elijas y los precios de
+cada servicio. Ese video tardó unos 11 minutos en hacerse. Los modelos de video premium pueden dar mejores resultados a un
+precio más alto, y puedes conectar Kling o Seedance en **Claves de IA**. Si haces muchos videos con un modelo premium, puede
+convenirte el plan propio de ese servicio.
 
 ## Conecta tus servicios de IA
 

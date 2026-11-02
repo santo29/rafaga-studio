@@ -95,7 +95,7 @@ for _nombre, _falso in (("kling", kling), ("seedance", seedance)):
     setattr(motor, _nombre, _falso)
 assert claves.modulo_video("kling") is kling and claves.modulo_video("seedance") is seedance
 
-# ---------- Claves: Seedance por su formato exacto; Kling (sin formato conocido) solo con su botón ----------
+# ---------- Claves: Seedance y Kling por su formato exacto; sin él, solo con su botón ----------
 ARK = "ark-0a1b2c3d-4e5f-6789-abcd-ef0123456789-AbC9z"
 UUID = "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
 assert claves.candidatos(ARK) == ["seedance"]
@@ -116,6 +116,14 @@ assert kling.llamadas == [("validar", KLING)] and info["base"] == "https://api-s
 assert info["proveedor"] == "kling" and info["clave"] == KLING and info["modelo_video"] == "kling-a"
 assert info["modelo_voz"] == "kling-a"  # el primero que habla
 kling.llamadas.clear()
+# La de su consola, con su prefijo: el cuadro de arriba la reconoce sola y solo Kling la recibe; Seedance la rechaza
+PREFIJO = "api-key-kling-" + "AbC123xyz" * 4 + "abcdefg"
+info = claves.detectar(f"  {PREFIJO}\n")
+assert kling.llamadas == [("validar", PREFIJO)] and info["proveedor"] == "kling" and info["clave"] == PREFIJO
+assert claves.detectar(PREFIJO, "kling")["proveedor"] == "kling"  # con su botón también
+kling.llamadas.clear()
+assert "otro servicio" in falla(claves.detectar, PREFIJO, "seedance") and not kling.llamadas
+assert claves.candidatos("api-key-kling-corta") == []  # sin un largo razonable no es una clave
 # Con su botón no se le manda una clave que parece de otro servicio (tampoco secretos que candidatos() no conoce:
 # GitHub, GitLab, Slack, AWS, JWT), ni texto pegado
 SECRETOS = ("ghp_" + "a1B2" * 9, "github_pat_11ABCDEFG0" + "x" * 40, "glpat-" + "x" * 20, "xoxb-1234-5678-abcdEFGH",

@@ -141,8 +141,11 @@ def candidatos(clave: str) -> list[str]:
         return ["deepseek"]                   # pueden distinguir; quien la pegue aquí la manda a DeepSeek)
     if c.startswith("sk-"):  # las sk- antiguas de OpenAI (Stability o Moonshot usan el mismo formato: van a OpenAI)
         return ["openai"]
+    # Kling: su consola las da con el prefijo «api-key-kling-» (visto en una clave real, 11-2026)
+    if re.fullmatch(r"api-key-kling-[A-Za-z0-9_-]{16,128}", c):
+        return ["kling"]
     # Seedance (BytePlus ModelArk): «ark-», un UUID en minúsculas y 5 letras o números; solo Ark lo usa. Su formato
-    # antiguo (el UUID solo) y las claves de Kling (sin formato conocido) no se adivinan: se conectan con su botón.
+    # antiguo (el UUID solo) y las claves de Kling sin ese prefijo no se adivinan: se conectan con su botón.
     if re.fullmatch(r"ark-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[A-Za-z0-9]{5}", c):
         return ["seedance"]
     return []

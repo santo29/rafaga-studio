@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QGridLay
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from motor import actividad, claves, ia, nube
+from motor import actividad, claves, desde_prompt, ia, nube
 from motor.idioma import dinero, t, texto_de_error
-from ui.comun import boton, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
+from ui.comun import boton, ComboCorto, etiqueta, mensaje, mensaje_error, Tarea, tarjeta
 from ui.paginas.guardia import _estilo_chip  # la misma pastilla de vidrio que la gravedad de Ráfaga Guardia
 
 # Lo que dice cada estado comprobado junto a su servicio, y su color: verde funciona, ámbar espera o revisa, rojo no
@@ -231,6 +231,18 @@ class PaginaClaves(QWidget):
         fila.addWidget(texto)
         fila.addWidget(self.modelo_claude, 1)
         defecto_lay.addLayout(fila)
+        # La voz que narra lo que se crea: sin elegirla, cada trabajo pregunta entre la gratis y ElevenLabs si está conectada
+        fila = QHBoxLayout()
+        texto = etiqueta(t("Voz para narrar"))
+        texto.setFixedWidth(230)
+        self.voz_fija = ComboCorto()
+        self.voz_fija.setToolTip(t("Voz para narrar"))
+        self.voz_fija.wheelEvent = lambda e: e.ignore()  # la rueda baja la página: no deja una voz fija sin querer
+        self.voz_fija.currentIndexChanged.connect(lambda _: self.voz_fija.currentData() is not None and (
+            claves.elegir_por_defecto("voz_preferida", self.voz_fija.currentData())))
+        fila.addWidget(texto)
+        fila.addWidget(self.voz_fija, 1)
+        defecto_lay.addLayout(fila)
         # Apagado de fábrica: con él, la app ya no puede impedir que un enlace llegue a tu red local (seguro.es_fake_ip).
         # El aviso va debajo: una casilla no parte su texto en líneas y, entero, la página no cabía en 1280 px
         fake_ip = QCheckBox(t("Uso un proxy «fake-ip» (Clash…): permitir descargas a través de él."))
@@ -268,9 +280,8 @@ class PaginaClaves(QWidget):
         self.revisada.connect(self._comprobado)
         self._refrescar()
 
-    def showEvent(self, evento):  # lo apuntado mientras se trabajaba en otra página
-        self._pintar_estados()
-        self._pintar_actividad()
+    def showEvent(self, evento):  # lo apuntado mientras se trabajaba en otra página (también la voz que dejó fija)
+        self._refrescar()
         super().showEvent(evento)
 
     def comprobar_ahora(self, al_abrir: bool = False):
@@ -423,6 +434,14 @@ class PaginaClaves(QWidget):
                 combo.addItem(nombre, p)
             combo.setCurrentIndex(max(combo.findData(actual.get(uso, "auto")), 0))
             combo.blockSignals(False)
+        self.voz_fija.blockSignals(True)
+        self.voz_fija.clear()
+        self.voz_fija.addItem(t("Preguntarme en cada trabajo (si tengo ElevenLabs)"), "")
+        for nombre, voz in desde_prompt.voces().items():
+            self.voz_fija.addItem(nombre, voz)
+        self.voz_fija.setCurrentIndex(max(self.voz_fija.findData(desde_prompt.voz_preferida()), 0))
+        self.voz_fija.blockSignals(False)
+        self.voz_fija._poner_ayuda()
 
     def _abrir_consola(self, web, proveedor):
         """La página donde se saca la clave; la de Kling y Seedance la da su módulo (CONSOLA)."""

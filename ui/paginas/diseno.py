@@ -735,8 +735,15 @@ class PaginaDiseno(QWidget):
     def _calidad(self, fotos: int) -> str | None:
         """La calidad elegida; 2K y 4K, solo si el usuario acepta su costo aproximado. None si no lo acepta."""
         calidad = self.calidad.currentData()
-        precio = ia.precio_imagen_gemini((claves.para("imagen") or {}).get("clave", ""), calidad)
-        if calidad == "1K" or QMessageBox.question(self, CALIDADES[calidad], t(
+        c = claves.para("imagen") or {}
+        precio = ia.precio_imagen_gemini(c.get("clave", ""), calidad)
+        if calidad == "1K":  # sin elegir calidad también cobra, si la IA de imágenes es de pago
+            precio = precio if c.get("proveedor") == "gemini" else ia.PRECIO_IMAGEN.get(c.get("proveedor"), 0)
+            if not fotos * precio or QMessageBox.question(self, t("IA de pago"), t(
+                    "Con la IA de pago que elegiste, este trabajo cuesta hasta unos {costo}. ¿Seguir?",
+                    costo=dinero(fotos * precio)), QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+                return calidad
+        elif QMessageBox.question(self, CALIDADES[calidad], t(
                 "Calidad {calidad} con Gemini: fotos de la IA, hasta {fotos}, a unos {precio} cada una; en total, "
                 "hasta unos {costo} según el precio de Google. ¿Seguir?", calidad=calidad, fotos=fotos,
                 precio=dinero(precio), costo=dinero(fotos * precio))) == QMessageBox.Yes:

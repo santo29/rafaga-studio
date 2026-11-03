@@ -470,12 +470,13 @@ def _para(c: dict, pedido):
 
 
 def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str = "texto",
-               rapido: bool = False) -> dict:
+               rapido: bool = False, solo_elegida: bool = False) -> dict:
     """Pide a la IA de texto una respuesta JSON que cumpla `esquema`. uso: «texto», o «diseno» para la IA que diseña
     (claves.para). Sin ninguna clave de texto conectada usa la IA gratis sin clave (más simple, pero funciona).
     Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual.
     rapido: para lo que no necesita que el modelo piense antes (cada paso del Director, entender un pedido); ver
-    _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad. pedido: un texto, o el de con_fotos."""
+    _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad. pedido: un texto, o el de con_fotos.
+    solo_elegida: si esa IA no atiende, no se prueba otra: el usuario dio el permiso para ella."""
     instrucciones = f"{instrucciones}\n\n{TEXTO_PLANO}"
     c = claves.para(uso)
     if not c or not c.get("clave"):
@@ -484,6 +485,9 @@ def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str =
         return _pedir(c, instrucciones, pedido, esquema, rapido)
     except SinServicio as fallo:
         primero = fallo
+    if solo_elegida:
+        _no_atendio(c, primero, "")
+        raise primero
     # Sin saldo, sin cuota, clave caducada o el servicio caído (pasó: Gemini sin saldo prepago dejaba todo el estudio
     # sin IA de texto aunque Groq, gratis, estaba conectado): se prueban las demás IA de texto conectadas y, al final,
     # la gratis sin clave. Ese pedido no se cobró, así que no se paga dos veces. Cada una que no atiende queda en la
@@ -491,6 +495,9 @@ def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str =
     todas = claves.cargar()
     resto = [p for p in claves.PREFERENCIA[uso]
              if p != c["proveedor"] and p in todas and "texto" in claves.USOS.get(p, [])]
+    # Demasiado grande para una gratis: no pasa sin aviso a una de pago (ni se apunta como «sin cuota»: no avisaría nadie)
+    if getattr(primero, "codigo", 0) == 413 and c["proveedor"] not in PRECIO_TEXTO:
+        resto = [p for p in resto if p not in PRECIO_TEXTO]
     cola = [c["proveedor"], *resto, "gratis_sin_clave"]
     _no_atendio(c, primero, cola[1])
     for i, otro in enumerate(resto, 1):
@@ -513,7 +520,7 @@ class SinServicio(RuntimeError):
     Gemini al dibujar, con cualquier error: los anuncios pegan entonces la foto sobre una escena (no se paga dos veces)."""
 
 
-_SIN_SERVICIO = {401, 402, 403, 429}
+_SIN_SERVICIO = {401, 402, 403, 413, 429}  # 413: un pedido más grande que el límite por minuto de Groq gratis: no se cobró
 # US$ por millón de tokens (entrada, salida) de la IA de texto, por lo alto, para el gasto estimado de «Actividad de la
 # IA» (un guion cuesta céntimos: no se pregunta). Groq y Pollinations van con su plan gratis. Gemini, lo que cobra con
 # la facturación activada (con su cuota gratis no cuesta nada, pero no se puede saber cuál usa la clave).
@@ -589,7 +596,7 @@ def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
     clase = SinServicio if no_atiende else RuntimeError
     error = clase(t("La IA de texto ({proveedor}) respondió {codigo}: {detalle}", proveedor=claves.nombre(c["proveedor"]),
                     codigo=codigo, detalle=detalle))
-    error.corto = f"{codigo}: {detalle}"
+    error.corto, error.codigo = f"{codigo}: {detalle}", codigo
     if clase is RuntimeError:
         actividad.anotar("texto", c["proveedor"], c.get("modelo_texto") or "", error=error.corto)
     return error

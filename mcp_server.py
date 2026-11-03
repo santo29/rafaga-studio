@@ -108,7 +108,10 @@ def herramienta(funcion):
             # El servicio de pago que haría falta no tiene saldo (última comprobación): ni se pregunta el costo
             if no_se_puede := director.impide(funcion.__name__, datos):
                 raise ToolError(no_se_puede)
-            partes = [director.costo(funcion.__name__, datos)]
+            # La voz la elige el usuario en su ventana, igual que el costo; con «No» se narra gratis y el trabajo sigue
+            voz_aceptada = director.elegir_voz(funcion.__name__, datos, lambda p: _preguntar("\n\n".join(
+                [t("Un agente conectado por MCP quiere {herramienta}.", herramienta=accion), p])))
+            partes = [director.pregunta_costo(funcion.__name__, datos, voz_aceptada)]
             if fuera := _de_fuera(funcion.__name__, datos):
                 guardia.registrar("mcp_fuera", "baja", t("Un agente MCP quiso usar archivos de fuera de su carpeta "
                                                          "({n}) para {herramienta}.", n=len(fuera),
@@ -124,6 +127,8 @@ def herramienta(funcion):
                 guardia.registrar("mcp_no", "baja", t("Dijiste «No» a un agente MCP que quería {herramienta}.",
                                                        herramienta=accion))
                 raise ToolError(t("el usuario no lo aceptó: no se hizo ni se gastó nada"))
+        if datos is not None:  # con la voz elegida; los demás argumentos, tal como llegaron
+            args, kwargs = (), dict(datos)
         try:
             return funcion(*args, **kwargs)
         except (ValueError, RuntimeError, httpx.HTTPError) as e:  # el de httpx, en claro (venía en inglés con un enlace)

@@ -11,9 +11,10 @@ from PySide6.QtGui import (QActionGroup, QBrush, QColor, QFont, QFontMetrics, QG
                            QLinearGradient, QPainter, QPen, QPixmap, QRadialGradient)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrameFormat
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-                               QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame,
+                               QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMenu, QMessageBox, QProgressBar, QProxyStyle, QPushButton, QScrollArea, QSizePolicy,
+                               QSlider, QStyle,
                                QStackedWidget, QStyleFactory, QStyleOptionComboBox, QStylePainter, QTextEdit,
                                QVBoxLayout, QWidget)
 
@@ -517,21 +518,115 @@ class ComboCorto(QComboBox):
 
 class SelectorVoz(ComboCorto):
     """Voces gratis + las de ElevenLabs. Se recarga al abrirse por si se conectó ElevenLabs después. Sin elegir, sale
-    una voz en el idioma de la app."""
+    la voz fija de «Claves de IA» (también si cambia luego) o una en el idioma de la app."""
     def __init__(self):
         super().__init__()
+        self._a_mano = False  # la eligió en esta lista: se respeta hasta que cierre la app
+        self.activated.connect(lambda _: setattr(self, "_a_mano", True))
         self._cargar()
 
     def _cargar(self):
-        actual = self.currentData() or desde_prompt.voz_por_defecto()
+        actual = (self._a_mano and self.currentData()) or desde_prompt.voz_inicial()
         self.clear()
         for nombre, voz in desde_prompt.voces().items():
             self.addItem(nombre, voz)
-        self.setCurrentIndex(max(self.findData(actual), 0))
+        hallada = self.findData(actual)  # la elegida a mano ya no está (quitó ElevenLabs): la fija o la de su idioma
+        self.setCurrentIndex(hallada if hallada >= 0 else max(self.findData(desde_prompt.voz_inicial()), 0))
+
+    def poner(self, voz: str):
+        """La del trabajo que empieza, a la vista. No cuenta como elegida a mano: la voz fija sigue mandando después."""
+        self.setCurrentIndex(max(self.findData(voz), 0))
+
+    def showEvent(self, evento):  # la voz fija o las de ElevenLabs pudieron cambiar en «Claves de IA»
+        self._cargar()
+        super().showEvent(evento)
 
     def showPopup(self):
         self._cargar()
         super().showPopup()
+
+
+def si_cuesta(padre, titulo: str, texto: str) -> bool:
+    """La pregunta antes de gastar. Un Enter por despiste no gasta: «No» es el botón por defecto."""
+    return QMessageBox.question(padre, titulo, texto, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+
+
+class VentanaVoz(QDialog):
+    """La pregunta antes de un trabajo narrado con ElevenLabs disponible: voz gratis o ElevenLabs, con lo que cuesta. Dos
+    botones y no una opción marcada: se ve qué se paga, y un Enter por despiste usa siempre la gratis."""
+    def __init__(self, padre, voz: str, costo):
+        super().__init__(padre)
+        self.elegida = ""
+        decir_costo = costo if callable(costo) else lambda _voz: costo  # puede depender de la voz (lo ya pagado con ella)
+        self.setWindowTitle(t("¿Con qué voz lo narro?"))
+        lay = QVBoxLayout(self)
+        lay.addWidget(etiqueta(t("Tienes ElevenLabs conectada. La voz gratis no cuesta nada; ElevenLabs cobra por letra "
+                                 "en tu cuenta.")))
+        eleven = desde_prompt.voces_eleven()
+        self.gratis, self.eleven = ComboCorto(), ComboCorto()
+        for nombre, v in desde_prompt.voces().items():
+            if v not in eleven.values():
+                self.gratis.addItem(nombre, v)
+        for nombre, v in eleven.items():
+            self.eleven.addItem(nombre, v)
+        de_eleven = desde_prompt.es_eleven(voz)
+        self.gratis.setCurrentIndex(max(self.gratis.findData(desde_prompt.voz_gratis() if de_eleven else voz), 0))
+        self.eleven.setCurrentIndex(max(self.eleven.findData(voz if de_eleven else desde_prompt.voz_eleven()), 0))
+        self.usar_gratis = boton(t("Usar la voz gratis"), "principal")
+        self.usar_eleven = boton(t("Usar ElevenLabs: {costo}", costo=decir_costo(self.eleven.currentData())))
+        self.eleven.currentIndexChanged.connect(lambda _: self.usar_eleven.setText(
+            t("Usar ElevenLabs: {costo}", costo=decir_costo(self.eleven.currentData()))))
+        for combo, usar in ((self.gratis, self.usar_gratis), (self.eleven, self.usar_eleven)):
+            # Sin ensanchar la ventana con un nombre largo: se acorta con «…» y el nombre entero va en la ayuda
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(24)
+            combo.setAccessibleName(usar.text())
+            usar.setAutoDefault(False)
+            usar.clicked.connect(lambda _, c=combo: self._usar(c))
+            fila = QHBoxLayout()
+            fila.addWidget(combo, 1)
+            fila.addWidget(usar)
+            lay.addLayout(fila)
+        self.usar_gratis.setDefault(True)
+        self.recordar = QCheckBox(t("Recordar esta voz y no volver a preguntar cuál"))
+        lay.addWidget(self.recordar)
+        lay.addWidget(etiqueta(t("Si es de ElevenLabs te seguiré diciendo lo que cuesta. Puedes cambiarla cuando quieras en "
+                                 "«Claves de IA»."), "sub"))
+        cancelar = boton(t("Cancelar"))
+        cancelar.clicked.connect(self.reject)
+        botones = QHBoxLayout()
+        botones.addStretch()
+        botones.addWidget(cancelar)
+        lay.addLayout(botones)
+
+    def _usar(self, combo):
+        self.elegida = combo.currentData()
+        self.accept()
+
+
+def elegir_voz(padre, voz: str, costo) -> str | None:
+    """La voz con la que se hace un trabajo; None si canceló o no aceptó el costo. Elige en VentanaVoz si toca
+    (desde_prompt.toca_preguntar_voz); si no, una de ElevenLabs dice igual lo que cuesta: dejarla fija quita la pregunta
+    de cuál, no la del dinero. Una que ahora no atiende (sin saldo, estudio bloqueado) pasa a la gratis. costo: lo que
+    costaría con ElevenLabs, dicho para la pregunta (o una función de la voz, si depende de ella)."""
+    if not desde_prompt.voces_eleven():
+        return desde_prompt.voz_gratis() if desde_prompt.es_eleven(voz) else voz
+    if not desde_prompt.toca_preguntar_voz(voz):
+        if not desde_prompt.es_eleven(voz):
+            return voz
+        nombres = {v: n for n, v in desde_prompt.voces().items()}
+        return voz if si_cuesta(padre, t("Voz de ElevenLabs"), t(
+            "Narrar con «{voz}» cuesta {costo}. ¿Seguir?", voz=nombres.get(voz, voz),
+            costo=costo(voz) if callable(costo) else costo)) else None
+    ventana = VentanaVoz(padre, voz, costo)
+    if not ventana.exec():
+        return None
+    elegida = ventana.elegida
+    if desde_prompt.es_eleven(elegida):
+        claves.elegir_por_defecto("voz_eleven", elegida)  # la próxima vez sale esa, no la primera de la cuenta
+    if ventana.recordar.isChecked():
+        claves.elegir_por_defecto("voz_preferida", elegida)
+    return elegida
 
 
 # La pastilla del selector de modelo: una cápsula de vidrio (#secundario) con la flecha de los desplegables de la app
@@ -1007,7 +1102,49 @@ class PaginaTrabajo(QWidget):
         if guardia.bloqueado():  # Ráfaga Guardia bloqueó el estudio: ningún video de pago empieza
             mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
             return False
-        return QMessageBox.question(self, titulo, texto) == QMessageBox.Yes
+        return si_cuesta(self, titulo, texto)
+
+    def _pagar_contenido(self, funcion, nombre, datos) -> bool:
+        """Las imágenes y la canción de pago (la IA que eligió en Claves de IA): lo más que cuestan, antes de empezar, con
+        la misma cifra que el Director. Rehacer un plano o un personaje, una imagen. True si se puede seguir."""
+        from motor import director, serie
+        usd = director.costo_imagen() if funcion in (serie.rehacer_plano, serie.dibujar_lamina)             else director.costo_contenido(nombre, datos) if nombre else 0.0
+        if not usd:
+            return True
+        if guardia.bloqueado():
+            mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
+            return False
+        return si_cuesta(self, t("IA de pago"), t("Con la IA de pago que elegiste, este trabajo cuesta hasta unos {costo}. "
+                                                  "¿Seguir?", costo=dinero(usd)))
+
+    def _voz_del_trabajo(self, funcion, nombre, datos) -> bool:
+        """Deja en datos la voz con la que se narra, preguntando si toca. Un capítulo usa las voces de su serie: si son de
+        ElevenLabs pregunta lo que falte por pagar, y también al rehacer un plano. False si no aceptó."""
+        from motor import director, serie
+        usd = desde_prompt.costo_letras(serie.letras_plano(datos["episodio"], datos["i"])) \
+            if funcion is serie.rehacer_plano else director.costo_voz(nombre, datos) if nombre == "crear_episodio" else None
+        if usd is not None:
+            if not usd:
+                return True
+            if guardia.bloqueado():
+                mensaje_error(self, t("Ráfaga Guardia"), guardia.mensaje_bloqueo())
+                return False
+            return si_cuesta(self, t("Voces de ElevenLabs"), t(
+                "Esto se narra con voces de ElevenLabs: hasta unos {costo}. ¿Seguir?", costo=dinero(usd)))
+        if nombre not in director.CON_VOZ:
+            return True
+        if not director.narra(nombre, datos):  # sin narración, o hablan con su IA de video: lo poco que se narre, gratis
+            if desde_prompt.es_eleven(datos.get("voz")):
+                datos["voz"] = desde_prompt.voz_gratis()
+            return True
+        voz = elegir_voz(self, datos.get("voz") or desde_prompt.voz_inicial(), director.texto_costo_voz(
+            nombre, datos, datos["voz"] if desde_prompt.es_eleven(datos.get("voz")) else desde_prompt.voz_eleven()))
+        if voz is None:
+            return False
+        datos["voz"] = voz
+        if isinstance(getattr(self, "voz", None), SelectorVoz):
+            self.voz.poner(voz)
+        return True
 
     def lanzar(self, boton_iniciar, funcion, *, modelo_video=None, **datos) -> bool:
         """False si ya hay un trabajo en marcha (soltar un hilo que corre tumba la app cuando termina) o si el usuario
@@ -1026,10 +1163,14 @@ class PaginaTrabajo(QWidget):
             if no_se_puede := claves.impide(usos or (["video"] if funcion is desde_prompt.animar_imagen else [])):
                 mensaje_error(self, t("No se puede empezar"), no_se_puede)
                 return False
-            if not self._pagar_video(funcion, datos):
+            # Primero el video: un «No» ahí no deja guardada la voz que recordara en la otra pregunta
+            if not self._pagar_video(funcion, datos) or not self._pagar_contenido(funcion, nombre, datos) \
+                    or not self._voz_del_trabajo(funcion, nombre, datos):
                 return False
             # Todas sus escenas, sin el tope de clips de pago (director.clips): tu nube Modal no lo tiene, solo su cupo
             avisos = claves.antes_de(usos, director.FOTOS[nombre](datos) if nombre in director.ANIMAN else 0)
+            if director.narra(nombre, datos) and desde_prompt.es_eleven(datos.get("voz")):
+                avisos.append(t("Voz de ElevenLabs: {costo} de tu cuenta.", costo=director.texto_costo_voz(nombre, datos)))
         self.antes.setText("\n".join(f"⚠️ {a}" for a in avisos))
         self.antes.setVisible(bool(avisos))
         boton_iniciar.setEnabled(False)

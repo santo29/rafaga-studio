@@ -293,8 +293,8 @@ def voces_elevenlabs(clave: str) -> list[dict]:
                       params={"page_size": 100, **({"next_page_token": token} if token else {})})
         r.raise_for_status()
         d = r.json()
-        voces += [{"id": v["voice_id"], "nombre": v["name"],
-                   "acento": (v.get("labels") or {}).get("accent", "")} for v in d["voices"]]
+        voces += [{"id": v["voice_id"], "nombre": v["name"], "acento": (v.get("labels") or {}).get("accent", ""),
+                   "genero": (v.get("labels") or {}).get("gender", "")} for v in d["voices"]]  # para las series
         token = d.get("next_page_token")
         if not d.get("has_more") or not token:
             return voces
@@ -1098,6 +1098,9 @@ def antes_de(usos, escenas: int = 0, una_foto: bool = False) -> list[str]:
                             otra=nombre(otra)) if otra else
                           t("{problema}: usaré la IA gratis sin clave para el texto (más lenta).",
                             problema=frase(c["proveedor"], malo["estado"])))
+    if "voz" in usos and "elevenlabs" in cargar() and (malo := _vigente("elevenlabs")) and \
+            str(ajustes().get("voz_preferida") or "eleven:").startswith("eleven:"):  # si dejó fija una gratis, no la echa de menos
+        avisos.append(t("{problema}: la narración irá con la voz gratis.", problema=frase("elevenlabs", malo["estado"])))
     if "imagen" in usos:
         c = para("imagen") or {}
         if c.get("proveedor") in SOLO_ELIGIENDO["imagen"] and (malo := _vigente(c["proveedor"])):
@@ -1161,6 +1164,10 @@ def impide(usos) -> str | None:
     def que_hacer(proveedor: str, malo: dict) -> str:  # con su detalle: el tope de gasto de Gemini no es recargar
         return f"{paso(proveedor, malo['estado'], malo.get('detalle', ''))} " + t(
             "Si ya recargaste o cambiaste la clave, pulsa «Comprobar conexiones» en «Claves de IA».")
+    if "voz_eleven" in usos and (malo := _vigente("elevenlabs", BLOQUEA)):  # los capítulos de una serie con sus voces
+        return t("No se puede hacer el capítulo con sus voces: {problema} ({cuando}). {paso} No se cobró nada.",
+                 problema=frase("elevenlabs", malo["estado"]), cuando=_cuando(malo),
+                 paso=que_hacer("elevenlabs", malo))
     if "video_voz" in usos:
         quien = (para("video_voz") or {}).get("proveedor")
         if quien and (malo := _vigente(quien, BLOQUEA)):

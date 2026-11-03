@@ -8,7 +8,7 @@ from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QScrollArea, QSpinBox, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
-from motor import claves, ia, nubes, serie
+from motor import claves, desde_prompt, ia, nubes, serie
 from motor.idioma import t
 from ui.comun import (AccionesResultado, aviso_guardado, boton, descargar, etiqueta, mensaje, mensaje_error,
                       PaginaTrabajo, SelectorFormato, Tarea)
@@ -267,7 +267,8 @@ class PaginaSerie(PaginaTrabajo):
         if not (self.idea.toPlainText().strip() or self.titulo.text().strip()):
             return mensaje(self, t("Falta la idea"), t("Cuéntame de qué trata la serie."))
         if self.lanzar(self.crear_btn, serie.crear_serie, titulo=self.titulo.text(), idea=self.idea.toPlainText(),
-                       estilo=self.estilo.currentText(), personajes=self.cuantos.value(), formato=self.formato.valor()):
+                       estilo=self.estilo.currentText(), personajes=self.cuantos.value(), formato=self.formato.valor(),
+                       voz=desde_prompt.voz_inicial()):
             self.tarea.listo.connect(lambda r: (self.reproductor.hide(), self.recargar(r["nombre"])))
 
     def _dibujar_lamina(self, personaje: str):
@@ -297,6 +298,8 @@ class PaginaSerie(PaginaTrabajo):
         if self.lanzar(self.capitulo_btn, funcion, **datos):  # un botón fijo: los del guion gráfico se rehacen
             self.tarea.listo.connect(self._hecho)
             self.tarea.fallo.connect(self._fallo)
+        else:  # dijo que no al costo: su capítulo sigue a la vista
+            self._ver_capitulo()
 
     def _hecho(self, r: dict):
         if r.get("tipo") == "episodio":

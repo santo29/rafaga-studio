@@ -49,7 +49,17 @@ def validar_modelo(modelo_video, habla: bool = False) -> str:
     return modelo
 
 
-def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
+def _voz(voz: str) -> str:
+    """La voz de un trabajo: vacía, la que dejó fija el usuario o la de su idioma. Antes de gastar en imágenes: la
+    narración fallaría al final."""
+    voz = voz or desde_prompt.voz_inicial()
+    if voz not in desde_prompt.voces().values():
+        raise ValueError(t("Voz desconocida ({voz!r:.40}); valen {voces}.", voz=voz,
+                           voces=", ".join(desde_prompt.voces().values())))
+    return voz
+
+
+def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
                 animado: bool = False, modelo_video: str = "auto") -> str:
     """Crea un video completo desde un pedido: la IA escribe la narración y hace imágenes, voz, subtítulos y montaje.
@@ -58,7 +68,9 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     que hablan (Gemini, Kling o Seedance) y es DE PAGO: unos US$1-2 por escena de 8 s según cuál (una escena cada
     ~8 s, tope de 15 por video). Úsalo solo si el usuario aceptó ese costo. Por defecto false: imágenes animadas con
     narración (gratis, salvo que el usuario haya elegido una IA de video de pago para animarlas).
-    formato: 9:16, 16:9, 1:1 o 4:5. voz: el id de una de estas: {voces} (o una de ElevenLabs de listar_opciones).
+    formato: 9:16, 16:9, 1:1 o 4:5. voz: déjala vacía salvo que el usuario pida una concreta o el video en otro idioma (si
+    tiene ElevenLabs y no dejó una voz fija, el estudio le pregunta si la quiere gratis o de ElevenLabs): el id de una de estas: {voces} (o una
+    de ElevenLabs de listar_opciones). Con animado, lo poco que se narre va con una voz gratis.
     imagen: ruta de una foto de partida (la 1ª escena es esa foto y las demás mantienen su sujeto).
     solo_animar: con imagen, solo la anima según el pedido (clip corto sin voz). Para animarla, la imagen se sube
     a la IA de video: en Automático, a la nube Modal del usuario si la conectó y si no, a un Space público y gratis de
@@ -81,9 +93,7 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
             raise ValueError(t("«Sin animar» no anima nada: para animar solo la imagen, elige otro modelo de video."))
         with claves.por_trabajo(modelo_video):
             return _json(desde_prompt.animar_imagen(ruta(imagen), prompt, formato, aviso=_aviso()))
-    if voz not in desde_prompt.voces().values():  # antes de gastar en imágenes: la narración fallaría al final
-        raise ValueError(t("Voz desconocida ({voz!r:.40}); valen {voces}.", voz=voz,
-                           voces=", ".join(desde_prompt.voces().values())))
+    voz = _voz(voz)
     with claves.por_trabajo(modelo_video):
         return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
                                           animado=animado))
@@ -111,13 +121,14 @@ def investigar_nichos(tema: str = "", pais: str = "Latinoamérica",
 
 def crear_anuncios(foto: str, producto: str = "", detalles: str = "", publico: str = "", oferta: str = "",
                    estilo: str = "UGC testimonio (persona real con el móvil)", formato: str = "9:16",
-                   variantes: int = 3, segundos: int = 25, modelo_video: str = "auto") -> str:
+                   variantes: int = 3, segundos: int = 25, modelo_video: str = "auto", voz: str = "") -> str:
     """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto o del
     negocio. producto: qué se anuncia; vacío, la IA lo saca de la foto (si la IA de texto no ve fotos, responde que
-    hay que decirlo). estilo: uno de {estilos}."""
+    hay que decirlo). estilo: uno de {estilos}. voz: como en crear_video, vacía salvo que el usuario pida una."""
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
+    voz = _voz(voz)
     with claves.por_trabajo(validar_modelo(modelo_video)):
-        return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato,
+        return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato, voz=voz,
                                     variantes=variantes, segundos=segundos, aviso=_aviso()))
 
 
@@ -258,16 +269,18 @@ def editar_video(medios: list[str], nombre: str = "Mi video", formato: str = "9:
 
 
 def crear_serie(titulo: str, idea: str, estilo: str = "Cartoon 2D", personajes: int = 3,
-                formato: str = "16:9", biblia: dict | None = None) -> str:
+                formato: str = "16:9", biblia: dict | None = None, voz: str = "") -> str:
     """Dibujos animados (serie animada): crea la serie (título, sinopsis) y sus personajes ORIGINALES, cada uno con
     su apariencia fija, su voz y su lámina dibujada. estilo: uno de la lista (Cartoon 2D, Anime 90s (estilo
     samurái), Anime moderno, Animación 3D (tipo Pixar), Cine realista, Cómic) o una descripción propia en inglés.
-    personajes: de 1 a 6. Después se hacen los capítulos con crear_episodio.
+    personajes: de 1 a 6. Después se hacen los capítulos con crear_episodio. voz: la del narrador, como en crear_video,
+    vacía salvo que el usuario pida una; si es de ElevenLabs, los personajes también usan voces de ElevenLabs.
 
     biblia (opcional): si tú la escribes, no se usa la IA de texto de la app. Forma: {"titulo", "sinopsis",
     "personajes": [{"nombre", "descripcion": apariencia FIJA y concreta en inglés (50-80 palabras), "personalidad",
     "genero": hombre o mujer}]}."""
-    return _json(serie.crear_serie(titulo, idea, estilo, personajes, formato, aviso=_aviso(), biblia=biblia))
+    return _json(serie.crear_serie(titulo, idea, estilo, personajes, formato, aviso=_aviso(), biblia=biblia,
+                                   voz=_voz(voz)))
 
 
 def crear_episodio(serie_nombre: str, idea: str = "", planos: int = 12, numero: int = 0,

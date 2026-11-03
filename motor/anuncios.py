@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import ia, memoria, nubes, seguro, video
-from .desde_prompt import (ESCENA, FALTAS, MOVIMIENTO, idioma_codigo, idioma_de, montar, palabras_por_segundo,
+from .desde_prompt import (ESCENA, FALTAS, LETRAS_POR_SEGUNDO, MOVIMIENTO, al_presupuesto, idioma_codigo, idioma_de, montar, palabras_por_segundo,
                            relanzar_con_gasto)
 from .idioma import IDIOMAS, t
 from .shorts import PROYECTOS
@@ -103,7 +103,7 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
         f"Estilo visual: {ESTILOS.get(estilo, estilo)}\nFormato: {formato}\nDuración: unos {segundos} s cada anuncio "
         f"(~{int(segundos * palabras_por_segundo(voz))} palabras, {max(3, round(segundos / 5))} escenas)."
         f"\nVariantes: {variantes}"
-        + idioma_de(voz)
+        + (idioma_de(voz) or f"\nIdioma de la narración (salvo que el usuario pida otro): {IDIOMAS[idioma_codigo(voz)]}")
         + (f"\n\nLo que está funcionando en el mercado (investigación en vivo):\n{web}" if web else "")
         + memoria.para("anuncios"), [foto_local]), ESQUEMA)
 
@@ -113,11 +113,14 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
         v["escenas"] = v["escenas"][:max(3, round(segundos / 5)) + 2]
         for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
             e["narracion"] = e["narracion"][:400]
+            e.pop("voz", None)  # la voz de cada escena es solo de las series: la IA no elige una de pago
     resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
     # La ortografía, antes de narrar y de quemar nada («FUSEL ESTE AROMA», el ángulo «Deseño», «#CaféBrise»)
     ia.repasar([x for v in plan["variantes"] for x in (v, *v["escenas"])],
                ("angulo", "titulo", "texto_anuncio", "hashtags", "narracion", "texto_pantalla"), idioma_codigo(voz),
                notas)
+    if any([al_presupuesto(v["escenas"], segundos * LETRAS_POR_SEGUNDO, voz) for v in plan["variantes"]]):
+        notas.append(t("La narración pasaba de lo que se te dijo que costaría: se acortó."))
     if not web and producto:  # sin producto no se buscó, y no es por Claude
         notas.append(t("Sin investigación en vivo: solo se hace con Claude conectado."))
 

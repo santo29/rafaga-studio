@@ -9,7 +9,7 @@ from typing import Callable
 
 import edge_tts
 
-from . import claves, ia, memoria, seguro, video
+from . import claves, guardia, ia, memoria, seguro, video
 from .idioma import actual, dinero, IDIOMAS, porcentaje, t, texto_de_error
 from .shorts import PROYECTOS
 
@@ -207,6 +207,116 @@ def voces() -> dict[str, str]:
                         f"eleven:{v['id']}" for v in eleven}}
 
 
+def es_eleven(voz) -> bool:
+    return isinstance(voz, str) and voz.startswith("eleven:")
+
+
+def voces_eleven() -> dict[str, str]:
+    """Las de ElevenLabs que se pueden usar ahora. Ninguna con el estudio bloqueado o si su cuenta no atiende (sin saldo,
+    clave mala): ni se ofrecen y se narra gratis, en vez de fallar al final con las imágenes ya pagadas."""
+    if guardia.bloqueado() or claves._vigente("elevenlabs"):
+        return {}
+    return {nombre: voz for nombre, voz in voces().items() if es_eleven(voz)}
+
+
+def voz_preferida() -> str:
+    """La voz que el usuario dejó fija (en «Claves de IA» o con «Usar siempre esta voz»); "" si no hay o ya no existe."""
+    fija = claves.ajustes().get("voz_preferida", "")
+    return fija if fija in voces().values() else ""
+
+
+def voz_inicial() -> str:
+    """Con la que empieza un trabajo: la fija o, sin ella, la gratis del idioma de la app."""
+    return voz_preferida() or voz_por_defecto()
+
+
+def voz_gratis() -> str:
+    """La gratis con la que se narra si no es ElevenLabs: la fija si es gratis o, si no, la del idioma de la app."""
+    fija = voz_preferida()
+    return fija if fija and not es_eleven(fija) else voz_por_defecto()
+
+
+def voz_eleven() -> str:
+    """La de ElevenLabs que se ofrece: la última elegida o, si no, la primera de su cuenta; "" si no se puede usar."""
+    disponibles = list(voces_eleven().values())
+    ultima = claves.ajustes().get("voz_eleven")
+    return ultima if ultima in disponibles else next(iter(disponibles), "")
+
+
+def toca_preguntar_voz(voz: str, de_la_ia: bool = False) -> bool:
+    """Si este trabajo debe preguntar entre la voz gratis y ElevenLabs: con ElevenLabs disponible y sin voz fija, o si
+    su voz va contra la fija. de_la_ia: la eligió la IA y no el usuario, así que una gratis tampoco vale si dejó fija
+    una de ElevenLabs (en la página, si la cambió a mano, es su decisión)."""
+    if not voces_eleven():
+        return False
+    fija = voz_preferida()
+    if not fija:
+        return True
+    if es_eleven(voz):
+        return not es_eleven(fija)
+    return de_la_ia and es_eleven(fija)
+
+
+# Por lo alto: Sarah dijo 62 palabras en 22,3 s y en español son unas 5,5 letras por palabra (con el margen de al_tiempo)
+LETRAS_POR_SEGUNDO = 16
+LETRAS_POR_ESCENA = 120  # las escenas que numeró el usuario no se acortan al tiempo: 1 o 2 frases cada una
+MAX_LETRAS_ESCENA = 400  # lo más que narra una escena (ver generar y anuncios.crear)
+
+
+def costo_letras(letras: float) -> float:
+    """Lo que cuesta narrar esas letras con ElevenLabs (por lo alto: ver ia.PRECIO_VOZ_ELEVENLABS)."""
+    return letras / 1000 * ia.PRECIO_VOZ_ELEVENLABS
+
+
+def letras_voz(segundos: float, prompt: str = "") -> float:
+    """Lo más que se narra en un video de la IA: lo que cabe en sus segundos, sus escenas numeradas o lo que escribió el
+    usuario. Lo que se le pregunta y el tope de al_presupuesto: así lo que se paga no pasa de lo que se dijo."""
+    return max(segundos * LETRAS_POR_SEGUNDO, escenas_pedidas(prompt) * LETRAS_POR_ESCENA,
+               sum(min(len(x), MAX_LETRAS_ESCENA) for x in narracion_del_usuario(prompt)))
+
+
+def al_presupuesto(escenas: list[dict], letras: float, voz: str) -> bool:
+    """Con ElevenLabs, lo que escribió la IA no pasa de las letras que se preguntaron: cobra por letra y la IA escribe de
+    más. Como al_tiempo: primero se quitan frases enteras, de la narración más larga; sin frases que quitar, se recorta
+    esa. True si hubo que recortar."""
+    if not es_eleven(voz):
+        return False
+    cambio = False
+    while (sobra := sum(len(e["narracion"]) for e in escenas) - letras) > 0:
+        varias = [e for e in escenas if len(re.split(r"(?<=[.!?…])\s+", e["narracion"].strip())) > 1]
+        e = max(varias or escenas, key=lambda x: len(x["narracion"]))
+        if len(e["narracion"]) <= 1:
+            break
+        e["narracion"] = " ".join(re.split(r"(?<=[.!?…])\s+", e["narracion"].strip())[:-1]) if varias else \
+            ia.recortar(e["narracion"], max(len(e["narracion"]) - sobra, 1))
+        cambio = True
+    return cambio
+
+
+def ya_narrada(texto: str, voz: str, audio: Path, velocidad: float = 1.0) -> list[dict] | None:
+    """Las palabras de un audio de ElevenLabs que ya se pagó con ese mismo texto y voz (al dibujar lo que faltaba o
+    rehacer un plano se monta otra vez); None si hay que narrarlo. Lo guarda _narrar_pagada al lado del audio."""
+    if not es_eleven(voz) or not audio.is_file():
+        return None
+    try:
+        guardada = json.loads(audio.with_suffix(".json").read_text(encoding="utf-8"))
+        return guardada["palabras"] if guardada["para"] == [texto, voz, velocidad] else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _narrar_pagada(texto: str, voz: str, audio: Path, velocidad: float = 1.0) -> list[dict]:
+    """narrar, sin pagar dos veces el mismo audio de ElevenLabs. La velocidad, solo si cambia: narrar se llama como siempre."""
+    palabras = ya_narrada(texto, voz, audio, velocidad)
+    if palabras is not None:
+        return palabras
+    palabras = narrar(texto, voz, audio, *([velocidad] if velocidad != 1 else []))
+    if es_eleven(voz):
+        audio.with_suffix(".json").write_text(json.dumps({"para": [texto, voz, velocidad], "palabras": palabras},
+                                                         ensure_ascii=False), encoding="utf-8")
+    return palabras
+
+
 def narrar(texto: str, voz: str, destino: Path, velocidad: float = 1.0) -> list[dict]:
     """Genera la voz y devuelve los tiempos por palabra. voz = id de Edge o 'eleven:<voice_id>'. velocidad: 1 = la
     normal; 1.2 = un 20 % más rápida (lo más que admite ElevenLabs)."""
@@ -354,7 +464,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     lineas, ritmo = narracion_del_usuario(prompt) if de_la_ia else [], palabras_por_segundo(voz)
     # Lo que el usuario escribió manda (pasó: pidió 6 escenas sin voz y salieron 4 narradas): sus escenas numeradas
     # y, si lo pidió sin narración, sin voz. Sin nada que decir, ni escenas que hablan (se pagarían por nada)
-    pedidas, mudo = escenas_pedidas(prompt) if de_la_ia else 0, de_la_ia and sin_voz(prompt)
+    pedidas, mudo = escenas_pedidas(prompt) if de_la_ia else 0, sin_voz(prompt)
     callado, animado, notas = animado and mudo, animado and not mudo, []
     if callado:  # al empezar, antes de gastar nada: costo_hablado no las contó, ni se preguntaron
         notas.append(t("Pediste el video sin narración: las escenas no hablan y no se paga por ellas."))
@@ -398,6 +508,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     escenas, tope = guion["escenas"], escenas_aprox + (0 if animado or pedidas else 2)
     if not escenas:
         raise ValueError(t("El guion no tiene ninguna escena."))
+    for e in escenas:  # la voz de cada escena es solo de las series: un guion no elige una de pago sin preguntar
+        e.pop("voz", None)
     if lineas:  # cada línea en su escena y tal cual, aunque la IA devuelva otro número de escenas o la reescriba
         guion["escenas"] = escenas = [{**escenas[i * len(escenas) // len(lineas)], "narracion": x}
                                       for i, x in enumerate(lineas)]
@@ -462,6 +574,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
         ia.repasar([guion, *guion["escenas"]],
                    ("titulo", "descripcion", "hashtags", "texto_pantalla") + (() if lineas else ("narracion",)),
                    idioma_codigo(voz), notas)
+    if de_la_ia and not lineas and al_presupuesto(guion["escenas"], letras_voz(segundos, prompt), voz):
+        notas.append(t("La narración pasaba de lo que se te dijo que costaría: se acortó."))
     (carpeta / "guion.json").write_text(json.dumps(guion, ensure_ascii=False, indent=2), encoding="utf-8")
     crear_imagen = foto = None
     if imagen:
@@ -638,6 +752,12 @@ def escena_hablada(clip: Path, texto: str, formato: str, destino: Path) -> Path:
 def relanzar_con_gasto(error: Exception, notas: list, carpeta: Path):
     """Relanza el error de un trabajo con lo ya pagado (sus notas de gasto) y su carpeta: reintentar lo pagaría otra
     vez. Si no se pagó nada, el error tal cual."""
+    try:  # la voz de ElevenLabs ya narrada: sus audios guardan lo que dijeron (_narrar_pagada)
+        letras = sum(len(json.loads(f.read_text(encoding="utf-8"))["para"][0]) for f in Path(carpeta).rglob("*_voz_*.json"))
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        letras = 0
+    if letras:
+        notas = [*notas, t("Voz de ElevenLabs: {costo} ya pagados.", costo=dinero(costo_letras(letras)))]
     gasto = " ".join(n for n in notas if "$" in n)  # «US$0.50», «US$ 0,50» o «0,50 $ US» (ver idioma.dinero)
     if not gasto:
         raise error
@@ -681,6 +801,7 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     pagados, mios, k_gasto = {"clips": 0} if pagados is None else pagados, 0, None
     ultima = respaldo  # la última imagen que sí existe: se repite cuando una falla
     de_donde = t("la foto de respaldo")  # qué es `ultima`, para que el aviso diga la verdad
+    sin_eleven = False
     for i, e in enumerate(guion["escenas"]):
         paso = desde + (hasta - desde) * i / n
         if i in (hablados or {}):
@@ -691,8 +812,21 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
         aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
         audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
         if e["narracion"].strip():
-            # una serie: cada personaje con su voz. La velocidad, solo si cambia: narrar se llama como siempre
-            palabras = narrar(e["narracion"], e.get("voz") or voz, audio, *([velocidad] if velocidad != 1 else []))
+            quien = e.get("voz") or voz  # una serie: cada personaje con su voz
+            if sin_eleven and es_eleven(quien):
+                quien = voz_gratis()
+            try:
+                palabras = _narrar_pagada(e["narracion"], quien, audio, velocidad)
+            except Exception as error:
+                if not es_eleven(quien):
+                    raise
+                sin_eleven = True  # sin saldo a mitad: lo ya pagado no se tira, y no se insiste con cada escena
+                nota = t("ElevenLabs falló en la escena {n} ({causa}). El resto va con la voz gratis.", n=i + 1,
+                         causa=texto_de_error(error))
+                aviso(nota, paso)
+                if notas is not None:
+                    notas.append(nota)
+                palabras = _narrar_pagada(e["narracion"], voz_gratis(), audio, velocidad)
         else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío. Dura
             # lo que le dio el usuario («ESCENA 2 (4-9 s)», ver generar), con tope: el guion puede venir de fuera
             dura = e.get("segundos")

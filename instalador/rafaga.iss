@@ -8,7 +8,7 @@
 ; Python siempre con -s: nunca mezcla las librerías de la cuenta de Windows (%APPDATA%\Python) con las de la app.
 
 #define Nombre "Ráfaga Studio"
-#define Version "1.0.0"
+#define Version "1.1.0"
 #define Titular "Santo Montilla"
 #define PythonVersion "3.14.9"
 #define PythonSha256 "7cd9d07aec975212344dc6f7e45019378cf6775dd564181e269010a1eddaaec7"

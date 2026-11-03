@@ -36,18 +36,21 @@ tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
 - **Movimiento real.** Texto a video y foto a video, en tu propia nube Modal o en el servicio de video con IA que elijas.
 - **Un Director con IA.** Pides por texto o por voz, adjuntas tus fotos, y planifica el trabajo y usa las herramientas
   adecuadas.
-- **Sin membresía y sin costos sorpresa.** Siempre hay opciones gratis, y lo de pago enseña su costo máximo y pregunta
-  antes. Mira [cuánto cuesta un video](#cuánto-cuesta-un-video).
+- **Sin membresía y sin costos sorpresa.** Siempre hay opciones gratis, y las imágenes, videos, voces y canciones de pago
+  enseñan su costo máximo y preguntan antes. Tres cosas van sin preguntar: la IA de texto que conectaste (céntimos por
+  guion, se ven en **Actividad de la IA**), tu propio crédito de Modal y OpenAI si es tu servicio de transcripción, a
+  US$0,006 por minuto en subtítulos automáticos, Shorts mágicos, video musical y escenas que hablan. Mira
+  [cuánto cuesta un video](#cuánto-cuesta-un-video).
 - **Tus datos son tuyos.** Sin servidores nuestros y sin analítica. Las claves se guardan cifradas en tu PC.
 
 ## Funciones
 
 | Herramienta | Qué hace |
 |---|---|
-| Director IA | Planifica y ejecuta trabajos completos desde un pedido por texto o voz, en un chat a página completa que muestra tus adjuntos y resultados |
+| Director IA | Planifica y ejecuta trabajos completos desde un pedido por texto o voz, en un chat a página completa que muestra tus adjuntos y resultados. Sabe qué servicios conectaste y cómo los tienes |
 | Crear con IA | De la idea al video terminado, vertical u horizontal, con movimiento de IA, voz, subtítulos y acabado de estudio |
 | Foto a video | Da vida a una foto con el movimiento de cámara que elijas |
-| Editor de video | Línea de tiempo, transiciones, efectos al ritmo, textos, stickers, subtítulos automáticos, exportación 4K, grabación con cámara y avatar con IA (beta) |
+| Editor de video | Línea de tiempo, transiciones, efectos al ritmo, textos, stickers, subtítulos automáticos, voz que se coloca sola escena por escena, exportación 4K, grabación con cámara y avatar con IA (beta) |
 | Diseño | Publicaciones, miniaturas, flyers, logos y estampados por capas, con composición de la IA y exportación 4K |
 | Shorts mágicos | Encuentra los mejores momentos de un video largo y los recorta en vertical con subtítulos |
 | Anuncios | Convierte la foto de un producto en varias versiones de anuncio para pruebas A/B |
@@ -71,8 +74,8 @@ archivo terminado.
   elegidos en **Claves de IA**, donde siempre hay opciones gratis.
 - **Crea mucho más que video.** Sus 17 herramientas cubren shorts, anuncios, canciones, videos musicales, diseño, edición,
   series animadas, investigación de nichos y programación en YouTube.
-- **Mantén el control.** Lo que gasta dinero, publica o guarda en la memoria espera tu aprobación en una ventana de Ráfaga
-  Studio.
+- **Mantén el control.** Las imágenes, videos, voces y canciones de pago, publicar y guardar en la memoria esperan tu
+  aprobación en una ventana de Ráfaga Studio.
 
 Para conectarla, abre **Conexión MCP** en la app y elige conectar. Ráfaga Studio se registra en Claude Code y Claude
 Desktop. Otros clientes [MCP](https://modelcontextprotocol.io) pueden iniciar `mcp_server.py` con el Python de la app.
@@ -81,7 +84,7 @@ Desktop. Otros clientes [MCP](https://modelcontextprotocol.io) pueden iniciar `m
 
 Requisitos: Windows 10 u 11 de 64 bits, unos 3 GB libres y conexión a internet. No hace falta tarjeta gráfica.
 
-1. Baja `RafagaStudio-Setup-1.0.0.exe` (unos 52 MB) desde
+1. Baja el último instalador `RafagaStudio-Setup` (unos 53 MB) desde
    [Versiones](https://github.com/santo29/rafaga-studio/releases/latest), en la sección Assets.
 2. Ábrelo. El instalador aún no tiene firma digital, así que Windows puede mostrar «Windows protegió su PC». Elige
    **Más información** y luego **Ejecutar de todas formas**. No pide permisos de administrador.
@@ -150,7 +153,7 @@ Los resultados cambian según el modelo y el pedido, y ningún modelo acierta si
 ## Cuánto cuesta un video
 
 No hay membresía. Pagas directamente a cada servicio lo que usas, siempre hay opciones gratis y la app enseña el costo
-máximo antes de cualquier cosa de pago.
+máximo de las imágenes, videos, voces y canciones de pago antes de empezar.
 
 Esto costó un video vertical de 30 segundos con seis escenas en movimiento, en una prueba real de noviembre de 2026:
 
@@ -242,7 +245,7 @@ informar de una vulnerabilidad.
 <summary>¿Es gratis?</summary>
 
 Sí. La app no tiene cuentas, suscripciones ni pagos internos. Solo pagas los servicios de IA que elijas usar, directamente
-a ellos, y la app enseña antes el costo máximo. Se permite el uso comercial de lo que crees; consulta los
+a ellos, y la app enseña antes el costo máximo de las imágenes, videos, voces y canciones de pago. Se permite el uso comercial de lo que crees; consulta los
 [términos](TERMINOS.md). Las voces gratis de Microsoft Edge no están garantizadas para uso comercial: para eso, usa una
 voz con licencia comercial.
 

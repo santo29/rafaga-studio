@@ -13,11 +13,12 @@ import os
 import re
 import shutil
 import time
+import traceback
 import unicodedata
 from pathlib import Path
 from typing import Callable
 
-from . import desde_prompt, diseno, edicion, ia, memoria, seguro, video
+from . import claves, desde_prompt, diseno, edicion, ia, memoria, seguro, video
 from .idioma import IDIOMAS, actual, t, texto_de_error
 
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
@@ -238,11 +239,34 @@ def listar() -> list[dict]:
 
 # ---------- Crear ----------
 
-def _asignar_voces(personajes: list[dict], generos: list[str]) -> list[str]:
+def _asignar_eleven(personajes: list[dict], generos: list[str], narrador: str) -> None:
+    """Como _asignar_voces, con las voces de la cuenta de ElevenLabs. ponytail: una voz sin género en ElevenLabs (las
+    clonadas) puede tocarle a cualquiera; se arreglaría dejando elegir la voz de cada personaje."""
+    info = claves.cargar().get("elevenlabs") or {}
+    lista = info.get("voces", [])
+    if not any(v.get("genero") for v in lista):  # conectada antes de que se guardara: leerlo no cobra nada
+        try:  # solo el género: una voz que no esté en la lista guardada, _limpia la quitaría de la serie
+            generos_cuenta = {v["id"]: v.get("genero", "") for v in claves.voces_elevenlabs(info["clave"])}
+            lista = [{**v, "genero": generos_cuenta.get(v["id"], "")} for v in lista]
+        except Exception:  # noqa: BLE001  sin saber el género la serie sale igual
+            traceback.print_exc()
+    if not lista:  # sin voces en la cuenta se quedan con la del narrador (ver _limpia)
+        return
+    usadas = {True: 0, False: 0}
+    for p, genero in zip(personajes, generos):
+        mujer = genero.strip().lower().startswith(("mujer", "woman", "female", "f"))
+        ids = [f"eleven:{v['id']}" for v in lista if v.get("genero") == ("female" if mujer else "male")] or \
+            [f"eleven:{v['id']}" for v in lista]
+        ids = [i for i in ids if i != narrador] or ids  # el narrador no se confunde con un personaje
+        p["voz"] = ids[usadas[mujer] % len(ids)]
+        usadas[mujer] += 1
+
+
+def _asignar_voces(personajes: list[dict], generos: list[str], idioma: str = "") -> list[str]:
     """Una voz distinta para cada uno mientras haya, de mujer o de hombre según el personaje y en el idioma de la app,
     en el orden de desde_prompt.VOCES: en español, las dominicanas y luego las del Caribe. Devuelve los avisos de a
     quién le tocó una voz de otro país (pasó: Don Tito, colmadero dominicano, hablaba con la voz de México sin aviso)."""
-    propias = [v for v in desde_prompt.VOCES.values() if v.startswith(f"{actual()}-")] or list(desde_prompt.VOCES.values())
+    propias = [v for v in desde_prompt.VOCES.values() if v.startswith(f"{idioma or actual()}-")] or list(desde_prompt.VOCES.values())
     nombres = {v: k for k, v in desde_prompt.VOCES.items()}
     usadas, avisos = {True: 0, False: 0}, []
     for p, genero in zip(personajes, generos):
@@ -258,9 +282,11 @@ def _asignar_voces(personajes: list[dict], generos: list[str]) -> list[str]:
 
 
 def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, formato: str = "16:9",
-                aviso: Callable[[str, float], None] = lambda t, f: None, biblia: dict | None = None) -> dict:
+                aviso: Callable[[str, float], None] = lambda t, f: None, biblia: dict | None = None,
+                voz: str = "") -> dict:
     """La biblia de la serie (con la IA de texto) y la lámina de cada personaje (con la IA de imágenes).
-    biblia: ya escrita (forma de ESQUEMA_SERIE) por quien maneja el estudio; entonces no se usa la IA de texto."""
+    biblia: ya escrita (forma de ESQUEMA_SERIE) por quien maneja el estudio; entonces no se usa la IA de texto.
+    voz: la del narrador; si es de ElevenLabs, los personajes también usan voces de ElevenLabs."""
     titulo, idea = _texto(titulo, 80), _texto(idea, 2000)
     if biblia is not None:
         biblia = ia.de_fuera(biblia, ESQUEMA_SERIE, t("La biblia de la serie"))
@@ -274,7 +300,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
     if biblia is None:
         aviso(t("La IA está creando la serie y sus personajes…"), 0.05)
         # con el estilo, la apariencia que escribe encaja con el dibujo (un gato de caricatura no es uno de cine)
-        biblia = ia.texto_json(INSTRUCCIONES_SERIE.replace("{idioma}", IDIOMAS[actual()]),
+        biblia = ia.texto_json(INSTRUCCIONES_SERIE.replace("{idioma}", IDIOMAS[desde_prompt.idioma_codigo(voz)]),
                                f"Título: {titulo or '(elígelo tú)'}\nIdea: {idea or titulo}\nPersonajes: {cuantos}"
                                + (f"\nEstilo de dibujo: {estilo}" if estilo else "") + memoria.para("dibujos"),
                                ESQUEMA_SERIE)
@@ -285,7 +311,12 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
         raise RuntimeError(t("La IA no inventó ningún personaje. Inténtalo de nuevo."))
     datos = _limpia({"titulo": titulo or biblia["titulo"], "sinopsis": biblia["sinopsis"], "idea": idea,
                      "estilo": estilo, "formato": formato, "personajes": crudos})
-    voces_de_fuera = _asignar_voces(datos["personajes"], [str(p.get("genero", "")) for p in crudos])
+    generos, voces_de_fuera = [str(p.get("genero", "")) for p in crudos], []
+    if desde_prompt.es_eleven(voz):
+        _asignar_eleven(datos["personajes"], generos, voz)
+    else:
+        voces_de_fuera = _asignar_voces(datos["personajes"], generos, desde_prompt.idioma_codigo(voz))
+    datos["narrador"] = _voz(voz, datos["narrador"])
     CARPETA.mkdir(parents=True, exist_ok=True)
     base = CARPETA / f"{time.strftime('%Y%m%d-%H%M%S')}-{_slug(datos['titulo'])}"
     carpeta, n = base, 1
@@ -305,6 +336,50 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
                             causa=texto_de_error(e).replace("\n", " · ")[:300]))
     aviso(t("¡Listo!"), 1.0)
     return {**resumen(carpeta, datos), "avisos": avisos, "faltan_laminas": faltan, "resultados": []}
+
+
+def usa_eleven(serie: str) -> bool:
+    """Si esa serie narra con ElevenLabs (cada capítulo se paga por letra). Una que no existe, no: la herramienta lo dirá."""
+    try:
+        _, datos = _abrir(serie)
+    except ValueError:
+        return False
+    return any(desde_prompt.es_eleven(v) for v in (datos["narrador"], *(p["voz"] for p in datos["personajes"])))
+
+
+def _por_narrar(ep: Path, datos: dict, guion: dict) -> int:
+    """Las letras de un capítulo ya escrito que aún hay que pagar: lo ya narrado con ElevenLabs no se paga otra vez."""
+    return sum(len(e["narracion"]) for i, e in enumerate(_escenas(datos, guion)) if desde_prompt.es_eleven(e["voz"]) and
+               desde_prompt.ya_narrada(e["narracion"], e["voz"], ep / f"video_final_voz_{i:02d}.mp3") is None)
+
+
+def letras_capitulo(serie: str, planos: int, numero: int = 0, guion: dict | None = None) -> int:
+    """Lo más que se paga de voz en un capítulo de una serie con ElevenLabs: lo que falte de uno ya escrito o, si no, el
+    tope de cada plano (lo escribirá la IA después de preguntar). 0 si sus voces son gratis."""
+    if not usa_eleven(serie):
+        return 0
+    try:
+        carpeta, datos = _abrir(serie)
+        if isinstance(guion, dict) and isinstance(guion.get("planos"), list):
+            return _por_narrar(carpeta / "sin-capitulo", datos, {**guion, "planos": guion["planos"][:planos]})
+        if numero and (carpeta / "episodios" / f"{int(numero):02d}" / "guion.json").is_file():
+            return _por_narrar(carpeta / "episodios" / f"{int(numero):02d}", datos, _leer_guion(
+                carpeta / "episodios" / f"{int(numero):02d}", numero))
+    except (ValueError, TypeError, KeyError, AttributeError, OSError):  # un guion raro: la herramienta dirá qué le pasa
+        pass
+    return planos * desde_prompt.MAX_LETRAS_ESCENA
+
+
+def letras_plano(episodio: str, i: int) -> int:
+    """Lo que se paga de voz al rehacer ese plano: nada si su audio de ElevenLabs sigue siendo el mismo."""
+    try:
+        ep = _capitulo(episodio)
+        _, datos = _abrir(ep.parent.parent.name)
+        escena = _escenas(datos, _leer_guion(ep, ep.name))[int(i)]
+    except (ValueError, TypeError, KeyError, IndexError, OSError):
+        return 0
+    return len(escena["narracion"]) if desde_prompt.es_eleven(escena["voz"]) and desde_prompt.ya_narrada(
+        escena["narracion"], escena["voz"], ep / f"video_final_voz_{int(i):02d}.mp3") is None else 0
 
 
 def _prompt_lamina(p: dict, estilo: str) -> str:
@@ -427,7 +502,8 @@ def crear_episodio(serie: str, idea: str = "", planos: int = 12, numero: int = 0
             instrucciones = INSTRUCCIONES_EPISODIO
             for clave, valor in (("{numero}", str(numero)), ("{titulo}", datos["titulo"]),
                                  ("{sinopsis}", datos["sinopsis"]), ("{personajes}", lista),
-                                 ("{antes}", antes or "(es el primero)"), ("{idioma}", IDIOMAS[actual()]),
+                                 ("{antes}", antes or "(es el primero)"),
+                                 ("{idioma}", IDIOMAS[desde_prompt.idioma_codigo(datos["narrador"])]),
                                  ("{estilo}", datos["estilo"])):
                 instrucciones = instrucciones.replace(clave, valor)
             guion = ia.texto_json(instrucciones, f"Idea para este capítulo: {_texto(idea, 2000) or 'sigue la historia'}"

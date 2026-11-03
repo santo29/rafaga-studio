@@ -322,7 +322,8 @@ for caso, (modelos, voces, fallo, dice) in casos.items():
             if dice:
                 assert info["voces"] == [] and info["aviso"].startswith(dice), (caso, info)
             else:
-                assert info["voces"] == [{"id": "v1", "nombre": "Rafa", "acento": "caribeño"}] and "aviso" not in info
+                assert info["voces"] == [{"id": "v1", "nombre": "Rafa", "acento": "caribeño", "genero": ""}] and \
+                    "aviso" not in info
     finally:
         httpx.get = sin_red
 e = falla(claves.detectar, "hola", error=claves.NoConecta)  # sin preguntar a nadie

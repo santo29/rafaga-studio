@@ -35,18 +35,20 @@ It runs on your PC, with no coding, no terminal, no account and no subscription.
 - **One key box for every service.** Paste a key and the app recognizes which service it belongs to.
 - **Real motion.** Text to video and photo to video, on your own Modal cloud or on the AI video service you choose.
 - **An AI Director.** Ask by text or voice, attach your photos, and it plans the work and runs the right tools.
-- **No membership and no surprise costs.** Free options are always available, and anything paid shows its maximum cost
-  and asks first. See [what a video costs](#what-a-video-costs).
+- **No membership and no surprise costs.** Free options are always available, and paid images, video, voices and songs
+  show their maximum cost and ask first. Three things run without asking: the text AI you connected (cents per script,
+  shown in **AI activity**), your own Modal credit and OpenAI if it is your transcription service, at US$0.006 per minute
+  in the auto subtitles, Magic Shorts, music video and talking-scene pages. See [what a video costs](#what-a-video-costs).
 - **Your data stays yours.** No servers of ours, no analytics. Keys are stored encrypted on your PC.
 
 ## Features
 
 | Tool | What it does |
 |---|---|
-| AI Director | Plans and runs complete jobs from a text or voice request, in a full-page chat that shows your attachments and results |
+| AI Director | Plans and runs complete jobs from a text or voice request, in a full-page chat that shows your attachments and results. It knows which services you connected and how you set them up |
 | Create with AI | Prompt to finished video, vertical or horizontal, with AI motion, voice-over, subtitles and a studio finish |
 | Photo to video | Bring a photo to life with a camera move of your choice |
-| Video editor | Timeline editing, transitions, beat-synced effects, text, stickers, auto subtitles, 4K export, webcam recording and AI avatar (beta) |
+| Video editor | Timeline editing, transitions, beat-synced effects, text, stickers, auto subtitles, voice-over that places itself scene by scene, 4K export, webcam recording and AI avatar (beta) |
 | Design | Layered posts, thumbnails, flyers, logos and t-shirt prints, with AI layouts and 4K export |
 | Magic Shorts | Finds the best moments of a long video and crops them vertically with subtitles |
 | Ads | Turns a product photo into several ad versions for A/B testing |
@@ -70,8 +72,8 @@ file.
   are always available.
 - **Create more than video.** 17 tools cover shorts, ads, songs, music videos, design, editing, animated series, niche
   research and YouTube scheduling.
-- **Stay in control.** Anything that spends money, publishes or saves to memory waits for your approval in a Ráfaga
-  Studio window.
+- **Stay in control.** Paid images, video, voices and songs, publishing and saving to memory wait for your approval in
+  a Ráfaga Studio window.
 
 To connect, open **MCP connection** in the app and select connect. Ráfaga Studio registers itself in Claude Code and
 Claude Desktop. Other [MCP](https://modelcontextprotocol.io) clients can launch `mcp_server.py` with the app's Python.
@@ -80,7 +82,7 @@ Claude Desktop. Other [MCP](https://modelcontextprotocol.io) clients can launch 
 
 Requirements: 64-bit Windows 10 or 11, about 3 GB of free space and an internet connection. No graphics card is needed.
 
-1. Download `RafagaStudio-Setup-1.0.0.exe` (about 52 MB) from
+1. Download the latest `RafagaStudio-Setup` installer (about 53 MB) from
    [Releases](https://github.com/santo29/rafaga-studio/releases/latest), under Assets.
 2. Open it. The installer is not code-signed yet, so Windows may show "Windows protected your PC". Select
    **More info**, then **Run anyway**. It does not ask for administrator rights.
@@ -147,7 +149,7 @@ Results vary with each model and request, and no model gets everything right. To
 ## What a video costs
 
 There is no membership. You pay each service directly for what you use, free options are always available, and the app
-shows the maximum cost before anything paid.
+shows the maximum cost of paid images, video, voices and songs before they start.
 
 This is what a 30-second vertical video with six moving scenes cost in a real test in November 2026:
 
@@ -239,7 +241,7 @@ vulnerability.
 <summary>Is it free?</summary>
 
 Yes. The app has no accounts, subscriptions or in-app payments. You only pay the AI services you choose to use, directly
-to them, and the app shows the maximum cost first. Commercial use of what you create is allowed; see the
+to them, and the app shows the maximum cost of paid images, video, voices and songs first. Commercial use of what you create is allowed; see the
 [terms](TERMINOS.md). The free Microsoft Edge voices are not guaranteed for commercial use, so use a commercially
 licensed voice for that.
 

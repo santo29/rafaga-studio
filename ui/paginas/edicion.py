@@ -29,9 +29,10 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QButtonGroup, QCh
                                QListView, QListWidget, QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QSlider,
                                QSplitter, QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
-from motor import claves, diseno, edicion, guardia, ia, marca, nube, recursos, seguro, video
+from motor import claves, colocar_voz, desde_prompt, diseno, edicion, guardia, ia, marca, nube, recursos, seguro, video
 from motor.idioma import dinero, t
-from ui.comun import (archivo_valido, aviso_guardado, boton, ComboCorto, etiqueta, mensaje, mensaje_error,
+from ui.comun import (archivo_valido, aviso_guardado, boton, ComboCorto, elegir_voz, etiqueta, mensaje, mensaje_error,
+                      si_cuesta,
                       NOMBRES_FORMATO, REFLEJO_FINO, SelectorVoz, Tarea, tarjeta)
 from ui import iconos
 from ui.grabarte import PanelGrabarte, casilla
@@ -574,11 +575,15 @@ class PaginaEdicion(QWidget):
         self.voz.setMinimumContentsLength(12)
         self.voz_btn = boton(f"🎙️  {t('Voz IA')}")
         self.voz_btn.clicked.connect(self.voz_ia)
+        self.voz_sola_btn = boton(f"✨  {t('Colocar sola en el video')}")
+        self.voz_sola_btn.setToolTip(t("Cada frase queda como un audio aparte, en la escena que le corresponde según lo que "
+                                       "se ve y se oye. Luego puedes moverla o deshacerlo todo de una vez."))
+        self.voz_sola_btn.clicked.connect(self.voz_en_escenas)
         fila, self.bajar_musica = casilla(t("Bajar la música cuando hablas"))
         fila.setToolTip(t("Mientras suena una voz (tu grabación o una voz IA), la música baja sola y luego vuelve"))
         self.bajar_musica.toggled.connect(self.poner_bajar_musica)
         return self._panel(musica, etiqueta(t("Voz IA: se añade en el cursor."), "sub"), self.texto_voz, self.voz,
-                           self.voz_btn, fila)
+                           self.voz_btn, self.voz_sola_btn, fila)
 
     def _panel_grabarte(self):
         self.grabarte = PanelGrabarte(self)
@@ -1436,9 +1441,102 @@ class PaginaEdicion(QWidget):
         r = render()
         if not hasattr(r, "voz_ia"):
             return mensaje_error(self, t("Aún no disponible"), AUN_NO)
+        texto = texto[:5000]
+        voz = elegir_voz(self, self.voz.currentData(), t("unos {costo}", costo=dinero(desde_prompt.costo_letras(len(texto)))))
+        if voz is None:
+            return
+        if desde_prompt.es_eleven(self.voz.currentData()) and not desde_prompt.voces_eleven():
+            self.estado.setText(t("ElevenLabs no atiende ahora: uso la voz gratis."))
+        self.voz.poner(voz)
         self._trabajo(lambda aviso, **k: _medir([str(r.voz_ia(**k))], aviso),
                       lambda res: self._importados(res, "voz"), self.voz_btn,
-                      texto=texto[:5000], voz=self.voz.currentData(), carpeta=self._carpeta())
+                      texto=texto, voz=voz, carpeta=self._carpeta())
+
+    def _permiso_envio(self, p) -> tuple[bool, bool]:
+        """(fotos, oír): lo que puede salir del PC para colocar la voz. Se pregunta en cada trabajo, porque cada video es
+        distinto, y solo lo que saldría de verdad: unas fotos a la IA de texto si las ve, lo que se dice en el video (en
+        texto, a esa IA) y su sonido al servicio que transcribe si hay uno conectado (OpenAI cobra por minuto). Un «No»,
+        que es lo de por defecto, vale para todo: se coloca igual, por los cortes, y a la IA no le llega nada del video."""
+        fotos, habla = ia.ve_fotos(), bool(p["subtitulos"]["palabras"]) or colocar_voz._suena(p)
+        nube = claves.para("transcripcion") or {}
+        sonido = bool(nube.get("clave")) and habla and not p["subtitulos"]["palabras"]
+        if not fotos and not habla:
+            return False, False
+        texto_ia = claves.para("texto") or {}
+        servicio = claves.nombre(texto_ia["proveedor"]) if texto_ia.get("clave") else "Pollinations"
+        lista = [t("Para colocar mejor la voz puedo mandar:")]
+        if fotos:
+            lista.append(t("Unas fotos pequeñas del video a {servicio}.", servicio=servicio))
+        if habla:
+            lista.append(t("Lo que se dice en el video, en texto, a {servicio}.", servicio=servicio))
+        if sonido and nube["proveedor"] == "openai":
+            minutos = min(edicion.duracion_total(p) / 60, ia.MINUTOS_NUBE)
+            lista.append(t("Su sonido a {servicio}, por unos {costo}.", servicio=claves.nombre("openai"),
+                           costo=dinero(minutos * ia.PRECIO_TRANSCRIPCION)))
+        elif sonido:
+            lista.append(t("Su sonido a {servicio}.", servicio=claves.nombre(nube["proveedor"])))
+        si = si_cuesta(self, t("Mandar partes de tu video"),
+                       "\n".join(lista) + "\n\n" + t("Sin eso me guío por los cortes del video. ¿Lo mando?"))
+        return fotos and si, habla and si
+
+    def voz_en_escenas(self):
+        """«Colocar sola en el video»: una voz por frase, cada una en su escena (motor/colocar_voz). El costo se dice antes
+        de empezar; lo que ya se oye no se pisa; entra todo en un solo «deshacer»."""
+        entero = self.texto_voz.toPlainText().strip()
+        texto = entero[:5000]
+        if not texto:
+            return mensaje(self, t("Falta el texto"), t("Escribe lo que dirá la voz."))
+        if not self.proyecto["clips"]:
+            return mensaje(self, t("Falta el video"), t("Añade primero un video o unas fotos: la voz se coloca según lo "
+                                                        "que se ve."))
+        # Este mismo video, aunque entre otro clip mientras contesta: lo que se pregunta es lo que se hace
+        p, carpeta, elegida = self.proyecto, self._carpeta(), self.voz.currentData()
+
+        def letras(quien):  # solo lo que falte por pagar con esa voz: al repetir, lo ya narrado no se cobra otra vez
+            return colocar_voz.letras_por_pagar(p, texto, quien, carpeta)
+        # Fija de ElevenLabs y ya pagado todo: no hay nada que preguntar
+        pagado = desde_prompt.es_eleven(elegida) and desde_prompt.voces_eleven() and \
+            not desde_prompt.toca_preguntar_voz(elegida) and not letras(elegida)
+        voz = elegida if pagado else elegir_voz(self, elegida, lambda quien: t(
+            "unos {costo}", costo=dinero(desde_prompt.costo_letras(letras(quien)))))
+        if voz is None:
+            return
+        notas = [t("ElevenLabs no atiende ahora: uso la voz gratis.")] \
+            if desde_prompt.es_eleven(elegida) and not desde_prompt.voces_eleven() else []
+        if len(entero) > len(texto):
+            notas.append(t("El texto pasaba de {n} letras: solo se narró hasta ahí.", n=len(texto)))
+        self.voz.poner(voz)
+        fotos, oir = self._permiso_envio(p)
+        antes = edicion.tiempos(p)
+        self._trabajo(colocar_voz.colocar, lambda r: self._voz_colocada(r, antes, carpeta, notas), self.voz_sola_btn,
+                      proyecto=p, texto=texto, voz=voz, carpeta=carpeta, fotos=fotos, oir=oir)
+
+    def _voz_colocada(self, r, antes, carpeta, notas):
+        """Las frases, en un solo «deshacer». Si abrió otro video mientras trabajaba no entran en ese: lo pagado queda en
+        la carpeta del suyo. Las que no quepan en el tope de audios (añadió alguno mientras tanto) quedan fuera y se dice."""
+        if self.carpeta != carpeta:
+            return mensaje(self, t("Voz colocada"), t("Cambiaste de video mientras trabajaba: no añadí las voces a este. "
+                                                      "Quedaron en {carpeta}.", carpeta=Path(carpeta) / "voces"))
+        p = self.proyecto
+        audios = r["audios"][:max(edicion.MAX_AUDIOS - len(p["audios"]), 0)]
+        notas = [*notas, *r["notas"]]
+        if len(audios) < len(r["audios"]):
+            notas.append(t("{n} frases se quedaron sin voz, desde «{frase}»: {motivo}", n=len(r["audios"]) - len(audios),
+                           frase=r["frases"][len(audios)]["texto"][:60], motivo=t("Este video ya tiene el máximo de audios "
+                                                                                  "({n}): quita alguno para añadir la voz.",
+                                                                                  n=edicion.MAX_AUDIOS)))
+        if edicion.tiempos(p) != antes:
+            notas.append(t("Cambiaste el video mientras trabajaba: revisa dónde quedó cada frase."))
+        if audios:
+            try:
+                limpio = edicion.validar({**p, "audios": p["audios"] + [{**a, "id": None} for a in audios]})
+            except ValueError as e:
+                return mensaje_error(self, t("No se pudo añadir"), e)
+            self._aplicar(limpio)
+            self._elegir(limpio["audios"][-len(audios)]["id"])
+            self.estado.setText(t("Frases colocadas: {n}. Si alguna no cae bien, muévela o pulsa Deshacer.", n=len(audios)))
+        if notas:
+            mensaje(self, t("Voz colocada"), "\n\n".join(notas))
 
     # ---------- Subtítulos ----------
 

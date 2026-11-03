@@ -325,7 +325,7 @@ Las ideas, los informes de errores y los pull requests son bienvenidos. Lee [CON
 empezar. Buenas primeras contribuciones: nuevos proveedores gratis en `motor/nubes.py`, estilos de voz en
 `motor/cabina.py`, géneros en `motor/musica.py` y traducciones en `idiomas/`.
 
-Si Ráfaga Studio te resulta útil, dale una estrella al repositorio. Así lo encuentran más creadores.
+Si Ráfaga Studio te resulta útil, dale una estrella al repositorio, así lo encuentran más creadores, o haz una [donación por PayPal](https://www.paypal.com/donate/?business=rodriguezsanto17%40gmail.com&no_recurring=0&currency_code=USD&item_name=Apoyo%20a%20R%C3%A1faga%20Studio).
 
 ## Uso responsable
 

@@ -332,7 +332,7 @@ Ideas, bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIB
 contributions include new free providers in `motor/nubes.py`, vocal styles in `motor/cabina.py`, music genres in
 `motor/musica.py` and translations in `idiomas/`.
 
-If Ráfaga Studio is useful to you, please star the repository. It helps other creators find it.
+If Ráfaga Studio is useful to you, please star the repository, which helps other creators find it, or make a [donation through PayPal](https://www.paypal.com/donate/?business=rodriguezsanto17%40gmail.com&no_recurring=0&currency_code=USD&item_name=Apoyo%20a%20R%C3%A1faga%20Studio).
 
 ## Responsible use
 

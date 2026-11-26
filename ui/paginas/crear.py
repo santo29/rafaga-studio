@@ -70,12 +70,19 @@ class PaginaCrear(PaginaTrabajo):
         fila_camara.addWidget(self.camara)
         fila_camara.addWidget(self.costo_foto, 1)
         self.fila_camara.hide()
+        # Su canción o pista de fondo: baja sola cuando habla la voz y se funde al final (no en «Foto a video»)
+        fila_musica, self.musica = campo_archivo(t("Música de fondo (opcional): tu canción o pista"),
+                                                 t("Audio ({tipos})", tipos="*.mp3 *.wav *.m4a *.ogg *.flac"))
+        self.fila_musica = QWidget()
+        self.fila_musica.setLayout(fila_musica)
+        fila_musica.setContentsMargins(0, 0, 0, 0)
         self.form_lay.addWidget(self.prompt)
         self.form_lay.addLayout(fila_modelo)
         self.form_lay.addWidget(etiqueta(t("Formato"), "sub"))
         self.form_lay.addWidget(self.formato)
         self.form_lay.addLayout(fila_foto)
         self.form_lay.addWidget(self.fila_camara)
+        self.form_lay.addWidget(self.fila_musica)
         self.form_lay.addWidget(etiqueta(t("Privacidad: con «Automático», sin tu nube Modal las imágenes se animan en "
                                            "un Space público de Hugging Face. Para que no salgan de tu cuenta, conecta "
                                            "y elige «Mi nube Modal» en «Claves de IA»."), "sub"))
@@ -129,6 +136,7 @@ class PaginaCrear(PaginaTrabajo):
         foto = self.modo.currentIndex() == 1
         self.fila_camara.setVisible(foto)
         self.animado.setVisible(not foto)  # un clip de la foto, sin voz: nada que hable
+        self.fila_musica.setVisible(not foto)  # el clip de la foto va sin sonido
         self.prompt.setPlaceholderText(t("Qué se mueve en la foto (opcional). Ej.: sube el vapor y el queso se derrite")
                                        if foto else t("Ej.: 5 datos impactantes sobre el océano profundo, tono "
                                                       "misterioso"))
@@ -174,4 +182,5 @@ class PaginaCrear(PaginaTrabajo):
         # Animado es de pago: lanzar pregunta antes cuánto, junto con lo que cueste animar (ver _pagar_video)
         self.lanzar(self.iniciar, desde_prompt.generar, modelo_video=modelo, prompt=texto, formato=self.formato.valor(),
                     segundos=self.segundos.value(), voz=self.voz.currentData(), imagen=imagen,
-                    animado=self.animado.isChecked(), estilo=self.estilo.currentData())
+                    animado=self.animado.isChecked(), estilo=self.estilo.currentData(),
+                    musica=self.musica.text().strip())

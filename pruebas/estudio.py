@@ -390,7 +390,8 @@ try:
             memoria.recordar(d, f"{i} " + "x" * (memoria.MAX_LARGO - 2))
     ia.texto_json, llena = guion(FIN)
     director.dirigir("hola")
-    assert len(llena[0][0]) - len(vacia[0][0]) < 10_000 and len(memoria.para("video")) < 2_100
+    assert llena[0][0] == vacia[0][0]  # las instrucciones no cambian con la memoria (Claude las lee de su caché)
+    assert len(llena[0][1]) - len(vacia[0][1]) < 10_000 and len(memoria.para("video")) < 2_100
     memoria.ARCHIVO.unlink()
 finally:
     ia.texto_json, claves.para = _pensar, _para
@@ -407,7 +408,7 @@ assert voz.si_o_no("espérate") is False and voz.si_o_no("aguanta un momento") i
 # ---------- El examen del Director, comprobado con una IA falsa (el de verdad gasta: no va aquí) ----------
 from pruebas import examen_director as examen  # noqa: E402
 
-assert 15 <= len(examen.CASOS) <= 21 and all(c["ejemplo"][0] in c["valen"] for c in examen.CASOS)
+assert 15 <= len(examen.CASOS) <= 30 and all(c["ejemplo"][0] in c["valen"] for c in examen.CASOS)
 examen.PAUSA = 0
 real = director._usar
 

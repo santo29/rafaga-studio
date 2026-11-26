@@ -137,8 +137,9 @@ def orden(uso: str) -> list[str]:
     elegido = claves.ajustes().get(uso, "auto")
     lista = [p for p in ORDEN[uso] if p in conectados]
 
-    def malo(p):
-        return bool(claves._vigente(p, claves.BLOQUEA if p == "modal" else {"sin_saldo"}))
+    def malo(p):  # al final de la lista (sigue de respaldo): sin saldo, o sin la cuota gratis (una hora: puede volver)
+        return bool(claves._vigente(p, claves.BLOQUEA if p == "modal" else {"sin_saldo"})
+                    or p in CUOTA_DIARIA and claves._vigente(p, {"sin_cuota"}, SIN_CUOTA))
     if elegido == claves.GRATIS.get(uso) == "pollinations":
         # Eligió «Pollinations (gratis)»: solo opciones gratis y nunca una de pago, aunque fallen todas.
         # Hugging Face también es gratis; Pollinations sin clave va al final por su baja calidad.
@@ -159,6 +160,9 @@ def orden(uso: str) -> list[str]:
 
 
 CUOTA_DIARIA = {"cloudflare", "huggingface"}  # su 429 es la cuota gratis del día; en los demás, saldo o límite por minuto
+# Lo que se deja al final de la lista uno de esos sin cuota: un 429 también puede ser pasajero (la cola de GPU del Space
+# dice «vuelve en 4 min») y Cloudflare repone a las 00:00 UTC. Lo bastante para no probarlo en cada escena de un trabajo
+SIN_CUOTA = 3600
 
 
 def _causa(e: Exception, proveedor: str) -> str:
@@ -211,12 +215,16 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
             causa = _causa(e, proveedor)
             if proveedor in claves.USOS and re.search(r"\b402\b|insufficient[_ ]balance", f"{e} {causa}", re.I):
                 claves.recordar(proveedor, 402, causa)  # sin saldo: la próxima imagen ya no lo espera (orden)
+            elif proveedor in CUOTA_DIARIA & set(claves.USOS) and causa == t("se acabó la cuota gratis de hoy"):
+                claves.recordar(proveedor, 429, causa)  # la cuota del día: cada escena volvía a probarlo primero
             _apuntar(uso, proveedor, que_fue, causa, paso_a=siguiente)
             errores.append(f"{NOMBRES.get(proveedor, proveedor)}: {causa if len(causa) <= 400 else causa[:150] + ' … ' + causa[-240:]}")
             aviso(t("{proveedor} no pudo; pruebo la siguiente opción…", proveedor=NOMBRES.get(proveedor, proveedor)),
                   progreso)
             continue
         _apuntar(uso, proveedor, que_fue)
+        if proveedor in CUOTA_DIARIA & set(claves.USOS):
+            claves.recordar(proveedor, 200)  # vuelve a atender: deja de estar «sin cuota» (solo escribe si lo estaba)
         try:
             contar(proveedor)
         except Exception:  # el contador es informativo: nunca debe tirar un resultado ya hecho (y pagado)

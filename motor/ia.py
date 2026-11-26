@@ -651,12 +651,14 @@ def si_gratis(corto: Callable[[], tuple[str, str | list]]):
     finally:
         _CORTO.reset(marca)
 PLAZO_CLAUDE = 120  # s sin recibir nada de Claude (en streaming llega algo cada pocos segundos): la conexión se cayó
+PLAZO_LARGO = 600  # s para la respuesta entera de un guion (las compatibles con OpenAI van sin streaming)
 
 
 @contextlib.contextmanager
-def charla():
-    """Los pedidos de dentro son turnos de una conversación: con Claude piensan poco y guardan sus instrucciones en caché."""
-    marca = _CHARLA.set(True)
+def charla(cache: bool | str = True):
+    """Los pedidos de dentro son turnos de una conversación: con Claude piensan poco y guardan sus instrucciones en caché.
+    cache="1h": las instrucciones son siempre las mismas (el Director con Claude elegido): caché de 1 hora."""
+    marca = _CHARLA.set(cache)
     try:
         yield
     finally:
@@ -710,9 +712,11 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
                 # En streaming un tope alto no cuesta si no se usa, y lo que piensa también cuenta en él
                 model=modelo, max_tokens=16000 if rapido else 64000,
                 # El Director manda las mismas instrucciones (largas) en cada paso y en cada pedido: en caché cuestan y
-                # tardan menos. De 1 hora (escribirla cuesta 2 × y no 1,25 ×): entre un paso y el siguiente va una
-                # herramienta de varios minutos, y la de 5 se perdía. En un pedido suelto no se recupera: ahí no se pide
-                system=[{"type": "text", "text": instrucciones, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+                # tardan menos. De 1 hora si son siempre las mismas (charla("1h"): escribirla cuesta 2 × y no 1,25 ×,
+                # pero entre un paso y el siguiente va una herramienta de varios minutos y la de 5 se perdía); de 5
+                # minutos si cambian (Claude de respaldo con el catálogo corto). En un pedido suelto, no se pide
+                system=[{"type": "text", "text": instrucciones,
+                         "cache_control": {"type": "ephemeral", **({"ttl": "1h"} if charla == "1h" else {})}}]
                 if charla else instrucciones,
                 output_config={"effort": "low" if rapido else "medium",
                                "format": {"type": "json_schema", "schema": esquema}},
@@ -738,7 +742,8 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
     from openai import APIStatusError, OpenAI, Timeout
     # Con plazo, como Claude (_claude): el de fábrica espera 10 min por intento y lo repite dos veces
     cliente = OpenAI(api_key=c["clave"], base_url=claves.OPENAI_COMPAT[c["proveedor"]],
-                     timeout=Timeout(PLAZO_CLAUDE, connect=15.0))
+                     # sin streaming el plazo cubre la respuesta entera: un guion largo que razona tarda más de 120 s
+                     timeout=Timeout(PLAZO_CLAUDE if rapido else PLAZO_LARGO, connect=15.0))
     # El modo json_object funciona en todos los compatibles; el esquema va en las instrucciones.
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con JSON que cumpla este esquema:\n"
                                               f"{json.dumps(esquema)}"},
@@ -755,7 +760,9 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
             # Un modelo que no deja apagarlo: otra vez, como siempre (no cuenta como intento: no respondió nada)
             if sin_razonar and e.status_code == 400:
-                _RAZONA_IGUAL.add((c["proveedor"], modelo))
+                # solo si es eso (no una clave mal o la moderación): lo dice su mensaje
+                if "reasoning" in f"{e} {json.dumps(getattr(e, 'body', None), default=str)}".lower():
+                    _RAZONA_IGUAL.add((c["proveedor"], modelo))
                 sin_razonar = {}
                 continue
             raise _error_texto(c, e.status_code, motivo(e.response)) from None
@@ -1339,7 +1346,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         return None
     todas = claves.cargar()
     movimiento = direccion_video(prompt)
-    if pago == "gemini":  # su propio sonido de ambiente; el montaje lo deja mudo
+    if pago == "gemini":  # su propio sonido de ambiente: el montaje lo pone bajo la voz (video.escena_de_clip)
         return video_hablado(f"Animate this exact image as the first frame. {movimiento} No dialogue, no voice-over, "
                              "no music: only natural ambient sound.", formato, destino, imagen_png, "gemini")
     if forzar and not orden_foto():  # antes de subir nada
@@ -1363,9 +1370,10 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 
     def de_pago(proveedor):  # Kling o Seedance (solo si el usuario lo eligió): clip mudo que el montaje repite
         modulo = claves.modulo_video(proveedor)
-        try:
+        try:  # Kling 3.0 Turbo suena siempre: su sonido va bajo la narración, así que nada de voces ni música
             _recordar_modelo(proveedor, "modelo_video",
-                             modulo.animar(todas[proveedor], imagen_png, movimiento, destino, modulo.SEGUNDOS_CLIP))
+                             modulo.animar(todas[proveedor], imagen_png, f"{movimiento} No dialogue, no voice-over, no "
+                                           "music: only natural ambient sound.", destino, modulo.SEGUNDOS_CLIP))
         except SinSaldo as e:  # el trabajo siguiente ya avisa antes de empezar (claves.impide)
             claves.recordar(proveedor, 402, str(e))
             raise

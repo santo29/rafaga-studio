@@ -16,10 +16,11 @@ import numpy as np
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from motor import anuncios, desde_prompt, ia, marca, video  # noqa: E402
+from motor import anuncios, claves, desde_prompt, ia, marca, video  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-acabado-"))
 marca.ARCHIVO = tmp / "marca.json"  # nunca la marca del usuario
+claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # ni sus claves (montar mira las imágenes)
 
 
 def hacer(nombre, *args) -> Path:
@@ -38,6 +39,14 @@ def cuadro(archivo: Path, segundo: float) -> np.ndarray:
 def sonido(archivo: Path) -> np.ndarray:
     return np.frombuffer(subprocess.run([video.FFMPEG, "-v", "error", "-i", str(archivo), "-f", "f32le", "-ac", "1",
                                          "-ar", "48000", "-"], capture_output=True).stdout, np.float32)
+
+
+def banda(archivo: Path, filtro: str, desde: float, hasta: float) -> float:
+    """El volumen (RMS) de un tramo, solo de lo que deja pasar el filtro (una banda de frecuencias)."""
+    pcm = np.frombuffer(subprocess.run([video.FFMPEG, "-v", "error", "-i", str(archivo), "-af", filtro, "-f", "f32le",
+                                        "-ac", "1", "-ar", "48000", "-"], capture_output=True).stdout, np.float32)
+    trozo = pcm[int(desde * 48000):int(hasta * 48000)]
+    return float(np.sqrt(np.mean(trozo ** 2)))
 
 
 def sonoridad(archivo: Path) -> dict:
@@ -70,7 +79,23 @@ for hecho, dura in ((video.escena_de_clip(clip, voz, "9:16", [], tmp / "escena_c
     cambios = [np.abs(b - a).mean() for a, b in zip(cola, cola[1:])]
     assert min(cambios) > 1, (hecho.name, cambios)  # quieta: 0,0; acercándose: ~4
     assert re.search(r"yuv420p\(tv, bt709", video._leer_ffmpeg("-i", hecho))
-print("Clips sin volver a empezar ni quedarse quietos pasados.")
+# El sonido propio de un clip de IA (Gemini o Kling lo traen, y se paga): va bajo la voz, baja más cuando la voz
+# habla y la voz se oye entera. Antes el montaje lo tiraba
+clip_son = hacer("clip_son.mp4", "-f", "lavfi", "-i", "color=c=gray:s=320x568:r=30:d=2", "-f", "lavfi", "-i",
+                 "sine=frequency=3000:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+voz_hueco = hacer("voz_hueco.wav", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1", "-f", "lavfi", "-i",
+                  "sine=frequency=300:duration=1.5,volume=4", "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1")
+con_son = video.escena_de_clip(clip_son, voz_hueco, "9:16", [], tmp / "escena_ambiente.mp4", ambiente=True)
+sin_son = video.escena_de_clip(clip_son, voz_hueco, "9:16", [], tmp / "escena_muda.mp4")
+assert abs(video.duracion(con_son) - 2.75) < 0.08, video.duracion(con_son)
+AMBIENTE, VOZ = "highpass=f=2000,highpass=f=2000,highpass=f=2000", "lowpass=f=450,lowpass=f=450"
+solo, bajo = banda(con_son, AMBIENTE, 0.15, 0.85), banda(con_son, AMBIENTE, 1.3, 2.2)
+assert solo > 0.005 > banda(sin_son, AMBIENTE, 0.15, 0.85) * 10, solo  # se oye (sin ambiente, nada)
+assert bajo < solo / 2, (solo, bajo)  # y baja cuando habla la voz
+assert abs(banda(con_son, VOZ, 1.3, 2.2) - banda(sin_son, VOZ, 1.3, 2.2)) < 0.02  # la voz, igual de entera
+estandar_clip = video._leer_ffmpeg("-i", con_son)
+assert "44100 Hz" in estandar_clip and "Audio: aac" in estandar_clip, estandar_clip
+print("Clips sin volver a empezar ni quedarse quietos, y su sonido bajo la voz, pasados.")
 
 # ---------- 2. El acabado: fundido, look, texto en pantalla, -14 LUFS, estéreo ----------
 rojo = hacer("rojo.png", "-f", "lavfi", "-i", "color=c=0xC02020:s=576x1024", "-frames:v", "1")
@@ -104,6 +129,11 @@ assert abs(float(sonoridad(partes[0])["input_i"]) + 14) > 5  # antes de acabarlo
 # La voz de cada escena, entera y en su sitio: la 1.ª suena hasta el fundido y la 2.ª, desde que empieza su escena
 pcm = sonido(final)
 assert all(np.abs(pcm[int(x * 48000):int((x + 0.2) * 48000)]).max() > 0.05 for x in (corte - 0.25, corte + 0.05))
+# Acaba en negro y en silencio (antes, en seco); sin fundido (lo que va antes del cierre de un anuncio), no
+fin = video.duracion(final)
+sin_fundido = video.unir(partes, tmp / "final_sin_fundido.mp4", "9:16", fundido=False)
+assert cuadro(final, fin - 0.1).mean() * 3 < cuadro(sin_fundido, video.duracion(sin_fundido) - 0.1).mean(), fin
+assert np.abs(pcm[-2400:]).max() < 0.02 < np.abs(sonido(sin_fundido)[-24000:-2400]).max()
 # Con colores de marca: caja de su color y la letra que mejor se lee (amarillo: negra)
 marca.guardar({**marca.POR_DEFECTO, "colores": ["#FFD400"]})
 video._titulos_ass([LEMA], [0], [2], "9:16", tmp / "marca.ass")
@@ -140,7 +170,8 @@ desde_prompt.narrar = lambda texto, v, destino: narradas.append(texto) or shutil
 ia.video_desde_imagen = lambda img, prompt, f, s, destino, pago: pedidos.append(prompt) or (
     clip if "dolly" in prompt else None)
 video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escena
-video.escena_de_clip = lambda c, audio, f, palabras, escena: escena
+ambientes = []
+video.escena_de_clip = lambda c, audio, f, palabras, escena, **k: ambientes.append(k) or escena
 video.unir = lambda partes, destino, *a: unidos.append(a) or destino
 guion = {"estilo_visual": "cinematic food photography, warm light", "escenas": [
     {"narracion": "Mira esta hamburguesa.", "imagen": "a cheeseburger on a board",
@@ -172,6 +203,7 @@ assert abs(video.duracion(tmp / "mudo" / "video_final_voz_00.mp3") - desde_promp
 assert notas == ["Sin movimiento real en 2 de 3 escenas: van con su imagen y un zoom suave."], notas
 assert mudas[-1] == MUDO and MUDO not in con_musica, (mudas, con_musica)  # nunca mudo sin decirlo
 assert unidos[0][:4] == ("9:16", ["", "", LEMA], "dorado", None), unidos
+assert unidos[0][5] is True and ambientes[0] == {"ambiente": True}, (unidos, ambientes)  # fundido y su sonido
 # La barra: el acabado tiene su tramo después de las escenas (como una más) y su avance la lleva hasta el final
 assert [f for texto, f in avisos] == sorted(f for texto, f in avisos), avisos
 assert [texto for texto, f in avisos[-2:]] == [ACABADO] * 2, avisos

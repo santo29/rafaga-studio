@@ -2,6 +2,34 @@
 
 All notable changes to Ráfaga Studio are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Create with AI takes a song or track of yours as background music: it drops while the voice speaks and fades out at
+  the end. The Director passes it when you attach a song and ask for a video.
+- Paid AI clips that bring their own sound (Gemini, and Kling when its model adds sound) keep it under the
+  narration, lower while the voice speaks. Before, the montage muted it.
+- Videos end with a short fade to black and silence (ads skip it, because their closing card follows).
+
+### Changed
+
+- The AI Director answers without any key: its instructions did not fit the free AI (it rejected every request). In a
+  test of 29 typical requests with the free AI and no keys, it now picks the right first step in most of them.
+- With Claude, the Director's instructions stay the same in every step and request, so Claude reads them from its cache
+  for an hour: faster and cheaper from the second step.
+- The Director never runs the same step with the same arguments twice in one request, and its error messages tell it
+  which arguments are valid. Yes/no written as text and Python-style arguments are read correctly.
+- Free images for a video and the character sheets of a series are requested three at a time instead of one by one.
+  Paid images keep going one by one, so a job that fails midway does not pay for unused images.
+- The free text AI waits only what is left of its 30 seconds; OpenAI and Gemini think less on each Director step; the
+  OpenAI-compatible client has a time limit.
+- A free image service that ran out of today's quota is tried last for the next scenes instead of first.
+- Ads: the web research has a 150-second limit, trimmed scenes keep the call to action and narration is never cut
+  mid-word. If AI video fails in one ad variant, the next variants do not wait for it again.
+- Shorts, ads and music videos check the format before downloading or spending anything.
+- A series is found by part of its title, and characters are recognized even with different accents or capital letters.
+
 ## 1.1.0 (2026-11-03)
 
 ### Added

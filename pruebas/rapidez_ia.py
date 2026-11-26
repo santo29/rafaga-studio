@@ -250,7 +250,7 @@ try:
                                  cache_creation=types.SimpleNamespace(ephemeral_1h_input_tokens=3000))),
                    Flujo(mensaje('{"palabra": "dos"}', input_tokens=100, output_tokens=50,
                                  cache_creation_input_tokens=0, cache_read_input_tokens=3000))]
-    with ia.charla():
+    with ia.charla("1h"):  # el Director con Claude elegido: sus instrucciones no cambian
         ia.texto_json("instrucciones largas", "turno 1", ESQ)
         ia.texto_json("instrucciones largas", "turno 2", ESQ)
     assert not ia._CHARLA.get()  # fuera del with, todo vuelve a ser normal
@@ -258,7 +258,12 @@ try:
     assert (k["max_tokens"], k["output_config"]["effort"]) == (16000, "low")
     assert k["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
     assert "instrucciones largas" in k["system"][0]["text"]
-    dos, uno = actividad.ultimas(2)
+    # Claude de respaldo con instrucciones que cambian de un paso a otro: la de 5 minutos (escribir la de 1 hora, 2 ×)
+    respuestas.append(Flujo(mensaje('{"palabra": "tres"}', input_tokens=100, output_tokens=50)))
+    with ia.charla():
+        ia.texto_json("instrucciones largas", "turno 3", ESQ)
+    assert pedidos_claude[-1]["system"][0]["cache_control"] == {"type": "ephemeral"}
+    _, dos, uno = actividad.ultimas(3)
     assert abs(uno["costo"] - (100 * 4 + 3000 * 4 * 2 + 50 * 20) / 1e6) < 1e-12, uno
     # Sin el desglose por duración (o la de 5 minutos), 1,25 ×
     assert abs(ia._costo_claude("claude-opus-5-5", types.SimpleNamespace(
@@ -273,7 +278,7 @@ try:
         assert director.dirigir("hola, ¿qué sabes hacer?")["mensaje"] == "Hola."
     finally:
         ia.texto_json = pensar
-    assert vistos == [True]
+    assert vistos == ["1h"]  # con Claude elegido, siempre las mismas: caché de 1 hora
 
     # El repaso de ortografía: rápido
     respuestas.append(Flujo(mensaje('{"textos": ["Hola amigo"]}', input_tokens=50, output_tokens=10)))

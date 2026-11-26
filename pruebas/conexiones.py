@@ -688,6 +688,8 @@ assert (datos, quien) == (b"png", "pollinations")
 polli, cf = actividad.ultimas(2)
 assert cf["resultado"] == "fallo" and cf["paso_a"] == "pollinations" and "cuota gratis" in cf["motivo"], cf
 assert polli["resultado"] == "ok" and polli["modelo"] == "zimage"
+# La cuota del día queda recordada: las escenas siguientes ya no la prueban primero (antes, una vuelta en cada una)
+assert claves.estados()["cloudflare"]["estado"] == "sin_cuota" and nubes.orden("imagen")[-1] == "cloudflare"
 
 # Edición con referencia sin saldo (Pollinations Kontext, 402): un error en claro, sin el texto de httpx
 foto = tmp / "foto.png"
@@ -701,7 +703,8 @@ try:
     assert str(e) == "Pollinations respondió 402: Payment Required" and "mozilla" not in str(e), e
     assert actividad.ultimas(1)[0]["resultado"] == "fallo" and "402" in actividad.ultimas(1)[0]["motivo"]
     # Su «sin saldo» queda recordado: las escenas siguientes ya no lo esperan (ni la rotación de imágenes)
-    assert claves.estados()["pollinations"]["estado"] == "sin_saldo" and nubes.orden("imagen")[-1] == "pollinations"
+    assert claves.estados()["pollinations"]["estado"] == "sin_saldo" and nubes.orden("imagen")[-2:] == [
+        "pollinations", "cloudflare"]  # los dos que no atienden, al final (Cloudflare, sin la cuota de hoy)
     # Con respaldo (Crear con foto, Anuncios): la escena sale igual, con la foto sobre un fondo nuevo, y se dice una
     # sola vez aunque fallen varias escenas igual
     from motor import anuncios, video  # noqa: E402

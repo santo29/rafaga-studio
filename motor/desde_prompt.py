@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -75,7 +76,7 @@ INSTRUCCIONES = """Eres director creativo y guionista de una productora de video
 Facebook. Primero entiendes el pedido como un profesional y luego escribes el plan de rodaje, escena por escena.
 - """ + FALTAS + """
 - brief (lo primero, de 3 a 6 líneas cortas): objetivo, público, plataforma y formato, gancho, estilo visual y luz,
-  sonido (voz, música, sonidos) y texto en pantalla o llamada a la acción. Lo que el usuario no dijo lo decides tú
+  tono de la voz y texto en pantalla o llamada a la acción. Lo que el usuario no dijo lo decides tú
   con criterio profesional: nunca preguntes.
 - entendido: una frase corta, en el idioma del usuario, con lo que entendiste del pedido (sin empezar por «Entendí»).
 - Lo que el usuario escribió manda: si numera escenas o planos, haz exactamente esas, en su orden y con lo que pasa
@@ -444,16 +445,20 @@ def prompt_hablado(escena: dict, guion: dict) -> str:
 
 def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "es-DO-EmilioNeural",
             imagen: str = "", aviso: Callable[[str, float], None] = lambda t, f: None, guion: dict | None = None,
-            animado: bool = False, estilo: str = "") -> dict:
+            animado: bool = False, estilo: str = "", musica: str = "") -> dict:
     """Video completo desde un pedido. Con `imagen`, la primera escena es esa foto y las demás mantienen su sujeto.
     guion: el guion ya escrito (con la forma de ESQUEMA) por quien maneja el estudio; entonces no se usa la IA de texto.
     animado: cada escena es un video de IA con su propia voz (los personajes hablan con los labios sincronizados).
     Es de pago (ver costo_hablado): solo con True; las escenas que fallen se hacen con imagen y narración.
-    estilo: un nombre de serie.ESTILOS (o un estilo en inglés); vacío = lo elige la IA."""
+    estilo: un nombre de serie.ESTILOS (o un estilo en inglés); vacío = lo elige la IA.
+    musica: la ruta de una canción o pista suya para el fondo: baja sola cuando se habla y se funde al final."""
     from . import serie  # aquí: serie importa este módulo
     estilo = serie.ESTILOS.get(estilo, estilo)
     if imagen:
         imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
+    fondo = seguro.archivo_medio(musica, seguro.AUDIOS, t("música")) if musica else None  # antes de gastar nada
+    if fondo and not video._trae_audio(fondo):  # un .mp4 sin sonido pasa la firma y el montaje fallaba al final, pagado
+        raise ValueError(t("La música que diste no trae sonido: {nombre}.", nombre=fondo.name))
     if formato not in video.FORMATOS:  # antes de gastar: un formato raro tumbaría el montaje ya pagado
         raise ValueError(t("Formato no válido: usa 9:16, 16:9, 1:1 o 4:5."))
     animado = animado is True  # «"false"» o «1» de una IA no son un sí: lo de pago, solo pedido de verdad
@@ -487,7 +492,11 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
                     "en la foto y escribe «the subject from the reference image».") if imagen else ""
         hablado = (f"\nCada escena será un video de IA de {SEGUNDOS_HABLADO} segundos con su propio sonido: como "
                    f"mucho 18 palabras de narración por escena.") if animado and not lineas else ""
-        palabras = "" if mudo else f" (~{int(segundos * ritmo)} palabras de narración)"
+        # La cuenta por escena la hace el código: repartirla era cosa de la IA, que escribía de más (30 s salían 38,6 s)
+        # y luego al_tiempo quitaba frases
+        total = int(segundos * ritmo)
+        palabras = "" if mudo else (f" (~{total} palabras de narración en total: unas "
+                                    f"{max(6, round(total / max(escenas_aprox, 1)))} por escena, 1 o 2 frases)")
         cuanto = (f", {len(lineas)} escenas (una por cada línea de narración del usuario)" if lineas else
                   f"{palabras}, {escenas_aprox} escenas: las que numeró el usuario, en su orden" if pedidas else
                   f"{palabras}, unas {escenas_aprox} escenas")
@@ -541,7 +550,7 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     elif mudo:  # sin voz y sin sus tiempos: los segundos pedidos, repartidos (si no, 6 escenas mudas eran 18 s)
         for e in guion["escenas"]:
             e["segundos"] = round(segundos / len(guion["escenas"]), 1)
-    if de_la_ia and _MUSICA.search(prompt):
+    if de_la_ia and not fondo and _MUSICA.search(prompt):
         notas.append(t("Pediste música y este video no la lleva: ponla en el Editor de video con «Importar música o "
                        "sonido»."))
     if animado and lineas:  # sin el tope de 18 palabras: cada escena sigue siendo un clip de pago de SEGUNDOS_HABLADO s
@@ -593,7 +602,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
     try:  # la imagen que ya hizo clips_hablados (el primer fotograma de Kling) no se pide otra vez
         final = montar(guion, carpeta, formato, voz, aviso, respaldo=foto, notas=notas, hablados=hablados,
                        crear_imagen=lambda p, w, h, d: d if d.is_file() else dibujar(p, w, h, d),
-                       desde=0.7 if animado else 0.1, pago=pago, sin_pago=cobrados, velocidad=velocidad)
+                       desde=0.7 if animado else 0.1, pago=pago, sin_pago=cobrados, velocidad=velocidad,
+                       musica=fondo)
     except Exception as error:
         relanzar_con_gasto(error, notas, carpeta)
     # su texto no se acortó (si el tope quitó alguna línea, ya se dijo: no se usó «tal cual»)
@@ -774,14 +784,71 @@ def _ya_animada(clip: Path, imagen) -> bool:
         return False
 
 
+class _Adelantos:
+    """Trabajos pedidos por delante (las imágenes gratis de un video, las láminas de una serie), como mucho `a_la_vez`
+    en marcha, cada uno en un hilo daemon: al cerrar la app no se les espera (un ThreadPoolExecutor sí, y antes de
+    cerrar vaciaba su cola entera; ver nichos._a_tiempo). trabajos: [(clave, argumentos)], en orden; recoger(clave)
+    devuelve lo que dio funcion(*argumentos) o lanza su error, y pide el siguiente de la lista."""
+
+    def __init__(self, trabajos: list, funcion: Callable, a_la_vez: int = 3):
+        self._cola, self._funcion, self._hechos, self._parado = list(trabajos), funcion, {}, False
+        self._claves = {clave for clave, _ in trabajos}
+        for _ in range(a_la_vez):
+            self._siguiente()
+
+    def __contains__(self, clave) -> bool:
+        return clave in self._claves
+
+    def __bool__(self) -> bool:
+        return True
+
+    def _siguiente(self) -> None:
+        if self._parado or not self._cola:
+            return
+        clave, argumentos = self._cola.pop(0)
+        listo, salida = threading.Event(), {}
+
+        def correr():
+            try:
+                salida["valor"] = self._funcion(*argumentos)
+            except BaseException as error:  # noqa: BLE001  se relanza en el hilo del trabajo, al recogerlo
+                salida["error"] = error
+            finally:
+                listo.set()
+        self._hechos[clave] = (listo, salida)
+        threading.Thread(target=correr, daemon=True).start()
+
+    def recoger(self, clave):
+        while clave not in self._hechos and self._cola:  # aún no se pidió (no debería pasar): se piden los de antes
+            self._siguiente()
+        listo, salida = self._hechos.pop(clave)
+        listo.wait()
+        self._siguiente()
+        if "error" in salida:
+            raise salida["error"]
+        return salida["valor"]
+
+    def parar(self) -> None:
+        self._parado = True  # lo que ya está en marcha termina solo; lo de la cola no se pide
+
+
+def _imagenes_gratis() -> bool:
+    """Si las imágenes de este trabajo salen gratis: la IA de imágenes elegida no cobra (Gemini y las de
+    ia.PRECIO_IMAGEN sí) ni edita con una foto de referencia (los anuncios pegan el producto con ella)."""
+    proveedor = (claves.para("imagen") or {}).get("proveedor")
+    return proveedor != "gemini" and not ia.PRECIO_IMAGEN.get(proveedor) and not ia.puede_referencia()
+
+
 def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[str, float], None],
            nombre: str = "video_final", crear_imagen: Callable | None = None, desde: float = 0.1,
            hasta: float = 0.97, respaldo: Path | None = None, notas: list | None = None,
            hablados: dict[int, Path] | None = None, pagados: dict | None = None, pago: str | None = None,
-           sin_pago=frozenset(), velocidad: float = 1.0, musica: Path | None = None) -> Path:
+           sin_pago=frozenset(), velocidad: float = 1.0, musica: Path | None = None,
+           fundido: bool = True) -> Path:
     """Convierte un guion (escenas con narración e imagen; opcionales: «movimiento», lo que se mueve en el plano, y
     «texto_pantalla», lo que se lee sin decirse) en un video terminado, con el acabado de estudio de video.unir.
     musica: una pista de fondo (sin voz) que baja cuando se habla; sin narración, lleva el video.
+    fundido: acaba en negro y en silencio; False si después va otro tramo (el cierre de un anuncio).
     velocidad: la de la voz (1.2 = un 20 % más rápida), para que la narración del usuario quepa en lo pedido.
     crear_imagen(prompt, ancho, alto, destino) permite cambiar cómo se hacen las imágenes (p. ej. con el producto).
     respaldo: imagen que existe y se usa si falla una imagen y todavía no hay ninguna buena (p. ej. la foto).
@@ -797,99 +864,113 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     partes, n, quietas = [], len(guion["escenas"]), 0  # quietas: las escenas que van sin movimiento real
     # El acabado (video.unir) tarda como una escena: tiene su tramo de la barra, del nuevo `hasta` al de antes (`fin`)
     hasta, fin = desde + (hasta - desde) * n / (n + 1), hasta
-    animar_ia = True  # se apaga solo si la IA de video falla una vez, para no esperar en cada escena
     pagados, mios, k_gasto = {"clips": 0} if pagados is None else pagados, 0, None
+    # Se apaga si la IA de video falla una vez, para no esperar en cada escena: también en las demás variantes de un
+    # anuncio (pagados es del trabajo entero; antes cada variante esperaba otra vez al servicio caído, hasta 600 s)
+    animar_ia = not pagados.get("sin_ia")
     ultima = respaldo  # la última imagen que sí existe: se repite cuando una falla
     de_donde = t("la foto de respaldo")  # qué es `ultima`, para que el aviso diga la verdad
     sin_eleven = False
-    for i, e in enumerate(guion["escenas"]):
-        paso = desde + (hasta - desde) * i / n
-        if i in (hablados or {}):
-            partes.append(hablados[i])
-            if (hecha := carpeta / f"{nombre}_imagen_{i:02d}.png").is_file():  # si falla la siguiente, se repite esta
-                ultima, de_donde = hecha, t("la imagen anterior")
-            continue
-        aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
-        audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
-        if e["narracion"].strip():
-            quien = e.get("voz") or voz  # una serie: cada personaje con su voz
-            if sin_eleven and es_eleven(quien):
-                quien = voz_gratis()
+    # Las imágenes gratis van por delante, hasta 3 a la vez, mientras se hacen las voces y las escenas (antes, cada una
+    # esperaba a que la anterior estuviera animada y montada). Las de pago, una a una como antes: si el trabajo falla a
+    # mitad, no se pagan imágenes que no se usan
+    def pedido_imagen(e, i):
+        return (f"{con_glosario(e['imagen'], e['narracion'])}, {guion['estilo_visual']}", ancho, alto,
+                carpeta / f"{nombre}_imagen_{i:02d}.png")
+    adelantadas = _Adelantos([(i, pedido_imagen(e, i)) for i, e in enumerate(guion["escenas"])
+                              if i not in (hablados or {})], crear_imagen) if _imagenes_gratis() else {}
+    try:
+        for i, e in enumerate(guion["escenas"]):
+            paso = desde + (hasta - desde) * i / n
+            if i in (hablados or {}):
+                partes.append(hablados[i])
+                if (hecha := carpeta / f"{nombre}_imagen_{i:02d}.png").is_file():  # si falla la siguiente, se repite esta
+                    ultima, de_donde = hecha, t("la imagen anterior")
+                continue
+            aviso(t("Escena {n} de {total}: voz…", n=i + 1, total=n), paso)
+            audio = carpeta / f"{nombre}_voz_{i:02d}.mp3"
+            if e["narracion"].strip():
+                quien = e.get("voz") or voz  # una serie: cada personaje con su voz
+                if sin_eleven and es_eleven(quien):
+                    quien = voz_gratis()
+                try:
+                    palabras = _narrar_pagada(e["narracion"], quien, audio, velocidad)
+                except Exception as error:
+                    if not es_eleven(quien):
+                        raise
+                    sin_eleven = True  # sin saldo a mitad: lo ya pagado no se tira, y no se insiste con cada escena
+                    nota = t("ElevenLabs falló en la escena {n} ({causa}). El resto va con la voz gratis.", n=i + 1,
+                             causa=texto_de_error(error))
+                    aviso(nota, paso)
+                    if notas is not None:
+                        notas.append(nota)
+                    palabras = _narrar_pagada(e["narracion"], voz_gratis(), audio, velocidad)
+            else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío. Dura
+                # lo que le dio el usuario («ESCENA 2 (4-9 s)», ver generar), con tope: el guion puede venir de fuera
+                dura = e.get("segundos")
+                dura = min(dura, 30) if isinstance(dura, (int, float)) and dura >= 1 else SEGUNDOS_SIN_VOZ
+                video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", dura, audio.name, cwd=carpeta)
+                palabras = []
+            paso_imagen = paso + 0.3 * (hasta - desde) / n
+            aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
+            # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería
+            # gastar cuota o crédito en lo mismo otra vez.
+            nueva = False
             try:
-                palabras = _narrar_pagada(e["narracion"], quien, audio, velocidad)
+                img = ultima = (adelantadas.recoger(i) if i in adelantadas
+                                else crear_imagen(*pedido_imagen(e, i)))
+                # La foto de respaldo devuelta (anuncios: la del producto sola, si no salió la escena) no es nueva: con
+                # video de pago se cobraba un clip por cada escena que la repetía
+                nueva = img != respaldo
+                de_donde = t("la imagen anterior") if nueva else t("la foto de respaldo")
             except Exception as error:
-                if not es_eleven(quien):
-                    raise
-                sin_eleven = True  # sin saldo a mitad: lo ya pagado no se tira, y no se insiste con cada escena
-                nota = t("ElevenLabs falló en la escena {n} ({causa}). El resto va con la voz gratis.", n=i + 1,
-                         causa=texto_de_error(error))
-                aviso(nota, paso)
+                if ultima is None:  # ni una imagen todavía: fondo de color para que el video salga igual
+                    ultima, de_donde = video.fondo(formato, carpeta / f"{nombre}_fondo.png", i), t("un fondo de color")
+                causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                nota = t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1, causa=causa,
+                         origen=de_donde)
+                aviso(nota, paso_imagen)
                 if notas is not None:
                     notas.append(nota)
-                palabras = _narrar_pagada(e["narracion"], voz_gratis(), audio, velocidad)
-        else:  # un plano sin voz (su texto en pantalla, o la música): silencio, y nadie narra un texto vacío. Dura
-            # lo que le dio el usuario («ESCENA 2 (4-9 s)», ver generar), con tope: el guion puede venir de fuera
-            dura = e.get("segundos")
-            dura = min(dura, 30) if isinstance(dura, (int, float)) and dura >= 1 else SEGUNDOS_SIN_VOZ
-            video.ffmpeg("-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", dura, audio.name, cwd=carpeta)
-            palabras = []
-        paso_imagen = paso + 0.3 * (hasta - desde) / n
-        aviso(t("Escena {n} de {total}: imagen…", n=i + 1, total=n), paso_imagen)
-        # Solo se anima con IA una imagen recién creada: repetir la anterior, la foto o el fondo de color sería
-        # gastar cuota o crédito en lo mismo otra vez.
-        nueva = False
-        try:
-            img = ultima = crear_imagen(f"{con_glosario(e['imagen'], e['narracion'])}, {guion['estilo_visual']}",
-                                        ancho, alto, carpeta / f"{nombre}_imagen_{i:02d}.png")
-            # La foto de respaldo devuelta (anuncios: la del producto sola, si no salió la escena) no es nueva: con
-            # video de pago se cobraba un clip por cada escena que la repetía
-            nueva = img != respaldo
-            de_donde = t("la imagen anterior") if nueva else t("la foto de respaldo")
-        except Exception as error:
-            if ultima is None:  # ni una imagen todavía: fondo de color para que el video salga igual
-                ultima, de_donde = video.fondo(formato, carpeta / f"{nombre}_fondo.png", i), t("un fondo de color")
-            causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-            nota = t("La imagen de la escena {n} no salió ({causa}). Se usó {origen}.", n=i + 1, causa=causa,
-                     origen=de_donde)
-            aviso(nota, paso_imagen)
-            if notas is not None:
-                notas.append(nota)
-            img = ultima
-        aviso(t("Escena {n} de {total}: animando…", n=i + 1, total=n), paso + 0.6 * (hasta - desde) / n)
-        escena, clip_ia = carpeta / f"{nombre}_escena_{i:02d}.mp4", carpeta / f"{nombre}_clip_ia_{i:02d}.mp4"
-        clip, cobrado = None, False
-        if nueva and _ya_animada(clip_ia, img):
-            clip = clip_ia
-        elif animar_ia and nueva and pago and pagados["clips"] >= MAX_CLIPS_PAGO:
-            animar_ia = False
-            nota = t("Ya van {n} escenas animadas con {proveedor} en este trabajo (el tope de gasto): las demás van con "
-                     "zoom suave.", n=MAX_CLIPS_PAGO, proveedor=ia.nombre_video(pago))
-            aviso(nota, paso + 0.6 * (hasta - desde) / n)
-            if notas is not None:
-                notas.append(nota)
-        elif animar_ia and nueva and not (pago and i in sin_pago):
-            try:
-                clip = ia.video_desde_imagen(img, e.get("movimiento") or e["imagen"], formato, video.duracion(audio),
-                                             clip_ia, pago)
-            except Exception as error:  # cuota gratis agotada o servicio caído: se sigue con zoom suave
-                cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
-                causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
-                nota = t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom suave.",
-                         n=i + 1, causa=causa)
+                img = ultima
+            aviso(t("Escena {n} de {total}: animando…", n=i + 1, total=n), paso + 0.6 * (hasta - desde) / n)
+            escena, clip_ia = carpeta / f"{nombre}_escena_{i:02d}.mp4", carpeta / f"{nombre}_clip_ia_{i:02d}.mp4"
+            clip, cobrado = None, False
+            if nueva and _ya_animada(clip_ia, img):
+                clip = clip_ia
+            elif animar_ia and nueva and pago and pagados["clips"] >= MAX_CLIPS_PAGO:
+                animar_ia = False
+                nota = t("Ya van {n} escenas animadas con {proveedor} en este trabajo (el tope de gasto): las demás van con "
+                         "zoom suave.", n=MAX_CLIPS_PAGO, proveedor=ia.nombre_video(pago))
                 aviso(nota, paso + 0.6 * (hasta - desde) / n)
                 if notas is not None:
                     notas.append(nota)
-                animar_ia = False
-            if pago and (clip or cobrado):  # la nota de gasto, al día: si el trabajo falla luego, no se pierde
-                pagados["clips"], mios = pagados["clips"] + 1, mios + 1
-                if notas is not None:
-                    if k_gasto is None:
-                        k_gasto = len(notas)
-                        notas.append("")
-                    notas[k_gasto] = ia.nota_pago(pago, mios)
-        quietas += not clip
-        partes.append(video.escena_de_clip(clip, audio, formato, palabras, escena) if clip
-                      else video.escena_de_imagen(img, audio, formato, palabras, escena, i))
+            elif animar_ia and nueva and not (pago and i in sin_pago):
+                try:
+                    clip = ia.video_desde_imagen(img, e.get("movimiento") or e["imagen"], formato, video.duracion(audio),
+                                                 clip_ia, pago)
+                except Exception as error:  # cuota gratis agotada o servicio caído: se sigue con zoom suave
+                    cobrado = isinstance(error, ia.Cobrado)  # lo hizo pero no llegó: se paga igual
+                    causa = texto_de_error(error).replace(t("Ninguna opción pudo hacerlo.") + "\n", "").replace("\n", " · ")
+                    nota = t("La IA de video no respondió en la escena {n} ({causa}). El resto va con zoom suave.",
+                             n=i + 1, causa=causa)
+                    aviso(nota, paso + 0.6 * (hasta - desde) / n)
+                    if notas is not None:
+                        notas.append(nota)
+                    animar_ia, pagados["sin_ia"] = False, True
+                if pago and (clip or cobrado):  # la nota de gasto, al día: si el trabajo falla luego, no se pierde
+                    pagados["clips"], mios = pagados["clips"] + 1, mios + 1
+                    if notas is not None:
+                        if k_gasto is None:
+                            k_gasto = len(notas)
+                            notas.append("")
+                        notas[k_gasto] = ia.nota_pago(pago, mios)
+            quietas += not clip
+            partes.append(video.escena_de_clip(clip, audio, formato, palabras, escena, ambiente=True) if clip
+                          else video.escena_de_imagen(img, audio, formato, palabras, escena, i))
+    finally:
+        if adelantadas:  # si algo falló, las que aún no empezaron no se piden
+            adelantadas.parar()
     if quietas and notas is not None:  # el porqué de cada una ya está en su nota; si no hay, que no pase callado
         notas.append(t("Sin movimiento real en {n} de {total} escenas: van con su imagen y un zoom suave.",
                        n=quietas, total=n))
@@ -900,4 +981,4 @@ def montar(guion: dict, carpeta: Path, formato: str, voz: str, aviso: Callable[[
     return video.unir(partes, carpeta / f"{nombre}.mp4", formato,
                       [e.get("texto_pantalla") or "" for e in guion["escenas"]],
                       video.look_de(guion.get("estilo_visual", "")), musica,
-                      lambda f: aviso(acabado, hasta + (fin - hasta) * f))
+                      lambda f: aviso(acabado, hasta + (fin - hasta) * f), fundido)

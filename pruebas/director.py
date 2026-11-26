@@ -186,8 +186,50 @@ try:
                                   {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"})
     avisos_de_herramienta.clear()
     r = director.dirigir("hazlo")
-    assert len(avisos_de_herramienta) == 1 and "ya hiciste este mismo paso (el 1)" in r["pasos"][1]["resultado"]
-    assert "ya hiciste este mismo paso" in vistos[2]
+    assert len(avisos_de_herramienta) == 1 and "ya hiciste este mismo paso (el 1)" in vistos[2]
+    # Salió bien: el freno no es un fallo, ni sale en lo hecho (la página decía «Hecho» y «No salió» a la vez)
+    assert "ERROR: ya hiciste" not in vistos[2] and len(r["pasos"]) == 1 and "Falló" not in r["resumen"], r
+    # Lo que con los mismos argumentos hace otro trabajo (el capítulo siguiente) o lee el estudio, sí se repite
+    assert director._repetible("crear_episodio", '{"serie_nombre": "X"}') and director._repetible("listar_series", "{}")
+    assert not director._repetible("crear_episodio", '{"serie_nombre": "X", "numero": 2}')
+    assert not director._repetible("crear_video", '{"prompt": "x"}')
+    # Los argumentos al estilo de Python (como los enseña el catálogo) se leen; los sí/no escritos, como sí/no
+    assert director._leer_argumentos("{'texto': 'x', 'n': (1, 2), 'ok': True}") == {"texto": "x", "n": [1, 2], "ok": True}
+    for malo in ("{texto:", "[1, 2]", "{'a': {1, 2}}", "__import__('os')"):
+        try:
+            director._leer_argumentos(malo)
+            raise AssertionError(malo)
+        except ValueError:
+            pass
+
+    def con_si_no(a: bool = False, b: bool = True, c: str = "") -> str:
+        return ""
+    assert director._si_no(con_si_no, {"a": "false", "b": "Sí", "c": "false"}) == {"a": False, "b": True, "c": "false"}
+    try:
+        director._si_no(con_si_no, {"a": "quizás"})
+        raise AssertionError("un sí o no dudoso no se adivina")
+    except ValueError as e:
+        assert "a debe ser true o false" in str(e)
+    # La música de un video, solo un archivo que dio el usuario o que hizo el estudio
+    assert director._sin_permiso("crear_video", {"musica": "C:/otro/cancion.mp3"}, "", "")
+    assert director._sin_permiso("crear_video", {"musica": "C:/yo/cancion.mp3"}, "", director._norma(
+        "C:/yo/cancion.mp3")) is None
+    # Sin claves, el Director entero no cabe en la IA gratis (le respondía 413 a todo): le llega la versión compacta
+    vistos_gratis, gratis_real, para_real = [], ia._texto_gratis, claves.para
+    ia.texto_json, claves.para = _pensar, (lambda uso: None)
+    ia._texto_gratis = lambda instrucciones, pedido, esquema: vistos_gratis.append((instrucciones, pedido)) or {
+        "mensaje": "Listo.", "herramienta": "", "argumentos": "{}"}
+    try:
+        historial = [{"rol": "usuario", "texto": "hazme una canción " + "x" * 280},
+                     {"rol": "director", "texto": "Listo " + "y" * 280, "hecho": "Hecho: crear_cancion → C:/c.mp3"}] * 3
+        assert director.dirigir("hazle el video musical a esa canción", historial)["mensaje"] == "Listo."
+        instrucciones, pedido = vistos_gratis[0]
+        assert sum(len(m["content"]) for m in ia._mensajes_gratis(instrucciones, pedido, director.ESQUEMA))             <= ia.LIMITE_GRATIS
+        assert "Departamentos del estudio" not in instrucciones and "tipo: auto | anuncio" in instrucciones
+        assert "C:/c.mp3" in pedido  # la conversación (con la canción) va antes que la memoria
+        assert len(director._instrucciones(director.catalogo(), "", director.EJEMPLOS)) > ia.LIMITE_GRATIS  # enteras
+    finally:
+        ia._texto_gratis, claves.para, ia.texto_json = gratis_real, para_real, _pensar
     try:
         director.dirigir("   ")
         raise AssertionError("un pedido vacío no debe gastar nada")

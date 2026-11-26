@@ -48,7 +48,7 @@ tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
 | Herramienta | Qué hace |
 |---|---|
 | Director IA | Planifica y ejecuta trabajos completos desde un pedido por texto o voz, en un chat a página completa que muestra tus adjuntos y resultados. Sabe qué servicios conectaste y cómo los tienes |
-| Crear con IA | De la idea al video terminado, vertical u horizontal, con movimiento de IA, voz, subtítulos y acabado de estudio |
+| Crear con IA | De la idea al video terminado, vertical u horizontal, con movimiento de IA, voz, subtítulos, tu propia música de fondo si quieres y acabado de estudio |
 | Foto a video | Da vida a una foto con el movimiento de cámara que elijas |
 | Editor de video | Línea de tiempo, transiciones, efectos al ritmo, textos, stickers, subtítulos automáticos, voz que se coloca sola escena por escena, exportación 4K, grabación con cámara y avatar con IA (beta) |
 | Diseño | Publicaciones, miniaturas, flyers, logos y estampados por capas, con composición de la IA y exportación 4K |

@@ -396,7 +396,7 @@ def pensar(instrucciones, pedido, esquema, **k):
 
 
 reales = ia.texto_json, ia.investigar_web, anuncios.montar, video.cierre, ia.ortografia
-ia.texto_json, ia.investigar_web = pensar, lambda pregunta: consultas.append(pregunta)
+ia.texto_json, ia.investigar_web = pensar, lambda pregunta, **k: consultas.append(pregunta)
 anuncios.montar = lambda v, carpeta, *a, **k: carpeta / "anuncio.mp4"
 video.cierre = lambda montado, texto, formato, destino, producto=None: destino
 ia.ortografia = lambda textos, *a, **k: list(textos)

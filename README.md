@@ -46,7 +46,7 @@ It runs on your PC, with no coding, no terminal, no account and no subscription.
 | Tool | What it does |
 |---|---|
 | AI Director | Plans and runs complete jobs from a text or voice request, in a full-page chat that shows your attachments and results. It knows which services you connected and how you set them up |
-| Create with AI | Prompt to finished video, vertical or horizontal, with AI motion, voice-over, subtitles and a studio finish |
+| Create with AI | Prompt to finished video, vertical or horizontal, with AI motion, voice-over, subtitles, your own background music if you want and a studio finish |
 | Photo to video | Bring a photo to life with a camera move of your choice |
 | Video editor | Timeline editing, transitions, beat-synced effects, text, stickers, auto subtitles, voice-over that places itself scene by scene, 4K export, webcam recording and AI avatar (beta) |
 | Design | Layered posts, thumbnails, flyers, logos and t-shirt prints, with AI layouts and 4K export |

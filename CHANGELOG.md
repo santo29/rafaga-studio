@@ -2,7 +2,7 @@
 
 All notable changes to Ráfaga Studio are documented in this file.
 
-## Unreleased
+## 1.2.0 (2026-11-26)
 
 ### Added
 
@@ -20,7 +20,8 @@ All notable changes to Ráfaga Studio are documented in this file.
 - With Claude, the Director's instructions stay the same in every step and request, so Claude reads them from its cache
   for an hour: faster and cheaper from the second step.
 - The Director does not run the same step with the same arguments twice in one request (except the next chapter of a
-  series and the lists), and its error messages tell it which arguments are valid. Yes/no written as text and Python-style arguments are read correctly.
+  series and the lists), and its error messages tell it which arguments are valid. Yes/no written as text and
+  Python-style arguments are read correctly.
 - Free images for a video and the character sheets of a series are requested three at a time instead of one by one.
   Paid images keep going one by one, so a job that fails midway does not pay for unused images.
 - The free text AI waits only what the service asks for (it now allows one reply every 45 seconds and says when to

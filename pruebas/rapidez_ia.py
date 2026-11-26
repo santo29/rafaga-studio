@@ -243,9 +243,11 @@ try:
     incompleta = actividad.ultimas(1)[0]
     assert incompleta["motivo"] == "respondió incompleto" and incompleta["costo"] > 1, incompleta
 
-    # Un turno del Director: piensa poco y sus instrucciones van en caché (el 2.º turno las lee a US$0,20 el millón)
+    # Un turno del Director: piensa poco y sus instrucciones van en caché de 1 hora (escribirla cuesta 2 × la entrada;
+    # el 2.º turno las lee a US$0,20 el millón)
     respuestas += [Flujo(mensaje('{"palabra": "uno"}', input_tokens=100, output_tokens=50,
-                                 cache_creation_input_tokens=3000, cache_read_input_tokens=0)),
+                                 cache_creation_input_tokens=3000, cache_read_input_tokens=0,
+                                 cache_creation=types.SimpleNamespace(ephemeral_1h_input_tokens=3000))),
                    Flujo(mensaje('{"palabra": "dos"}', input_tokens=100, output_tokens=50,
                                  cache_creation_input_tokens=0, cache_read_input_tokens=3000))]
     with ia.charla():
@@ -254,9 +256,13 @@ try:
     assert not ia._CHARLA.get()  # fuera del with, todo vuelve a ser normal
     k = pedidos_claude[-1]
     assert (k["max_tokens"], k["output_config"]["effort"]) == (16000, "low")
-    assert k["system"][0]["cache_control"] == {"type": "ephemeral"} and "instrucciones largas" in k["system"][0]["text"]
+    assert k["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert "instrucciones largas" in k["system"][0]["text"]
     dos, uno = actividad.ultimas(2)
-    assert abs(uno["costo"] - (100 * 4 + 3000 * 4 * 1.25 + 50 * 20) / 1e6) < 1e-12, uno
+    assert abs(uno["costo"] - (100 * 4 + 3000 * 4 * 2 + 50 * 20) / 1e6) < 1e-12, uno
+    # Sin el desglose por duración (o la de 5 minutos), 1,25 ×
+    assert abs(ia._costo_claude("claude-opus-5-5", types.SimpleNamespace(
+        input_tokens=0, output_tokens=0, cache_creation_input_tokens=1000)) - 1000 * 4 * 1.25 / 1e6) < 1e-12
     assert abs(dos["costo"] - (100 * 4 + 3000 * 0.20 + 50 * 20) / 1e6) < 1e-12, dos
 
     # El Director pide cada paso dentro de ia.charla()

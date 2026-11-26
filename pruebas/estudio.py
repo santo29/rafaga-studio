@@ -266,7 +266,7 @@ try:
     r = director.dirigir("canción y video", confirmar=lambda p: preguntas.append(p) or True)
     assert [h[0] for h in hechos] == ["crear_cancion", "crear_video_musical"] and len(preguntas) == 1
     assert "Departamentos del estudio" in vistos[0][0] and "musica_voz (Música y voz)" in vistos[0][0]
-    assert "coros cortos" in vistos[0][0]  # el Director ve lo que recuerda del usuario
+    assert "coros cortos" in vistos[0][1]  # el Director ve lo que recuerda del usuario (en el turno, no en las reglas)
     assert all(f"- {nombre}(" in vistos[0][0] for nombre in herramientas.TODAS)
 
     # ---------- Por voz: la orden llega al Director con todas las herramientas y encadena pasos ----------

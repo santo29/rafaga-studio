@@ -614,7 +614,10 @@ try:
     ia.texto_json("i", "p", esquema)
     assert [k.get("extra_body") for _, k in enviados] == [{"reasoning_effort": "none"}, None], enviados
     assert ia._sin_razonar("groq", "openai/gpt-oss-120b") == {"reasoning_effort": "low"}
-    assert ia._sin_razonar("groq", "llama-3.3-70b-versatile") == ia._sin_razonar("gemini", "qwen3") == {}
+    assert ia._sin_razonar("groq", "llama-3.3-70b-versatile") == ia._sin_razonar("xai", "grok") == {}
+    # OpenAI y Gemini, lo mínimo que admiten todos sus modelos que razonan: cada paso del Director pensaba a fondo
+    assert ia._sin_razonar("gemini", "gemini-flash-latest") == ia._sin_razonar("openai", "gpt-5") == \
+        {"reasoning_effort": "low"}
     crear_real = OpenAIFalso.crear
 
     def no_admite(self, **k):
@@ -628,8 +631,13 @@ try:
         enviados.clear()
         assert ia.texto_json("i", "p", esquema, rapido=True) == {"palabra": "listo"}
         assert [k.get("extra_body") for _, k in enviados] == [{"reasoning_effort": "none"}, None], enviados
+        # Ese modelo ya no lo recibe: cada 400 era una vuelta de más en cada paso
+        enviados.clear()
+        assert ia.texto_json("i", "p", esquema, rapido=True) == {"palabra": "listo"}
+        assert [k.get("extra_body") for _, k in enviados] == [None], enviados
     finally:
         OpenAIFalso.crear = crear_real
+        ia._RAZONA_IGUAL.clear()
     # Sin pensar respondió a medias: la otra vez, pensando (con toda su calidad). Y el 400 de un modelo que no deja
     # apagarlo no se gasta el reintento: 400, una a medias y una buena salen bien
 
@@ -654,6 +662,7 @@ try:
             assert [k.get("extra_body") for _, k in enviados] == esperado, (rechaza, enviados)
     finally:
         OpenAIFalso.crear = crear_real
+        ia._RAZONA_IGUAL.clear()
     conectar(CLAUDE, GROQ)
     assert ia.texto_json("i", "p", esquema) == {"palabra": "listo"}
     groq, claude = actividad.ultimas(2)

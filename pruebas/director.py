@@ -175,10 +175,19 @@ try:
     assert herramientas._aviso() is not None and getattr(herramientas._hilo, "aviso", None) is None
 
     # Nunca más de MAX_PASOS herramientas por pedido, aunque la IA quiera seguir
-    ia.texto_json, _ = guion(*[{"mensaje": "otra", "herramienta": "falsa", "argumentos": '{"texto": "x"}'}] * 20)
+    ia.texto_json, _ = guion(*[{"mensaje": "otra", "herramienta": "falsa", "argumentos": f'{{"texto": "x{i}"}}'}
+                               for i in range(20)])
     avisos_de_herramienta.clear()
     r = director.dirigir("haz muchos")
     assert len(avisos_de_herramienta) == director.MAX_PASOS and "Me detuve" in r["mensaje"]
+    # El mismo paso con los mismos argumentos (aunque en otro orden) no se hace dos veces: la IA lee por qué
+    ia.texto_json, vistos = guion({"mensaje": "uno", "herramienta": "falsa", "argumentos": '{"texto": "x"}'},
+                                  {"mensaje": "otra vez", "herramienta": "falsa", "argumentos": '{ "texto":"x" }'},
+                                  {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"})
+    avisos_de_herramienta.clear()
+    r = director.dirigir("hazlo")
+    assert len(avisos_de_herramienta) == 1 and "ya hiciste este mismo paso (el 1)" in r["pasos"][1]["resultado"]
+    assert "ya hiciste este mismo paso" in vistos[2]
     try:
         director.dirigir("   ")
         raise AssertionError("un pedido vacío no debe gastar nada")
@@ -199,11 +208,29 @@ try:
         return [{"mensaje": "", "herramienta": "falsa", "argumentos": '{"texto": "a"}'},
                 {"mensaje": "", "herramienta": "otra_falsa", "argumentos": "{}"},
                 {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"}][n - 1]
-    ia.texto_json = elige
-    assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    ia.texto_json, para_real = elige, claves.para
+    claves.para = lambda uso: {"proveedor": "groq", "clave": "gsk_prueba", "modelo_texto": "qwen"} \
+        if uso == "texto" else None  # lo de Groq: con Claude y con la gratis, siempre el entero (ver dirigir)
+    try:
+        assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    finally:
+        claves.para = para_real
     assert [(entero, ve_falsa) for entero, ve_falsa, _ in pasos_vistos] == [
         (True, True), (False, True), (True, True), (False, True)], pasos_vistos
     assert pasos_vistos[1][2] == pasos_vistos[2][2]  # el mismo paso, repetido con el catálogo entero
+    # Con Claude, las instrucciones de todos los pasos son las mismas (su caché las lee): catálogo entero siempre
+    pasos_vistos.clear()
+    claves.para = lambda uso: {"proveedor": "anthropic", "clave": "sk-ant-prueba", "modelo_texto": "claude-opus-5-5"} \
+        if uso == "texto" else None
+    instrucciones_claude = []
+    ia.texto_json = lambda instrucciones, *a, **k: instrucciones_claude.append(instrucciones) or elige(
+        instrucciones, *a, **k)
+    try:
+        assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    finally:
+        claves.para = para_real
+    assert len(instrucciones_claude) == 3 and len(set(instrucciones_claude)) == 1 and "- crear_video(" in \
+        instrucciones_claude[0]
 finally:
     ia.texto_json = _pensar
     del herramientas.TODAS["falsa"]

@@ -183,8 +183,10 @@ try:
                  {"rol": "director", "texto": "Hola, ¿qué hacemos?", "hecho": "Hecho: crear_video → C:/v.mp4"}]
     assert director.dirigir("otro como el de la hamburguesa", historial)["mensaje"] == "Hola."
     instrucciones, contenido = instrucciones_vistas[-1]
-    assert "Santo La Para" in instrucciones and "La hamburguesa artesanal" in instrucciones
-    assert "títulos cortos" in instrucciones and "Hola, ¿qué hacemos?" in contenido
+    # Lo que recuerda va en el turno, no en las instrucciones: así estas no cambian y Claude las lee de su caché
+    assert "Santo La Para" in contenido and "La hamburguesa artesanal" in contenido
+    assert "títulos cortos" in contenido and "Hola, ¿qué hacemos?" in contenido
+    assert "Santo La Para" not in instrucciones and "La hamburguesa artesanal" not in instrucciones
     assert "hola sin rol" not in contenido and "otro rol" not in contenido
 finally:
     ia.texto_json = pensar_real

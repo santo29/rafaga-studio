@@ -20,7 +20,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from motor import claves, desde_prompt, edicion, ia, idioma, memoria, nubes, render_edicion, shorts, video  # noqa: E402
+from motor import (claves, desde_prompt, edicion, herramientas, ia, idioma, memoria, nubes,  # noqa: E402
+                   render_edicion, shorts, video)
 from ui.comun import Reproductor  # noqa: E402
 
 app = QApplication.instance() or QApplication(["pruebas"])
@@ -159,7 +160,8 @@ ia.video_desde_imagen = lambda *a, **k: None
 desde_prompt.narrar = lambda texto, voz, destino, velocidad=1.0: velocidades.append(velocidad) or []
 video.duracion = lambda archivo: largo[0]
 video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escena
-video.unir = lambda partes, d, *a: d
+unidos = []
+video.unir = lambda partes, d, *a: unidos.append(a) or d
 reales_animado = desde_prompt.proveedor_voz, desde_prompt.clips_hablados
 try:
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
@@ -200,10 +202,29 @@ try:
     # Sin narración escrita: la IA escribe para la voz elegida (ElevenLabs habla más rápido que Edge)
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     desde_prompt.generar("Un video de gatos", segundos=30, voz="eleven:sarah")
-    assert "(~78 palabras de narración), unas 5 escenas" in pedidos[-1], pedidos[-1]
+    assert "(~78 palabras de narración en total: unas 16 por escena, 1 o 2 frases), unas 5 escenas" in pedidos[-1], pedidos[-1]
     desde_prompt.PROYECTOS = Path(tempfile.mkdtemp(dir=tmp))
     desde_prompt.generar("Un video de gatos", segundos=30)
-    assert "(~60 palabras de narración), unas 5 escenas" in pedidos[-1], pedidos[-1]
+    # Su canción de fondo llega al montaje (baja sola bajo la voz) y ya no sale «Pediste música…»; un archivo sin
+    # sonido ni empieza (antes fallaba al final, con todo pagado). Con solo_animar, dicho antes de gastar
+    pista, muda = tmp / "pista.mp3", tmp / "muda.mp4"
+    video.ffmpeg("-f", "lavfi", "-i", "sine=frequency=220:duration=2", pista)
+    video.ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=64x64:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", muda)
+    desde_prompt.PROYECTOS, unidos[:] = Path(tempfile.mkdtemp(dir=tmp)), []
+    r = desde_prompt.generar("Un video de gatos con música de fondo", segundos=30, musica=str(pista))
+    assert unidos and unidos[-1][3] == pista.resolve() and not any("Pediste música" in a for a in r["avisos"]), r
+    for malo, texto in ((muda, "no trae sonido"), (tmp / "no_existe.mp3", "")):
+        try:
+            desde_prompt.generar("Un video de gatos", segundos=30, musica=str(malo))
+            raise AssertionError(malo)
+        except ValueError as e:
+            assert texto in str(e), e
+    try:
+        herramientas.crear_video("anima esto", imagen=str(tmp / "foto.png"), solo_animar=True, musica=str(pista))
+        raise AssertionError("solo_animar con música")
+    except ValueError as e:
+        assert "sale sin música" in str(e), e
+    assert "(~60 palabras de narración en total: unas 12 por escena, 1 o 2 frases), unas 5 escenas" in pedidos[-1], pedidos[-1]
 finally:
     (ia.texto_json, ia.imagen, ia.video_desde_imagen, desde_prompt.narrar, video.duracion, video.escena_de_imagen,
      video.unir, desde_prompt.PROYECTOS) = reales

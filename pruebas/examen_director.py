@@ -1,13 +1,15 @@
-"""Examen del Director con la IA de verdad: python -m pruebas.examen_director
+"""Examen del Director con la IA de verdad: python -m pruebas.examen_director [gemini|groq|gratis]
 
-GASTA llamadas a la IA (Gemini, una por pedido) y por eso NO va en «python -m pruebas». Le pide al Director pedidos
+GASTA llamadas a la IA (una por pedido) y por eso NO va en «python -m pruebas». Le pide al Director pedidos
 típicos, escritos como los escribe la gente (con faltas), y mira SOLO su primer paso: qué herramienta elige y sus
 argumentos clave. Ninguna herramienta se ejecuta (nada caro): el Director se para justo antes de usarla. Imprime la
-nota (aciertos/total) y los fallos. Usa tu clave de Gemini para el texto solo en este proceso: tus ajustes no cambian,
-y tu memoria del estudio no se lee ni se toca."""
+nota (aciertos/total), los segundos de cada pedido y los fallos. gemini (por defecto) o groq: tu clave de esa IA para el
+texto, solo en este proceso (tus ajustes no cambian). gratis: sin ninguna clave, la IA gratis sin clave (1 respuesta
+cada 30 s: unos 15 minutos). Tu memoria, tu marca y tus trabajos no se leen ni se tocan."""
 import inspect
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -16,7 +18,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 os.environ.setdefault("RAFAGA_IDIOMA", "es")
-from motor import claves, director, herramientas, memoria  # noqa: E402
+from motor import claves, director, herramientas, marca, memoria, musica, shorts  # noqa: E402
 
 PAUSA = 5  # segundos entre pedidos: la cuota gratis de Gemini admite pocas llamadas por minuto
 MANANA = (date.today() + timedelta(days=1)).isoformat()
@@ -60,7 +62,8 @@ CASOS = [
      "valen": {"crear_diseno": {"tipo": "estampado", "pedido": contiene("calavera")}},
      "ejemplo": ("crear_diseno", {"pedido": "calavera gótica para una camiseta", "tipo": "estampado"})},
     {"pedido": "una canción de dembow sobre Punta Cana",
-     "valen": {"crear_cancion": {"genero": contiene("dembow"), "idea": contiene("punta cana")}},
+     "valen": {"crear_cancion": {"genero": lambda v: v in musica.GENEROS and "dembow" in _n(v),
+                                  "idea": contiene("punta cana")}},
      "ejemplo": ("crear_cancion", {"idea": "una canción sobre Punta Cana", "genero": "Dembow moderno"})},
     {"pedido": "programa el video de la manzana pa mañana a las 6",
      "historial": [{"rol": "usuario", "texto": "hazme un video de una manzana que habla"},
@@ -96,7 +99,7 @@ CASOS = [
      "ejemplo": ("crear_diseno", {"pedido": "miniatura de YouTube de mi video de pesca en Samaná",
                                   "tipo": "miniatura"})},
     {"pedido": "una bachata triste sin voz",
-     "valen": {"crear_cancion": {"genero": contiene("bachata"), "con_voz": False}},
+     "valen": {"crear_cancion": {"genero": uno_de("Bachata"), "con_voz": False}},
      "ejemplo": ("crear_cancion", {"idea": "una bachata triste", "genero": "Bachata", "con_voz": False})},
     {"pedido": "separa la voz de esta cancion", "adjuntos": [CANCION],
      "valen": {"separar_voz_y_pista": {"cancion": es_ruta(CANCION)}},
@@ -126,6 +129,32 @@ CASOS = [
     {"pedido": "dame ideas de videos virales de fitnes",
      "valen": {"investigar_nichos": {"tema": contiene("fitn")}},
      "ejemplo": ("investigar_nichos", {"tema": "fitness"})},
+    # Casos que no están entre los ejemplos de director.EJEMPLOS: miden, no premian lo copiado
+    {"pedido": "ponle video a mi cancion nueva",  # sin archivo: una sola pregunta
+     "valen": {"": {}},
+     "ejemplo": ("", {})},
+    {"pedido": "que ia estoy usando pa escribir",  # una pregunta de su estudio: se contesta sin crear nada
+     "valen": {"": {}},
+     "ejemplo": ("", {})},
+    {"pedido": "anima la foto, que las olas se muevan", "adjuntos": [FOTO],
+     "valen": {"crear_video": {"imagen": es_ruta(FOTO), "solo_animar": True, "prompt": contiene("olas")}},
+     "ejemplo": ("crear_video", {"prompt": "que las olas se muevan", "imagen": FOTO, "solo_animar": True})},
+    {"pedido": "un video pa youtube sobre la historia del merengue",
+     "valen": {"crear_video": {"formato": "16:9", "prompt": contiene("merengue")}},
+     "ejemplo": ("crear_video", {"prompt": "la historia del merengue", "formato": "16:9"})},
+    {"pedido": "que la manzana hable de verdad, con su voz y moviendo la boca",  # lo pidió: de pago (la app pregunta)
+     "valen": {"crear_video": {"animado": True, "prompt": contiene("manzana")}},
+     "ejemplo": ("crear_video", {"prompt": "una manzana que habla", "animado": True})},
+    {"pedido": "un flayer de mi colmado",  # sin precios ni ofertas inventadas
+     "valen": {"crear_diseno": {"pedido": lambda v: "colmado" in _n(v)
+                                and not re.search(r"\$|\d|descuento|oferta", _n(v))}},
+     "ejemplo": ("crear_diseno", {"pedido": "flyer de mi colmado", "tipo": "flyer"})},
+    {"pedido": "hazme un video de mi salon de uñas con esta musica de fondo", "adjuntos": [CANCION],
+     "valen": {"crear_video": {"musica": es_ruta(CANCION), "prompt": contiene("de uñas")}},
+     "ejemplo": ("crear_video", {"prompt": "un video de mi salón de uñas", "musica": CANCION})},
+    {"pedido": "un anuncio con esta foto, es un perfume nuevo", "adjuntos": [FOTO],
+     "valen": {"crear_anuncios": {"foto": es_ruta(FOTO), "producto": contiene("perfume")}},
+     "ejemplo": ("crear_anuncios", {"foto": FOTO, "producto": "un perfume nuevo"})},
 ]
 
 
@@ -189,13 +218,15 @@ def examinar(casos=CASOS, escribir=print) -> tuple[int, list[str]]:
     for i, caso in enumerate(casos):
         if i and PAUSA:
             time.sleep(PAUSA)
+        inicio = time.monotonic()
         try:
             nombre, argumentos, mensaje = primer_paso(caso)
             problemas = revisar(caso, nombre, argumentos)
         except Exception as e:  # la IA no respondió o respondió algo roto: cuenta como fallo y se sigue
             nombre, mensaje, problemas = "", "", [f"error: {str(e).strip() or type(e).__name__}"]
         aciertos += not problemas
-        escribir(f"{'OK   ' if not problemas else 'FALLO'} {caso['pedido']} → {nombre or '(pregunta)'}")
+        escribir(f"{'OK   ' if not problemas else 'FALLO'} {time.monotonic() - inicio:5.1f} s  {caso['pedido']} → "
+                 f"{nombre or '(pregunta)'}")
         if problemas:
             fallos.append(f"«{caso['pedido']}» → {nombre or '(pregunta)'}: {'; '.join(problemas)}"
                           + (f"\n    dijo: {mensaje[:300]}" if mensaje else ""))
@@ -203,12 +234,27 @@ def examinar(casos=CASOS, escribir=print) -> tuple[int, list[str]]:
 
 
 if __name__ == "__main__":
-    reales = claves.ajustes
-    claves.ajustes = lambda: {**reales(), "texto": "gemini"}  # solo en este proceso: tus ajustes no cambian
-    if (claves.para("texto") or {}).get("proveedor") != "gemini":
-        sys.exit("Conecta una clave de Gemini en «Claves de IA»: el examen usa Gemini para el texto.")
-    memoria.ARCHIVO = Path(tempfile.mkdtemp(prefix="rafaga-examen-")) / "memoria.json"  # sin tus preferencias
+    import socket
+
+    import pruebas
+    socket.getaddrinfo = pruebas._resolver  # pruebas/__init__ deja sin internet: este examen usa la IA de verdad
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # la consola de Windows no escribía «→»
+    proveedor = (sys.argv[1:] or ["gemini"])[0]
+    if proveedor not in ("gemini", "groq", "gratis"):
+        sys.exit("Uso: python -m pruebas.examen_director [gemini|groq|gratis]")
+    tmp = Path(tempfile.mkdtemp(prefix="rafaga-examen-"))
+    # Sin tus preferencias, tu marca ni tus trabajos: la nota no cambia de un PC a otro
+    memoria.ARCHIVO, marca.ARCHIVO, shorts.PROYECTOS = tmp / "memoria.json", tmp / "marca.json", tmp / "proyectos"
+    if proveedor == "gratis":
+        claves.ARCHIVO, PAUSA = tmp / "claves.json", 0  # sin ninguna clave; la espera de 30 s ya la hace ia.py
+    else:
+        reales = claves.ajustes
+        claves.ajustes = lambda: {**reales(), "texto": proveedor}  # solo en este proceso: tus ajustes no cambian
+        if (claves.para("texto") or {}).get("proveedor") != proveedor:
+            sys.exit(f"Conecta una clave de {claves.nombre(proveedor)} en «Claves de IA»: el examen la usa para el "
+                     "texto.")
+    inicio = time.monotonic()
     aciertos, fallos = examinar()
-    print(f"\nNota: {aciertos}/{len(CASOS)}")
+    print(f"\nNota con {proveedor}: {aciertos}/{len(CASOS)} en {time.monotonic() - inicio:.0f} s")
     for fallo in fallos:
         print(f"- {fallo}")

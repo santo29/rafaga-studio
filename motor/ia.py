@@ -4,6 +4,7 @@ import contextlib
 import contextvars
 import json
 import math
+import random
 import re
 import sys
 import tempfile
@@ -348,8 +349,8 @@ def _ejemplo(esquema: dict):
         return {k: _ejemplo(v) for k, v in esquema.get("properties", {}).items()}
     if tipo == "array":
         return [_ejemplo(esquema.get("items", {}))]
-    if esquema.get("enum"):
-        return " | ".join(map(str, esquema["enum"]))  # una de estas opciones
+    if esquema.get("enum"):  # una de estas opciones; la vacía, como "" (si no, la lista empezaba por « | »)
+        return " | ".join('""' if v == "" else str(v) for v in esquema["enum"])
     return {"integer": 0, "number": 0, "boolean": False}.get(tipo, "...")
 
 
@@ -362,31 +363,74 @@ def _sin_rellenar(datos) -> bool:
     return datos == "..."
 
 
+LIMITE_GRATIS = 15_000  # caracteres que admite la IA gratis sin clave: con más responde 413 (medido: 15.530 sí, 16.100 no)
+# s entre una respuesta de la IA gratis y el pedido siguiente. Lo dice el propio servicio al pasarse («1 reply every
+# 45 seconds per IP», antes 30) y se aprende de ahí. Al pasarse dice también cuándo reintentar («Retry after 9s»): eso,
+# entre estos topes (antes se esperaban 32 s cada vez; medido en el examen: 72 s por pedido, la mitad de más)
+ESPERA_GRATIS = [32.0]
+REINTENTO_GRATIS = (3, 60)
+_PROXIMO_GRATIS = [0.0]  # desde cuándo se le puede pedir otra vez (time.monotonic)
+_TURNO_GRATIS = threading.Lock()
+
+
+def _mensajes_gratis(instrucciones: str, pedido: str, esquema: dict) -> list[dict]:
+    return [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con un objeto JSON válido, sin "
+                                          f"texto antes ni después, con esta forma (cambia cada valor de muestra "
+                                          f"por el de verdad; donde hay opciones con «|», elige una; las listas "
+                                          f"llevan los elementos que hagan falta):\n"
+                                          f"{json.dumps(_ejemplo(esquema), ensure_ascii=False)}\n"
+                                          "Tu respuesta tiene un límite corto de longitud: escribe textos breves "
+                                          "para que el JSON quede completo."},
+            {"role": "user", "content": pedido}]
+
+
+def cabe_gratis(instrucciones: str, pedido: str, esquema: dict) -> bool:
+    """Si el pedido cabe en la IA gratis sin clave (LIMITE_GRATIS), con lo que _texto_gratis le añade."""
+    return sum(len(m["content"]) for m in _mensajes_gratis(f"{instrucciones}\n\n{TEXTO_PLANO}", pedido, esquema)) \
+        <= LIMITE_GRATIS
+
+
+def _espera_gratis(r) -> float:
+    """Lo que hay que esperar antes del siguiente pedido a la IA gratis. Si respondió que se pasó del límite (402
+    FREE_LIMIT, 429 o 503 «at its limit»), lo que pide («Retry after 9s» o la cabecera Retry-After) entre
+    REINTENTO_GRATIS, y su ritmo («1 reply every 45 seconds») queda para los siguientes; si no, ESPERA_GRATIS."""
+    if r is None or r.status_code not in (402, 429, 503):
+        return ESPERA_GRATIS[0]
+    texto = r.text[:600]
+    if ritmo := re.search(r"every (\d+) seconds", texto, re.I):
+        ESPERA_GRATIS[0] = min(max(float(ritmo[1]) + 2, 10.0), 120.0)
+    pide = r.headers.get("retry-after") or (re.search(r"retry after (\d+)\s*s", texto, re.I) or [None, ""])[1]
+    try:
+        return min(max(float(pide), REINTENTO_GRATIS[0]), REINTENTO_GRATIS[1])
+    except ValueError:
+        return ESPERA_GRATIS[0]
+
+
 def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
     """IA de texto gratis y sin clave (GPT-OSS 20B en Pollinations).
-    ponytail: límite de 1 respuesta cada 30 s por conexión y menos calidad; con Groq/Gemini (gratis) va mejor."""
-    mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con un objeto JSON válido, sin "
-                                              f"texto antes ni después, con esta forma (cambia cada valor de muestra "
-                                              f"por el de verdad; donde hay opciones con «|», elige una; las listas "
-                                              f"llevan los elementos que hagan falta):\n"
-                                              f"{json.dumps(_ejemplo(esquema), ensure_ascii=False)}\n"
-                                              "Tu respuesta tiene un límite corto de longitud: escribe textos breves "
-                                              "para que el JSON quede completo."},
-                {"role": "user", "content": pedido}]
+    ponytail: límite de 1 respuesta cada 30-45 s por conexión (ver _espera_gratis) y menos calidad; con Groq o Gemini
+    (gratis) va mejor."""
+    mensajes = _mensajes_gratis(instrucciones, pedido, esquema)
     problema = None
     for intento in range(4):
-        if intento:
-            time.sleep(32)  # respetar el límite gratis de 1 respuesta cada 30 s
-        try:
-            # Sin cuenta, cada respuesta se corta en ~1500 tokens: con razonamiento bajo queda sitio para el JSON.
-            # La semilla cambia en cada intento porque el servicio devuelve la misma respuesta guardada si se repite.
-            # tope de tamaño y de tiempo total: es un servicio abierto, sin cuenta (ver seguro.pedir)
-            r = seguro.pedir("POST", "https://text.pollinations.ai/openai", plazo=300,
-                             json={"model": "openai", "messages": mensajes, "reasoning_effort": "low", "private": True,
-                                   "seed": int(time.time() * 1000) % 2_000_000_000})
-        except httpx.HTTPError as e:  # corte de red o el servicio no contesta: se repite
-            problema = t("sin conexión con el servicio gratis ({error})", error=type(e).__name__)
-            continue
+        # Solo lo que falte (antes, siempre 32 s tras un fallo, también cuando el Director volvía enseguida tras una
+        # herramienta rápida, o cuando el servicio pedía 10). Un pedido a la vez: el límite es por conexión
+        with _TURNO_GRATIS:
+            if (espera := _PROXIMO_GRATIS[0] - time.monotonic()) > 0:
+                time.sleep(espera)
+            r = None
+            try:
+                # Sin cuenta, cada respuesta se corta en ~1500 tokens: con razonamiento bajo queda sitio para el JSON.
+                # La semilla cambia en cada intento porque el servicio devuelve la misma respuesta guardada si se repite.
+                # tope de tamaño y de tiempo total: es un servicio abierto, sin cuenta (ver seguro.pedir)
+                r = seguro.pedir("POST", "https://text.pollinations.ai/openai", plazo=300,
+                                 json={"model": "openai", "messages": mensajes, "reasoning_effort": "low",
+                                       "private": True, "seed": int(time.time() * 1000) % 2_000_000_000})
+            except httpx.HTTPError as e:  # corte de red o el servicio no contesta: se repite
+                problema = t("sin conexión con el servicio gratis ({error})", error=type(e).__name__)
+                continue
+            finally:
+                _PROXIMO_GRATIS[0] = time.monotonic() + _espera_gratis(r)
         if r.status_code in (402, 429) or r.status_code >= 500:  # límite gratis o caída pasajera
             problema = t("el servicio gratis respondió {codigo}", codigo=r.status_code)
             continue
@@ -476,11 +520,16 @@ def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str =
     Cada texto de la respuesta llega sin Markdown (ver _limpio): se enseña, se dice y se publica tal cual.
     rapido: para lo que no necesita que el modelo piense antes (cada paso del Director, entender un pedido); ver
     _sin_razonar. Los guiones y los diseños van sin él, con toda su calidad. pedido: un texto, o el de con_fotos.
-    solo_elegida: si esa IA no atiende, no se prueba otra: el usuario dio el permiso para ella."""
+    solo_elegida: si esa IA no atiende, no se prueba otra: el usuario dio el permiso para ella.
+    Dentro de `with si_gratis(corto)`, la IA gratis sin clave recibe corto(): ver si_gratis."""
+    c, enteras, corto = claves.para(uso), instrucciones, _CORTO.get()
+
+    def gratis():
+        instr, turno = corto() if corto else (enteras, pedido)
+        return _limpio(_texto_gratis(f"{instr}\n\n{TEXTO_PLANO}", _para({}, turno), esquema))
     instrucciones = f"{instrucciones}\n\n{TEXTO_PLANO}"
-    c = claves.para(uso)
     if not c or not c.get("clave"):
-        return _limpio(_texto_gratis(instrucciones, _para({}, pedido), esquema))
+        return gratis()
     try:
         return _pedir(c, instrucciones, pedido, esquema, rapido)
     except SinServicio as fallo:
@@ -510,7 +559,7 @@ def texto_json(instrucciones: str, pedido: str | list, esquema: dict, uso: str =
               f"{claves.nombre(otro)}.", file=sys.stderr, flush=True)
         return resultado
     try:
-        return _limpio(_texto_gratis(instrucciones, _para({}, pedido), esquema))
+        return gratis()
     except Exception:  # noqa: BLE001  ni la gratis: el motivo que se enseña es el de la IA elegida
         raise primero from None
 
@@ -575,10 +624,18 @@ def _pedir(c: dict, instrucciones: str, pedido: str | list, esquema: dict, rapid
     return _texto_con(c, instrucciones, _para(c, pedido), esquema, rapido)
 
 
+_RAZONA_IGUAL = set()  # (proveedor, modelo) que respondieron 400 a reasoning_effort
+
+
 def _sin_razonar(proveedor: str, modelo: str) -> dict:
     """Lo que apaga (o deja al mínimo) el razonamiento escondido de un modelo que piensa antes de responder, para lo
     que no lo necesita: esos tokens son lo que más tarda y gastan el límite de tokens por minuto de la cuenta gratis de
-    Groq (al pasarlo, la respuesta espera). {} si no se sabe cómo: algo que el modelo no admite da 400."""
+    Groq (al pasarlo, la respuesta espera). {} si no se sabe cómo: algo que el modelo no admite da 400 (y ese modelo
+    queda en _RAZONA_IGUAL: no se le vuelve a pedir, cada 400 era una vuelta de más)."""
+    if (proveedor, modelo) in _RAZONA_IGUAL:
+        return {}
+    if proveedor in ("openai", "gemini"):  # cada paso del Director pensaba a fondo con OpenAI y Gemini
+        return {"reasoning_effort": "low"}
     if proveedor != "groq":
         return {}
     if "qwen3" in modelo.lower():
@@ -604,13 +661,27 @@ def _error_texto(c: dict, codigo: int, detalle: str) -> RuntimeError:
 
 # Los pedidos dentro de `with charla():` son turnos de conversación (el Director): ver _texto_con
 _CHARLA = contextvars.ContextVar("charla_claude", default=False)
-PLAZO_CLAUDE = 120  # s sin recibir nada de Claude (en streaming llega algo cada pocos segundos): la conexión se cayó
+_CORTO = contextvars.ContextVar("corto_gratis", default=None)
 
 
 @contextlib.contextmanager
-def charla():
-    """Los pedidos de dentro son turnos de una conversación: con Claude piensan poco y guardan sus instrucciones en caché."""
-    marca = _CHARLA.set(True)
+def si_gratis(corto: Callable[[], tuple[str, str | list]]):
+    """Los pedidos de dentro que acaben en la IA gratis sin clave (sin clave de texto, o si la elegida no atiende) le
+    mandan corto(): (instrucciones, pedido) que quepan en LIMITE_GRATIS. El Director entero no cabía (director._compacto)."""
+    marca = _CORTO.set(corto)
+    try:
+        yield
+    finally:
+        _CORTO.reset(marca)
+PLAZO_CLAUDE = 120  # s sin recibir nada de Claude (en streaming llega algo cada pocos segundos): la conexión se cayó
+PLAZO_LARGO = 600  # s para la respuesta entera de un guion (las compatibles con OpenAI van sin streaming)
+
+
+@contextlib.contextmanager
+def charla(cache: bool | str = True):
+    """Los pedidos de dentro son turnos de una conversación: con Claude piensan poco y guardan sus instrucciones en caché.
+    cache="1h": las instrucciones son siempre las mismas (el Director con Claude elegido): caché de 1 hora."""
+    marca = _CHARLA.set(cache)
     try:
         yield
     finally:
@@ -635,12 +706,15 @@ def _error_claude(c: dict, e) -> RuntimeError:
 
 def _costo_claude(modelo: str, uso, largo: float = 0, busquedas: int = 0) -> float:
     """Lo que costó un pedido a Claude con los tokens que dice su respuesta: la entrada, la que se escribió en caché
-    (1,25 × entrada) y la que se leyó de ella, la salida y cada búsqueda web. Sin `uso`, la entrada se estima (`largo`)."""
+    (1,25 × entrada la de 5 minutos, 2 × la de 1 hora) y la que se leyó de ella, la salida y cada búsqueda web. Sin
+    `uso`, la entrada se estima (`largo`)."""
     entrada, salida = PRECIO_TEXTO.get(modelo, PRECIO_TEXTO["anthropic"])
 
-    def tokens(campo, otro=0):
-        return float(getattr(uso, campo, otro) or 0)
-    return (tokens("input_tokens", largo) * entrada + tokens("cache_creation_input_tokens") * entrada * 1.25
+    def tokens(campo, otro=0, de=None):
+        return float(getattr(uso if de is None else de, campo, otro) or 0)
+    escrita = tokens("cache_creation_input_tokens")
+    una_hora = min(escrita, tokens("ephemeral_1h_input_tokens", de=getattr(uso, "cache_creation", None)))
+    return (tokens("input_tokens", largo) * entrada + (escrita - una_hora) * entrada * 1.25 + una_hora * entrada * 2
             + tokens("cache_read_input_tokens") * LEER_CACHE_CLAUDE + tokens("output_tokens") * salida) / 1_000_000 \
         + busquedas * BUSQUEDA_WEB
 
@@ -660,10 +734,13 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
             with _claude(c).messages.stream(
                 # En streaming un tope alto no cuesta si no se usa, y lo que piensa también cuenta en él
                 model=modelo, max_tokens=16000 if rapido else 64000,
-                # El Director manda las mismas instrucciones (largas) en cada paso: en caché cuestan y tardan menos desde
-                # el segundo. En un pedido suelto no se recupera lo que cuesta escribirla (1,25 ×): ahí no se pide
-                system=[{"type": "text", "text": instrucciones, "cache_control": {"type": "ephemeral"}}] if charla
-                else instrucciones,
+                # El Director manda las mismas instrucciones (largas) en cada paso y en cada pedido: en caché cuestan y
+                # tardan menos. De 1 hora si son siempre las mismas (charla("1h"): escribirla cuesta 2 × y no 1,25 ×,
+                # pero entre un paso y el siguiente va una herramienta de varios minutos y la de 5 se perdía); de 5
+                # minutos si cambian (Claude de respaldo con el catálogo corto). En un pedido suelto, no se pide
+                system=[{"type": "text", "text": instrucciones,
+                         "cache_control": {"type": "ephemeral", **({"ttl": "1h"} if charla == "1h" else {})}}]
+                if charla else instrucciones,
                 output_config={"effort": "low" if rapido else "medium",
                                "format": {"type": "json_schema", "schema": esquema}},
                 messages=[{"role": "user", "content": pedido}],
@@ -685,8 +762,13 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         claves.recordar(c["proveedor"], 200)
         return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
 
-    from openai import APIStatusError, OpenAI
-    cliente = OpenAI(api_key=c["clave"], base_url=claves.OPENAI_COMPAT[c["proveedor"]])
+    from openai import APIStatusError, OpenAI, Timeout
+    # Con plazo, como Claude (_claude). Sin streaming, el plazo cubre la respuesta entera: lo rápido, 120 s; un guion
+    # largo que razona tarda más, 600 s, y no se repite dos veces (eran 30 minutos con una conexión muerta; los 429 y
+    # 5xx ya los pasa texto_json a otra IA)
+    cliente = OpenAI(api_key=c["clave"], base_url=claves.OPENAI_COMPAT[c["proveedor"]],
+                     timeout=Timeout(PLAZO_CLAUDE if rapido else PLAZO_LARGO, connect=15.0),
+                     max_retries=2 if rapido else 1)
     # El modo json_object funciona en todos los compatibles; el esquema va en las instrucciones.
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con JSON que cumpla este esquema:\n"
                                               f"{json.dumps(esquema)}"},
@@ -703,6 +785,9 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         except APIStatusError as e:  # un diccionario de Python crudo, en inglés: se dice solo el motivo
             # Un modelo que no deja apagarlo: otra vez, como siempre (no cuenta como intento: no respondió nada)
             if sin_razonar and e.status_code == 400:
+                # solo si es eso (no una clave mal o la moderación): lo dice su mensaje
+                if "reasoning" in f"{e} {json.dumps(getattr(e, 'body', None), default=str)}".lower():
+                    _RAZONA_IGUAL.add((c["proveedor"], modelo))
                 sin_razonar = {}
                 continue
             raise _error_texto(c, e.status_code, motivo(e.response)) from None
@@ -814,7 +899,8 @@ def ortografia(textos: list[str], idioma: str | None = None, notas: list | None 
         try:
             pedido = json.dumps({"idioma": IDIOMAS[idioma], "textos": [textos[i] for i in pendientes]},
                                 ensure_ascii=False)
-            nuevos = _pedir(c, ORTOGRAFIA, pedido, _ESQUEMA_ORTOGRAFIA)["textos"]
+            # rapido: corregir no necesita pensar (con Claude ya iba así); en Groq gastaba la cuota del guion
+            nuevos = _pedir(c, ORTOGRAFIA, pedido, _ESQUEMA_ORTOGRAFIA, rapido=True)["textos"]
             if len(nuevos) == len(pendientes):
                 for i, nuevo in zip(pendientes, nuevos):
                     if _misma_frase(textos[i], nuevo):
@@ -1131,7 +1217,7 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
     from . import nubes
     todas = claves.cargar()
     vertical, horizontal = alto > ancho, ancho > alto
-    semilla = int(time.time()) % 2_000_000_000
+    semilla = random.randrange(2_000_000_000)  # no la hora: las imágenes adelantadas salen en el mismo segundo
 
     def cloudflare():
         # 10.000 "neuronas" gratis al día: ~100 imágenes FLUX schnell. Sale cuadrada; el montaje la recorta al formato.
@@ -1285,7 +1371,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         return None
     todas = claves.cargar()
     movimiento = direccion_video(prompt)
-    if pago == "gemini":  # su propio sonido de ambiente; el montaje lo deja mudo
+    if pago == "gemini":  # su propio sonido de ambiente: Foto a video lo deja (video.segmento_mudo, sonido)
         return video_hablado(f"Animate this exact image as the first frame. {movimiento} No dialogue, no voice-over, "
                              "no music: only natural ambient sound.", formato, destino, imagen_png, "gemini")
     if forzar and not orden_foto():  # antes de subir nada
@@ -1309,9 +1395,13 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 
     def de_pago(proveedor):  # Kling o Seedance (solo si el usuario lo eligió): clip mudo que el montaje repite
         modulo = claves.modulo_video(proveedor)
+        # Kling 3.0 Turbo suena siempre: su sonido va bajo la narración, así que nada de voces ni música. Al final y
+        # dentro de los 2.500 caracteres que admite Kling (recorta lo que pasa): si no, se perdía justo esto
+        sin_voces = " No dialogue, no voice-over, no music: only natural ambient sound."
         try:
             _recordar_modelo(proveedor, "modelo_video",
-                             modulo.animar(todas[proveedor], imagen_png, movimiento, destino, modulo.SEGUNDOS_CLIP))
+                             modulo.animar(todas[proveedor], imagen_png, movimiento[:2500 - len(sin_voces)] + sin_voces,
+                                           destino, modulo.SEGUNDOS_CLIP))
         except SinSaldo as e:  # el trabajo siguiente ya avisa antes de empezar (claves.impide)
             claves.recordar(proveedor, 402, str(e))
             raise

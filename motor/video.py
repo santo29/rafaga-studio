@@ -257,13 +257,37 @@ def _sin_bucle(clip: Path, formato: str, mueve: float, total: float) -> str:
             f"y2='H*(1-{lado})':x3='W*(1-{lado})':y3='H*(1-{lado})':eval=frame:enable='gte(t,{lento * largo:.3f})'")
 
 
-def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], destino: Path) -> Path:
+def _trae_audio(archivo: Path) -> bool:
+    return re.search(r"Stream #\S+.*: Audio:", _leer_ffmpeg("-i", archivo)) is not None
+
+
+AMBIENTE = 0.35  # el sonido propio de un clip de IA (≈ -9 dB), bajo la voz; cuando habla la voz, baja más (_BAJAR)
+
+
+def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], destino: Path,
+                   ambiente: bool = False) -> Path:
     """Una escena a partir de un clip de IA: dura lo que la voz (ver _sin_bucle), se ajusta al formato y lleva
-    subtítulos. Un clip que ya trae su voz (escena_hablada) no se alarga: su audio no dura más que él."""
+    subtítulos. Un clip que ya trae su voz (escena_hablada) no se alarga: su audio no dura más que él.
+    ambiente: si el clip trae sonido (Gemini o Kling lo hacen, y se paga), va bajo la narración, más lento como su
+    imagen y con un fundido donde se acaba (antes se tiraba: el montaje lo dejaba mudo)."""
     voz = duracion(audio)
     seg = voz + 0.25
     ass = subtitulos_ass(palabras, formato, destino.with_suffix(".ass"))
-    ffmpeg("-i", clip.resolve(), "-i", audio.resolve(), "-map", "0:v", "-map", "1:a",
+    sonido = ["-map", "1:a"]
+    if ambiente and _trae_audio(clip):
+        largo = duracion(clip)
+        lento = min(1.5, max(1.0, voz / largo))  # lo mismo que _sin_bucle hace con la imagen
+        from .render_edicion import _BAJAR  # aquí: render_edicion importa este módulo
+        estereo = "aresample=44100,aformat=channel_layouts=stereo"
+        sonido = ["-filter_complex",
+                  f"[0:a]{estereo},atempo={1 / lento:.4f},volume={AMBIENTE},"
+                  f"afade=t=out:st={max(0.0, lento * largo - 0.4):.3f}:d=0.4,apad[amb];"
+                  f"[1:a]{estereo},asplit=2[voz][control];[amb][control]{_BAJAR}[bajo];"
+                  "[voz][bajo]amix=inputs=2:normalize=0:duration=first[mezcla]",
+                  "-map", "0:v", "-map", "[mezcla]"]
+    else:
+        sonido = ["-map", "0:v", *sonido]
+    ffmpeg("-i", clip.resolve(), "-i", audio.resolve(), *sonido,
            "-vf", f"{_sin_bucle(clip, formato, voz, seg)},ass={ass.name},{COLOR}",
            "-t", seg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", destino.name, cwd=destino.parent)
@@ -271,9 +295,9 @@ def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], 
 
 
 def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, indice: int,
-                  clip: Path | None = None) -> Path:
+                  clip: Path | None = None, sonido: bool = False) -> Path:
     """Tramo de video sin sonido: el clip de IA (sin repetirse, ver _sin_bucle) o la imagen con zoom suave. Para
-    videos musicales."""
+    videos musicales. sonido: con un clip, deja el sonido que traiga (Foto a video: el de Gemini se paga)."""
     w, h = FORMATOS[formato]
     if clip:
         entrada = ["-i", clip.resolve()]
@@ -284,7 +308,8 @@ def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, in
         filtro = (f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},"
                   f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(segundos * 30)}:s={w}x{h}:fps=30,"
                   "setsar=1")
-    ffmpeg(*entrada, "-vf", f"{filtro},{COLOR}", "-t", segundos, "-an", "-c:v", "libx264", "-preset", "veryfast",
+    audio = ["-map", "0:v", "-map", "0:a?", "-c:a", "aac", "-b:a", "192k"] if sonido and clip else ["-an"]
+    ffmpeg(*entrada, "-vf", f"{filtro},{COLOR}", "-t", segundos, *audio, "-c:v", "libx264", "-preset", "veryfast",
            "-crf", "20", "-pix_fmt", "yuv420p", destino.name, cwd=destino.parent)
     return destino
 
@@ -407,11 +432,13 @@ def _titulos_ass(textos: list[str], inicios: list[float], finales: list[float], 
 
 
 def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str] = (), look: str = "",
-         musica: Path | None = None, avance=lambda f: None) -> Path:
+         musica: Path | None = None, avance=lambda f: None, fundido: bool = True) -> Path:
     """Une las escenas. Sin formato (el video musical, ya cortado al ritmo): tal cual, sin volver a codificar.
     Con el formato de las escenas, el acabado de estudio: fundidos cortos entre escenas (CRUCE, en la cola sin voz de
     cada una: no se come ninguna palabra), un mismo look de color (render_edicion), el texto en pantalla de cada escena
     (textos, "" si no lleva), la música (si hay) bajo la voz y el sonido a SONORIDAD, en estéreo a 48 kHz.
+    fundido: termina en negro y en silencio (antes acababa en seco). False si después va otro tramo (el cierre de un
+    anuncio copia el último cuadro: sería negro).
     avance(fracción, de 0 a 1): lo que lleva el acabado, que tarda (medido: 6 escenas de 6 s, 21 s; con look, 52 s)."""
     if not formato:
         lista = destino.with_suffix(".txt")
@@ -435,7 +462,9 @@ def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str]
         finales = [ini + largo - (cruce if i < n - 1 else 0) for i, (ini, largo) in enumerate(zip(inicios, largos))]
         ass = _titulos_ass(textos, inicios, finales, formato, destino.with_name(destino.stem + "_textos.ass"))
         acabado.append(f"ass={ass.name}")
-    grafo.append(f"[{ultimo}]{','.join([*acabado, COLOR])}[v]")
+    # El fundido final de la imagen (0,5 s) y del sonido (los 0,25 s de cola sin voz de la última escena)
+    final = [f"fade=t=out:st={max(0.0, total - 0.5):.3f}:d=0.5"] if fundido else []
+    grafo.append(f"[{ultimo}]{','.join([*acabado, COLOR, *final])}[v]")
     # La voz de cada escena hasta donde empieza la siguiente (el fundido cae en su cola sin voz)
     grafo += [f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,apad,"
               f"atrim=duration={largo - (cruce if i < n - 1 else 0):.3f}[a{i}]" for i, largo in enumerate(largos)]
@@ -450,6 +479,9 @@ def unir(partes: list[Path], destino: Path, formato: str = "", textos: list[str]
                   "[voz]asplit=2[dice][escucha]", f"[fondo][escucha]{_BAJAR}[bajada]",
                   "[dice][bajada]amix=inputs=2:normalize=0:duration=first[mezcla]"]
         sonido = "mezcla"
+    if fundido:
+        grafo.append(f"[{sonido}]afade=t=out:st={max(0.0, total - 0.25):.3f}:d=0.25[fin]")
+        sonido = "fin"
     crudo = destino.with_name(destino.stem + "_sin_mezclar.mkv")
     _correr([*entradas, "-filter_complex", ";".join(grafo), "-map", "[v]", "-map", f"[{sonido}]",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",

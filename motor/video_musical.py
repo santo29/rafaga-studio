@@ -136,14 +136,16 @@ def crear(cancion: str, titulo: str = "", letra: str = "", genero: str = "", for
     lineas, notas = [x for x in ia.sin_acotaciones(letra).splitlines() if x.strip()], []
     if lineas and _nucleo(lineas[0]) == _nucleo(titulo):  # la letra.txt del estudio empieza por el título
         lineas = lineas[1:]
-    escritas = [p for x in ia.ortografia(lineas, notas=notas) for p in x.split()] if lineas else []
+    # La letra y lo que se publica, en un solo repaso (antes eran dos llamadas a la IA, una tras otra)
+    letra_escrita = {"lineas": lineas}
+    ia.repasar([plan, letra_escrita], ("descripcion", "hashtags", "lineas"), notas=notas)
+    escritas = [p for x in letra_escrita["lineas"] for p in x.split()] if lineas else []
     # Solo si se parece a lo que suena: una ruta («letra.txt») o solo el coro sustituían toda la canción
     if escritas and SequenceMatcher(None, [_nucleo(p) for p in escritas], [_nucleo(p["palabra"]) for p in palabras],
                                     autojunk=False).ratio() >= 0.4:
         palabras = alinear(escritas, palabras)
     elif escritas and palabras:
         notas.append(t("La letra que diste no coincide con lo que se oye: el karaoke usa lo que se oye."))
-    ia.repasar([plan], ("descripcion", "hashtags"), notas=notas)
 
     partes, animar_ia, ultima, de_donde = [], True, None, ""
     pagados = 0  # con Kling o Seedance, cada escena animada se paga (hasta MAX_ESCENAS)

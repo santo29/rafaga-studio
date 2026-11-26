@@ -15,12 +15,14 @@ from PySide6.QtCore import QBuffer, QIODevice  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from motor import claves, diseno, director, edicion, herramientas, ia, nubes, video, voz  # noqa: E402
+from motor import claves, diseno, director, edicion, herramientas, ia, marca, memoria, nubes, shorts, video, voz  # noqa: E402,E501
 
 diseno.asegurar_qt()
 app = QApplication.instance()
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-director-"))
 claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # sin claves: nunca las del usuario
+# ni su memoria, su marca ni sus trabajos (el Director los lee en cada pedido)
+memoria.ARCHIVO, marca.ARCHIVO, shorts.PROYECTOS = tmp / "memoria.json", tmp / "marca.json", tmp / "proyectos"
 
 
 def png(color="#7C5CFF", w=64, h=64) -> bytes:
@@ -108,6 +110,17 @@ try:
     assert '"required"' not in enviados[0]["messages"][0]["content"]  # no ve el esquema técnico (lo copiaba)
 finally:
     ia.seguro.pedir, ia.time.sleep = _pedir, _dormir
+# Cuánto esperar antes del siguiente pedido: lo que dice el propio servicio al pasarse (su ritmo, que cambió de 30 a 45
+# s, y cuándo reintentar), no 32 s fijos (eran 72 s por pedido, la mitad de más)
+import httpx  # noqa: E402
+espera_antes = ia.ESPERA_GRATIS[0]
+limite = httpx.Response(402, text='{"error": {"code": "FREE_LIMIT", "message": "Free limit reached: 1 reply every 45 '
+                                  'seconds per IP. Retry after 9s, or get unlimited replies"}}')
+assert ia._espera_gratis(limite) == 9 and ia.ESPERA_GRATIS[0] == 47  # y el ritmo aprendido, para los siguientes
+assert ia._espera_gratis(httpx.Response(200, text="{}")) == 47
+assert ia._espera_gratis(httpx.Response(503, headers={"retry-after": "500"}, text="at its limit")) == 60  # con tope
+assert ia._espera_gratis(httpx.Response(503, text="Retry after 1s")) == 3 and ia._espera_gratis(None) == 47
+ia.ESPERA_GRATIS[0] = espera_antes
 
 # ---------- Catálogo: el Director ve las mismas herramientas que el MCP ----------
 catalogo = director.catalogo()
@@ -175,10 +188,71 @@ try:
     assert herramientas._aviso() is not None and getattr(herramientas._hilo, "aviso", None) is None
 
     # Nunca más de MAX_PASOS herramientas por pedido, aunque la IA quiera seguir
-    ia.texto_json, _ = guion(*[{"mensaje": "otra", "herramienta": "falsa", "argumentos": '{"texto": "x"}'}] * 20)
+    ia.texto_json, _ = guion(*[{"mensaje": "otra", "herramienta": "falsa", "argumentos": f'{{"texto": "x{i}"}}'}
+                               for i in range(20)])
     avisos_de_herramienta.clear()
     r = director.dirigir("haz muchos")
     assert len(avisos_de_herramienta) == director.MAX_PASOS and "Me detuve" in r["mensaje"]
+    # El mismo paso con los mismos argumentos (aunque en otro orden) no se hace dos veces: la IA lee por qué
+    ia.texto_json, vistos = guion({"mensaje": "uno", "herramienta": "falsa", "argumentos": '{"texto": "x"}'},
+                                  {"mensaje": "otra vez", "herramienta": "falsa", "argumentos": '{ "texto":"x" }'},
+                                  {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"})
+    avisos_de_herramienta.clear()
+    r = director.dirigir("hazlo")
+    assert len(avisos_de_herramienta) == 1 and "ya hiciste este mismo paso (el 1)" in vistos[2]
+    # Salió bien: el freno no es un fallo, ni sale en lo hecho (la página decía «Hecho» y «No salió» a la vez)
+    assert "ERROR: ya hiciste" not in vistos[2] and len(r["pasos"]) == 1 and "Falló" not in r["resumen"], r
+    # Lo que con los mismos argumentos hace otro trabajo (el capítulo siguiente) o lee el estudio, sí se repite
+    assert director._repetible("crear_episodio", '{"serie_nombre": "X"}') and director._repetible("listar_series", "{}")
+    assert not director._repetible("crear_episodio", '{"serie_nombre": "X", "numero": 2}')
+    assert not director._repetible("crear_episodio", '{"serie_nombre": "X", "idea": "encuentra un huevo"}')
+    assert not director._repetible("crear_video", '{"prompt": "x"}')
+    # Los argumentos al estilo de Python (como los enseña el catálogo) se leen; los sí/no escritos, como sí/no
+    assert director._leer_argumentos("{'texto': 'x', 'n': (1, 2), 'ok': True}") == {"texto": "x", "n": [1, 2], "ok": True}
+    for malo in ("{texto:", "[1, 2]", "{'a': {1, 2}}", "__import__('os')"):
+        try:
+            director._leer_argumentos(malo)
+            raise AssertionError(malo)
+        except ValueError:
+            pass
+
+    def con_si_no(a: bool = False, b: bool = True, c: str = "") -> str:
+        return ""
+    assert director._si_no(con_si_no, {"a": "false", "b": "Sí", "c": "false"}) == {"a": False, "b": True, "c": "false"}
+    try:
+        director._si_no(con_si_no, {"a": "quizás"})
+        raise AssertionError("un sí o no dudoso no se adivina")
+    except ValueError as e:
+        assert "a debe ser true o false" in str(e)
+    # La música de un video, solo un archivo que dio el usuario o que hizo el estudio
+    assert director._sin_permiso("crear_video", {"musica": "C:/otro/cancion.mp3"}, "", "")
+    assert director._sin_permiso("crear_video", {"musica": "C:/yo/cancion.mp3"}, "", director._norma(
+        "C:/yo/cancion.mp3")) is None
+    # Sin claves, el Director entero no cabe en la IA gratis (le respondía 413 a todo): le llega la versión compacta
+    vistos_gratis, gratis_real, para_real = [], ia._texto_gratis, claves.para
+    ia.texto_json, claves.para = _pensar, (lambda uso: None)
+    ia._texto_gratis = lambda instrucciones, pedido, esquema: vistos_gratis.append((instrucciones, pedido)) or {
+        "mensaje": "Listo.", "herramienta": "", "argumentos": "{}"}
+    try:
+        historial = [{"rol": "usuario", "texto": "hazme una canción " + "x" * 280},
+                     {"rol": "director", "texto": "Listo " + "y" * 280, "hecho": "Hecho: crear_cancion → C:/c.mp3"}] * 3
+        assert director.dirigir("hazle el video musical a esa canción", historial)["mensaje"] == "Listo."
+        instrucciones, pedido = vistos_gratis[0]
+        assert sum(len(m["content"]) for m in ia._mensajes_gratis(instrucciones, pedido, director.ESQUEMA))             <= ia.LIMITE_GRATIS
+        assert "Departamentos del estudio" not in instrucciones and "tipo: auto | anuncio" in instrucciones
+        assert "C:/c.mp3" in pedido  # la conversación (con la canción) va antes que la memoria
+        assert len(director._instrucciones(director.catalogo(), "", director.EJEMPLOS)) > ia.LIMITE_GRATIS  # enteras
+        # Si no cabe todo: fuera la memoria antes que la conversación (los especialistas leen la memoria por su
+        # cuenta; «a esa canción» solo se entiende con la conversación), y se dice que se recortó
+        memo, largo = "recuerdo " * 70, "x" * 1500
+        assert not ia.cabe_gratis(director._instrucciones(director.catalogo_corto(), "", ""), director._contexto(
+            largo, historial[-director.MAX_HISTORIAL_CORTO:], [], "", memo, corto=True), director.ESQUEMA)
+        instr, turno = director._compacto(largo, historial, [], "", memo)
+        assert "C:/c.mp3" in turno and "Lo que recuerdas" not in turno and ia.cabe_gratis(instr, turno, director.ESQUEMA)
+        instr, turno = director._compacto("x" * 3500, historial, [], "", memo)
+        assert "(no cabe aquí)" in turno or "(solo lo último" in turno, turno[-600:]
+    finally:
+        ia._texto_gratis, claves.para, ia.texto_json = gratis_real, para_real, _pensar
     try:
         director.dirigir("   ")
         raise AssertionError("un pedido vacío no debe gastar nada")
@@ -199,11 +273,29 @@ try:
         return [{"mensaje": "", "herramienta": "falsa", "argumentos": '{"texto": "a"}'},
                 {"mensaje": "", "herramienta": "otra_falsa", "argumentos": "{}"},
                 {"mensaje": "Listo.", "herramienta": "", "argumentos": "{}"}][n - 1]
-    ia.texto_json = elige
-    assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    ia.texto_json, para_real = elige, claves.para
+    claves.para = lambda uso: {"proveedor": "groq", "clave": "gsk_prueba", "modelo_texto": "qwen"} \
+        if uso == "texto" else None  # lo de Groq: con Claude y con la gratis, siempre el entero (ver dirigir)
+    try:
+        assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    finally:
+        claves.para = para_real
     assert [(entero, ve_falsa) for entero, ve_falsa, _ in pasos_vistos] == [
         (True, True), (False, True), (True, True), (False, True)], pasos_vistos
     assert pasos_vistos[1][2] == pasos_vistos[2][2]  # el mismo paso, repetido con el catálogo entero
+    # Con Claude, las instrucciones de todos los pasos son las mismas (su caché las lee): catálogo entero siempre
+    pasos_vistos.clear()
+    claves.para = lambda uso: {"proveedor": "anthropic", "clave": "sk-ant-prueba", "modelo_texto": "claude-opus-5-5"} \
+        if uso == "texto" else None
+    instrucciones_claude = []
+    ia.texto_json = lambda instrucciones, *a, **k: instrucciones_claude.append(instrucciones) or elige(
+        instrucciones, *a, **k)
+    try:
+        assert director.dirigir("haz dos cosas")["mensaje"] == "Listo."
+    finally:
+        claves.para = para_real
+    assert len(instrucciones_claude) == 3 and len(set(instrucciones_claude)) == 1 and "- crear_video(" in \
+        instrucciones_claude[0]
 finally:
     ia.texto_json = _pensar
     del herramientas.TODAS["falsa"]

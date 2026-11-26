@@ -61,7 +61,8 @@ def nombre(departamento: str) -> str:
     return t("Todo el estudio") if departamento == GENERAL else DEPARTAMENTOS[departamento]["nombre"]
 
 
-def manual() -> str:
-    """Cada departamento en una línea, para las instrucciones del Director."""
-    return "\n".join(f"- {clave} ({d['nombre']}): {d['hace']}. Herramientas: {', '.join(d['herramientas'])}. "
-                     f"Calidad: {d['reglas']}." for clave, d in DEPARTAMENTOS.items())
+def manual(calidad: bool = True) -> str:
+    """Cada departamento en una línea. Sin sus reglas de calidad para el Director: las cumple el especialista de cada
+    herramienta, que es quien escribe; al Director solo le sumaban tokens (y espera en la cuenta gratis de Groq)."""
+    return "\n".join(f"- {clave} ({d['nombre']}): {d['hace']}. Herramientas: {', '.join(d['herramientas'])}."
+                     + (f" Calidad: {d['reglas']}." if calidad else "") for clave, d in DEPARTAMENTOS.items())

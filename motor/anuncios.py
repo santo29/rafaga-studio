@@ -12,6 +12,8 @@ from .desde_prompt import (ESCENA, FALTAS, LETRAS_POR_SEGUNDO, MOVIMIENTO, al_pr
 from .idioma import IDIOMAS, t
 from .shorts import PROYECTOS
 
+PLAZO_WEB = 150  # s de la investigación en internet (Claude) antes del plan, como en nichos: luego, con lo que haya
+
 ESTILOS = {
     "UGC testimonio (persona real con el móvil)": "UGC selfie-style smartphone video frames, real everyday people, "
         "natural light, authentic home settings, slightly imperfect handheld look, no studio",
@@ -94,7 +96,9 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
         web = ia.investigar_web(
             f"Investiga en internet anuncios en video que estén funcionando ahora para productos como: {producto} "
             f"({detalles}). Público: {publico}. ¿Qué ganchos, ángulos, objeciones y formatos usan los anuncios "
-            "ganadores en Meta Ads Library y TikTok Creative Center? Da ejemplos concretos.")
+            "ganadores en Meta Ads Library y TikTok Creative Center? Da ejemplos concretos, en un resumen breve "
+            "(unas 300 palabras).", plazo=PLAZO_WEB)  # va antes del plan: sin tope, hasta 300 s de espera
+        web = ia.recortar(web, 3000) if web else web
 
     aviso(t("La IA está creando las variantes del anuncio…"), 0.12)
     plan = ia.texto_json(INSTRUCCIONES, ia.con_fotos(
@@ -109,10 +113,12 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
 
     # La IA decide cuántas variantes y escenas devuelve: se recorta a lo pedido (el gasto no lo marca la IA).
     plan["variantes"] = plan["variantes"][:variantes]
+    tope = max(3, round(segundos / 5)) + 2
     for v in plan["variantes"]:
-        v["escenas"] = v["escenas"][:max(3, round(segundos / 5)) + 2]
-        for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter
-            e["narracion"] = e["narracion"][:400]
+        if len(v["escenas"]) > tope:  # sobran: se quitan las del medio y se queda la última, la llamada a la acción
+            v["escenas"] = v["escenas"][:tope - 1] + v["escenas"][-1:]
+        for e in v["escenas"]:  # y cada narración a 1-2 frases: la voz de pago se cobra por carácter (sin partir palabras)
+            e["narracion"] = ia.recortar(e["narracion"], 400)
             e.pop("voz", None)  # la voz de cada escena es solo de las series: la IA no elige una de pago
     resultados, total, notas, pagados = [], len(plan["variantes"]), [], {"clips": 0}  # tope de clips de pago: del trabajo
     # La ortografía, antes de narrar y de quemar nada («FUSEL ESTE AROMA», el ángulo «Deseño», «#CaféBrise»)
@@ -156,12 +162,14 @@ def crear(foto: str, producto: str = "", detalles: str = "", publico: str = "", 
             medio["imagen"] = f"the product as the hero of the shot, sharp and well lit, {medio['imagen']}"
             fotos = {len(escenas) // 2}
         try:
+            cierra = bool((oferta or producto).strip())  # el cierre copia el último cuadro: sin fundido a negro
             montado = montar(v, carpeta, formato, voz, aviso, nombre=f"anuncio_{k}_base", desde=desde,
                              hasta=desde + 0.8 / total, respaldo=foto_local, notas=notas_k, pagados=pagados, pago=pago,
                              crear_imagen=lambda p, w, h, d, fotos=fotos: (
-                                 con_producto if int(d.stem.rsplit("_", 1)[1]) in fotos else ia.imagen)(p, w, h, d))
+                                 con_producto if int(d.stem.rsplit("_", 1)[1]) in fotos else ia.imagen)(p, w, h, d),
+                             fundido=not cierra)
             archivo = video.cierre(montado, oferta or producto, formato, carpeta / f"anuncio_{k}.mp4",
-                                   producto=foto_local) if (oferta or producto).strip() else montado
+                                   producto=foto_local) if cierra else montado
         except Exception as error:  # lo ya pagado (también en las variantes anteriores) no se pierde de vista
             relanzar_con_gasto(error, notas + notas_k, carpeta)
         notas += [t("Anuncio {n}: {nota}", n=k, nota=nota) for nota in notas_k]

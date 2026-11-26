@@ -243,7 +243,7 @@ claves.elegir_por_defecto("video_voz", "seedance")
 reales = desde_prompt.narrar, video.duracion, video.escena_de_clip, video.escena_de_imagen, video.unir
 desde_prompt.narrar = lambda texto, voz, destino: []
 video.duracion = lambda p: 1.0
-video.escena_de_clip = lambda clip, audio, formato, palabras, escena: escena
+video.escena_de_clip = lambda clip, audio, formato, palabras, escena, **k: escena
 video.escena_de_imagen = lambda img, audio, formato, palabras, escena, i: escena
 video.unir = lambda partes, destino, *a: destino
 
@@ -377,7 +377,7 @@ try:
             if destino.name == "anuncio_2.mp4":
                 raise RuntimeError("ffmpeg falló al poner el cierre")
             return destino
-        ia.investigar_web, video.cierre, anuncios.PROYECTOS = lambda pedido: "", cierre, tmp / "proyectos_anuncio"
+        ia.investigar_web, video.cierre, anuncios.PROYECTOS = lambda pedido, **k: "", cierre, tmp / "proyectos_anuncio"
         ia.texto_json = lambda instrucciones, pedido, esquema: {"variantes": [variante(1), variante(2)]}
         kling.llamadas.clear()
         try:

@@ -562,4 +562,37 @@ finally:
 assert errores and "Dibujar lo que falta" in errores[0] and pagina.capitulos.count() == 3
 assert pagina.capitulos.currentRow() == 2 and "Sin dibujos" in pagina.capitulos.item(2).text()
 assert pagina.rehacer_btn.isEnabled() and pagina.estudio.isVisible()
+
+# ---------- Encontrar la serie y a sus personajes como los escribe la IA ----------
+guardadas = Path(tempfile.mkdtemp(prefix="rafaga-series-"))
+carpeta_real, serie.CARPETA = serie.CARPETA, guardadas
+for titulo in ("El gato pirata", "El gato chef", "La gallina detective"):
+    (guardadas / titulo).mkdir()
+    (guardadas / titulo / "serie.json").write_text(json.dumps({"titulo": titulo, "personajes": [
+        {"nombre": "Rafa el Pirata", "descripcion": "un gato naranja", "voz": "es-DO-EmilioNeural"},
+        {"nombre": "Lucía", "descripcion": "una gaviota", "voz": "es-DO-RamonaNeural"}]}), encoding="utf-8")
+try:
+    assert serie._abrir("gallina")[1]["titulo"] == "La gallina detective"  # la única con esa palabra
+    assert serie._abrir("EL GATO PIRATA")[1]["titulo"] == "El gato pirata"  # igual, sin mayúsculas
+    error = falla(serie._abrir, "gato")  # dos posibles: no se adivina, se dice cuáles hay
+    assert "Hay: «El gato chef»; «El gato pirata»; «La gallina detective»." in error, error
+    assert "Hay:" in falla(serie._abrir, "rata")  # «rata» no es «pirata»: palabras enteras
+    datos = serie._abrir("La gallina detective")[1]
+    escenas = serie._escenas(datos, {"planos": [
+        {"texto": "Hola.", "descripcion": "a ship", "personajes": ["RAFA EL PIRATA", "lucia"], "habla": "Rafa"},
+        {"texto": "¿Qué?", "descripcion": "a deck", "personajes": ["Lucía"], "habla": "lucía"},
+        {"texto": "Nada.", "descripcion": "the sea", "personajes": ["Pedro"], "habla": "Pedro"}]})
+    rafa, lucia = datos["personajes"]
+    assert escenas[0]["voz"] == rafa["voz"] and "Rafa el Pirata: un gato naranja" in escenas[0]["imagen"]
+    assert "Lucía: una gaviota" in escenas[0]["imagen"] and escenas[1]["voz"] == lucia["voz"]
+    assert escenas[2]["voz"] == datos["narrador"] and "Characters" not in escenas[2]["imagen"]  # nadie inventado
+finally:
+    serie.CARPETA = carpeta_real
+# Los géneros y estilos que escribe la IA, al de la lista si es uno solo y palabras enteras
+from motor import musica  # noqa: E402
+assert herramientas._de_la_lista("bachata", musica.GENEROS) == "Bachata"
+assert herramientas._de_la_lista("MERENGUE TIPICO", musica.GENEROS) == "Merengue típico"
+assert herramientas._de_la_lista("dembow", musica.GENEROS) == "dembow"  # clásico o moderno: no se adivina
+assert herramientas._de_la_lista("reggae", musica.GENEROS) == "reggae"  # no es Reggaetón
+assert herramientas._de_la_lista("", musica.GENEROS) == "" and herramientas._de_la_lista("hip hop", musica.GENEROS)     == "Hip hop / rap"
 print("Pruebas de la serie animada pasadas.")

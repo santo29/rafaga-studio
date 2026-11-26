@@ -7,6 +7,7 @@ import inspect
 import json
 import re
 import threading
+import unicodedata
 from pathlib import Path
 
 from . import (anuncios, cabina, claves, desde_prompt, diseno_ia, ia, memoria, musica, nichos, publicar, roles,
@@ -23,6 +24,31 @@ def ruta(r: str) -> str:
 
 def _aviso():
     return getattr(_hilo, "aviso", None) or (lambda texto, f: None)
+
+
+def _llano(texto) -> str:
+    return " ".join(unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode().lower().split())
+
+
+def _de_la_lista(valor: str, lista) -> str:
+    """El de la lista que quiso decir la IA: igual sin tildes ni mayúsculas («bachata» → «Bachata») o el único que lo
+    contiene («ugc testimonio» → «UGC testimonio (persona real con el móvil)»). Si no hay uno solo, tal cual: un estilo
+    propio vale, y con dos posibles («dembow») no se adivina. Antes, «bachata» perdía la descripción de su género."""
+    buscado = _llano(valor)
+    if not buscado:
+        return valor
+    iguales = [x for x in lista if _llano(x) == buscado]
+    # Palabras enteras: «reggae» no es «Reggaetón» ni «dance» es «Dancehall»
+    contienen = [x for x in lista if re.search(rf"(?<!\w){re.escape(buscado)}(?!\w)", _llano(x))]
+    return iguales[0] if iguales else contienen[0] if len(contienen) == 1 else valor
+
+
+def _formato(formato: str) -> None:
+    """Un formato raro, antes de descargar, transcribir o pedir el plan: fallaba al final con «Algo falló…
+    Inténtalo de nuevo» (un KeyError), y la IA lo repetía."""
+    from . import video
+    if formato not in video.FORMATOS:
+        raise ValueError(t("Formato no válido: usa 9:16, 16:9, 1:1 o 4:5."))
 
 
 def _json(datos) -> str:
@@ -61,7 +87,7 @@ def _voz(voz: str) -> str:
 
 def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "",
                 imagen: str = "", solo_animar: bool = False, guion: dict | None = None,
-                animado: bool = False, modelo_video: str = "auto") -> str:
+                animado: bool = False, modelo_video: str = "auto", musica: str = "") -> str:
     """Crea un video completo desde un pedido: la IA escribe la narración y hace imágenes, voz, subtítulos y montaje.
     animado: true = cada escena es un video de IA con su propia voz: los personajes hablan con los labios
     sincronizados (una fruta que habla, un anuncio con actor…). Lo hace la IA que el usuario eligió para las escenas
@@ -76,6 +102,8 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     a la IA de video: en Automático, a la nube Modal del usuario si la conectó y si no, a un Space público y gratis de
     Hugging Face (con «No usar» en Claves de IA, nunca al Space: sin Modal, falla sin subir nada); si eligió Kling o
     Seedance (de pago), únicamente a esa. Pollinations no anima fotos (no la ve).
+    musica: ruta de una canción o pista que dio el usuario para el fondo (opcional): baja sola cuando habla la voz y
+    se funde al final. Sin ella, el video va sin música. No vale con solo_animar (ese clip va sin música).
     Devuelve la ruta del video y el texto para publicar. Tarda varios minutos.
 
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
@@ -89,6 +117,9 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     # antes de gastar nada. Nunca se fuerza animado: la ventana de costo del MCP se calculó con lo que pidió el agente
     modelo_video = validar_modelo(modelo_video, habla=animado is True and not (imagen and solo_animar))
     if imagen and solo_animar:
+        if musica:  # antes de gastar: el clip de la foto sale sin música y la música se perdía sin decirlo
+            raise ValueError(t("Con solo_animar el clip sale sin música: anímala y luego usa editar_video con el clip "
+                               "y la canción."))
         if modelo_video == "ninguno":
             raise ValueError(t("«Sin animar» no anima nada: para animar solo la imagen, elige otro modelo de video."))
         with claves.por_trabajo(modelo_video):
@@ -96,7 +127,7 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     voz = _voz(voz)
     with claves.por_trabajo(modelo_video):
         return _json(desde_prompt.generar(prompt, formato, segundos, voz, ruta(imagen), aviso=_aviso(), guion=guion,
-                                          animado=animado))
+                                          animado=animado, musica=ruta(musica)))
 
 
 crear_video.__doc__ = crear_video.__doc__.replace("{voces}", ", ".join(desde_prompt.VOCES.values()))
@@ -107,6 +138,7 @@ def sacar_shorts(url: str, formato: str = "9:16", modo: str = "recortar", cantid
     """Saca los mejores shorts de un video largo a partir de su enlace (YouTube, Facebook, TikTok…).
     modo: 'recortar' (llena la pantalla) o 'difuminar' (video completo con fondo borroso).
     Devuelve las rutas de los shorts con título, descripción y hashtags. Tarda varios minutos."""
+    _formato(formato)
     cantidad, duracion_max = max(1, min(int(cantidad), 20)), max(15, min(int(duracion_max), 180))
     return _json(shorts.generar(url, formato, modo, cantidad, min(20, duracion_max), duracion_max, aviso=_aviso()))
 
@@ -125,10 +157,12 @@ def crear_anuncios(foto: str, producto: str = "", detalles: str = "", publico: s
     """Crea varios anuncios en video realistas (pruebas A/B) a partir de la ruta de una foto del producto o del
     negocio. producto: qué se anuncia; vacío, la IA lo saca de la foto (si la IA de texto no ve fotos, responde que
     hay que decirlo). estilo: uno de {estilos}. voz: como en crear_video, vacía salvo que el usuario pida una."""
+    _formato(formato)
     variantes, segundos = max(1, min(int(variantes), 6)), max(10, min(int(segundos), 90))
     voz = _voz(voz)
     with claves.por_trabajo(validar_modelo(modelo_video)):
-        return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta, estilo, formato, voz=voz,
+        return _json(anuncios.crear(ruta(foto), producto, detalles, publico, oferta,
+                                    _de_la_lista(estilo, anuncios.ESTILOS), formato, voz=voz,
                                     variantes=variantes, segundos=segundos, aviso=_aviso()))
 
 
@@ -138,7 +172,7 @@ crear_anuncios.__doc__ = crear_anuncios.__doc__.replace("{estilos}", "; ".join(a
 def crear_cancion(idea: str, genero: str = "", con_voz: bool = True, segundos: int = 150) -> str:
     """Escribe y produce una canción o pista. genero: uno de {generos}; vacío: la IA lo elige según la idea."""
     segundos = max(30, min(int(segundos), 300))
-    return _json(musica.crear(idea, genero, con_voz, segundos, aviso=_aviso()))
+    return _json(musica.crear(idea, _de_la_lista(genero, musica.GENEROS), con_voz, segundos, aviso=_aviso()))
 
 
 crear_cancion.__doc__ = crear_cancion.__doc__.replace("{generos}", "; ".join(musica.GENEROS))
@@ -150,8 +184,10 @@ def crear_video_musical(cancion: str, formato: str = "9:16", idea: str = "", let
     con el sonido y la letra estilo karaoke. Pasa la letra si la tienes: el karaoke muestra la letra escrita, con los
     tiempos de lo que se oye. titulo: el de la canción (vacío: el de su proyecto o el de sus etiquetas).
     Para sincronizar, la canción se sube a la IA de transcripción conectada (Groq u OpenAI); sin ellas se hace en el PC."""
+    _formato(formato)
     with claves.por_trabajo(validar_modelo(modelo_video)):
-        return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra, genero=genero,
+        return _json(video_musical.crear(ruta(cancion), titulo=str(titulo or "")[:80], letra=letra,
+                                         genero=_de_la_lista(genero, musica.GENEROS),
                                          formato=formato, idea=idea, aviso=_aviso()))
 
 
@@ -161,7 +197,8 @@ def producir_cancion(pista: str, voz: str, estilo: str = "Dembow / urbano (seco 
     afina (0 natural – 1 robot), aplica la cadena de voz del estilo, mezcla con sidechain y masteriza
     (copiando el sonido de `referencia` si se da)."""
     afinacion = max(0.0, min(float(afinacion), 1.0))
-    return _json(cabina.sesion(ruta(pista), ruta(voz), estilo, afinacion, ruta(referencia), titulo, aviso=_aviso()))
+    return _json(cabina.sesion(ruta(pista), ruta(voz), _de_la_lista(estilo, cabina.PRESETS), afinacion,
+                               ruta(referencia), titulo, aviso=_aviso()))
 
 
 def separar_voz_y_pista(cancion: str) -> str:

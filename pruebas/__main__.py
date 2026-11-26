@@ -357,7 +357,7 @@ def con_producto(prompt, foto, ancho, alto, destino, realista=True, **k):  # avi
 
 reales = (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.video_desde_imagen, ia.investigar_web,
           desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre, video.ffmpeg)
-ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.investigar_web = pensar, dibujar, con_producto, lambda q: None
+ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.investigar_web = pensar, dibujar, con_producto, lambda q, **k: None
 ia.video_desde_imagen = lambda *a, **k: None  # animar sería red
 desde_prompt.narrar = lambda texto, voz, destino: []
 cierres = []

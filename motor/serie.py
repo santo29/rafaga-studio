@@ -18,7 +18,7 @@ import unicodedata
 from pathlib import Path
 from typing import Callable
 
-from . import claves, desde_prompt, diseno, edicion, ia, memoria, seguro, video
+from . import claves, desde_prompt, diseno, edicion, ia, memoria, nubes, seguro, video
 from .idioma import IDIOMAS, actual, t, texto_de_error
 
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
@@ -134,17 +134,31 @@ def _limpia(datos) -> dict:
             "narrador": narrador, "personajes": personajes}
 
 
+def _llano(texto) -> str:
+    """Para comparar nombres como los escribe la gente o la IA: sin tildes, sin mayúsculas y sin espacios de más."""
+    return " ".join(unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode().lower().split())
+
+
 def _abrir(serie: str) -> tuple[Path, dict]:
-    """(carpeta, datos) de una serie por el nombre de su carpeta o por su título."""
+    """(carpeta, datos) de una serie por el nombre de su carpeta o por su título. Si no hay uno igual, la única cuyo
+    título contiene lo buscado («gato pirata» → «El gato pirata»); si no, el error dice cuáles hay."""
     buscada = str(serie or "").strip()
+    parecidas, titulos = [], []
     for archivo in sorted(CARPETA.glob("*/serie.json")):
         try:
             datos = _limpia(json.loads(archivo.read_text(encoding="utf-8")))
         except (OSError, ValueError, TypeError, AttributeError):  # un archivo tocado a mano
             continue
-        if buscada in (archivo.parent.name, datos["titulo"]) or buscada.lower() == datos["titulo"].lower():
+        if buscada in (archivo.parent.name, datos["titulo"]) or _llano(buscada) == _llano(datos["titulo"]):
             return archivo.parent, datos
-    raise ValueError(t("No encuentro la serie «{serie}». Créala primero o elige una de la lista.", serie=buscada[:80]))
+        titulos.append(datos["titulo"])
+        # palabras enteras: «rata» no abre «El gato pirata»
+        if _llano(buscada) and re.search(rf"(?<!\w){re.escape(_llano(buscada))}(?!\w)", _llano(datos["titulo"])):
+            parecidas.append((archivo.parent, datos))
+    if len(parecidas) == 1:
+        return parecidas[0]
+    raise ValueError(t("No encuentro la serie «{serie}». Créala primero o elige una de la lista.", serie=buscada[:80])
+                     + (" " + t("Hay: {series}.", series="; ".join(f"«{x}»" for x in titulos[:10])) if titulos else ""))
 
 
 def lamina(carpeta: Path, personaje: dict) -> Path:
@@ -326,14 +340,23 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
     (carpeta / "personajes").mkdir(parents=True)
     diseno.escribir_json(carpeta / "serie.json", datos)
     avisos, faltan = voces_de_fuera, []
-    for i, p in enumerate(datos["personajes"]):
-        aviso(t("Dibujando a {nombre}…", nombre=p["nombre"]), 0.2 + 0.75 * i / len(datos["personajes"]))
-        try:
-            ia.imagen(_prompt_lamina(p, datos["estilo"]), *LAMINA, lamina(carpeta, p))
-        except Exception as e:  # sin cuota hoy: la serie queda creada y la lámina se dibuja o se elige después
-            faltan.append(p["nombre"])
-            avisos.append(t("No salió la lámina de {nombre} ({causa}).", nombre=p["nombre"],
-                            causa=texto_de_error(e).replace("\n", " · ")[:300]))
+    def dibujar(p):  # de este módulo: la actividad de la IA la apunta en «Dibujos animados» también desde un hilo
+        return ia.imagen(_prompt_lamina(p, datos["estilo"]), *LAMINA, lamina(carpeta, p))
+    # Gratis, de 3 en 3 (antes, una tras otra: hasta 6); de pago, una a una como siempre
+    dibujos = nubes.Adelantos([(i, (p,)) for i, p in enumerate(datos["personajes"])], dibujar) \
+        if desde_prompt._imagenes_gratis() else None
+    try:
+        for i, p in enumerate(datos["personajes"]):
+            aviso(t("Dibujando a {nombre}…", nombre=p["nombre"]), 0.2 + 0.75 * i / len(datos["personajes"]))
+            try:
+                dibujos.recoger(i) if dibujos else dibujar(p)
+            except Exception as e:  # sin cuota hoy: la serie queda creada y la lámina se dibuja o se elige después
+                faltan.append(p["nombre"])
+                avisos.append(t("No salió la lámina de {nombre} ({causa}).", nombre=p["nombre"],
+                                causa=texto_de_error(e).replace("\n", " · ")[:300]))
+    finally:
+        if dibujos:
+            dibujos.parar()
     aviso(t("¡Listo!"), 1.0)
     return {**resumen(carpeta, datos), "avisos": avisos, "faltan_laminas": faltan, "resultados": []}
 
@@ -419,13 +442,22 @@ def cambiar_lamina(serie: str, personaje: str, archivo: str) -> str:
 
 def _escenas(datos: dict, guion: dict) -> list[dict]:
     """Cada plano como escena de desde_prompt.montar: su voz y su dibujo, con la apariencia fija de quien sale."""
-    nombres = {p["nombre"].lower(): p for p in datos["personajes"]}
+    nombres = {_llano(p["nombre"]): p for p in datos["personajes"]}
+
+    def quien(nombre):
+        """El personaje aunque la IA escriba su nombre con otra tilde o mayúscula, o solo el primero («Rafa» de «Rafa
+        el Pirata»): si no, perdía su aspecto fijo y su voz (hablaba el narrador). Nunca uno dudoso entre dos."""
+        buscado = _llano(nombre)
+        if buscado in nombres:
+            return nombres[buscado]
+        empiezan = [p for n, p in nombres.items() if buscado and (n.startswith(buscado + " ") or buscado.startswith(n + " "))]
+        return empiezan[0] if len(empiezan) == 1 else None
     # Las imágenes salen cuadradas y se recortan a 16:9: que nadie quede con la cabeza o los pies fuera
     encuadre = ", characters fully inside the central band, no text" if datos["formato"] == "16:9" else ", no text"
     escenas = []
     for plano in _planos(guion):
-        salen = [nombres[n.lower()] for n in plano.get("personajes", []) if isinstance(n, str) and n.lower() in nombres]
-        habla = nombres.get(str(plano.get("habla", "")).lower())
+        salen = [p for n in plano.get("personajes", []) if isinstance(n, str) and (p := quien(n))]
+        habla = quien(plano.get("habla", ""))
         fijas = "; ".join(f"{p['nombre']}: {p['descripcion']}" for p in salen)
         escenas.append({"narracion": _texto(plano.get("texto"), 400) or "…",
                         "imagen": _texto(plano.get("descripcion"), 1000) + (f". Characters: {fijas}" if fijas else "")

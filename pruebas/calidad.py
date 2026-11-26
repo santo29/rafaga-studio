@@ -145,7 +145,7 @@ try:
     dibujos = []
     ia.imagen = lambda prompt, w, h, d, *a: dibujos.append(prompt) or d
     ia.video_desde_imagen = lambda *a, **k: None
-    video.segmento_mudo = lambda img, s, f, destino, i, clip=None: destino
+    video.segmento_mudo = lambda img, s, f, destino, i, clip=None, **k: destino
     video.unir = lambda partes, d: d
     video.con_cancion = lambda visual, audio, f, palabras, d: karaoke.append(palabras) or d
     try:
@@ -233,7 +233,7 @@ try:
     reales = (ia.texto_json, ia.imagen, ia.imagen_con_producto, ia.pegar_producto, ia.video_desde_imagen,
               desde_prompt.narrar, video.duracion, video.escena_de_imagen, video.unir, video.cierre, ia.investigar_web,
               ia.video_de_pago, ia.nota_pago, desde_prompt._ya_animada)
-    ia.investigar_web = lambda pregunta: None
+    ia.investigar_web = lambda pregunta, **k: None
     ia.texto_json = lambda i, p, e: json.loads(json.dumps(plan))
     ia.imagen = lambda prompt, w, h, d, *a: dibujos.append(prompt) or d
     ia.imagen_con_producto = lambda prompt, f, w, h, d, realista=True, **k: con_foto.append(prompt) or d
@@ -243,7 +243,8 @@ try:
     video.duracion = lambda p: 1.0
     escenas_de = []
     video.escena_de_imagen = lambda img, audio, f, palabras, escena, i: escenas_de.append(img) or escena
-    video.unir = lambda partes, d, *a: d
+    fundidos = []
+    video.unir = lambda partes, d, *a: fundidos.append(a[5] if len(a) > 5 else "?") or d
     video.cierre = lambda m, texto, f, d, producto=None: cierres.append((texto, producto)) or d
     try:
         # La IA (como Groq) no escribió «the product» en ninguna escena: la foto va en la del medio y en el cierre
@@ -252,6 +253,7 @@ try:
                            "Demostración del producto", variantes=1, segundos=15)
         assert len(con_foto) == 1 and con_foto[0].startswith("the product as the hero of the shot"), con_foto
         assert len(dibujos) == 2 and cierres[-1][0] == "PÍDELO HOY" and cierres[-1][1].name == "producto.png"
+        assert fundidos == [False], fundidos  # con cierre, el montaje no se funde a negro (lo copiaría el cierre)
         assert narradas[0] == "HUELE ESTE AROMA" and r["resultados"][0]["titulo"].startswith("1. Deseo — ")  # (3)
         assert usadas == ["groq"]
         # Si la edición con referencia no atiende (402, no cobró; con Gemini llega como SinServicio), la foto se pega
@@ -508,6 +510,16 @@ try:
 finally:
     ia.video_desde_imagen = real
     claves.borrar("modal")
+# Foto a video deja el sonido de ambiente que trae el clip (el de Gemini se paga): antes salía mudo
+clip_son = hacer("animar_son.mp4", "-f", "lavfi", "-i", "color=c=gray:s=320x568:r=30:d=2", "-f", "lavfi", "-i",
+                 "sine=frequency=3000:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+ia.video_desde_imagen = lambda *a, **k: clip_son
+carpeta_nueva()
+try:
+    animado = Path(desde_prompt.animar_imagen(str(foto_animar), "que baile")["resultados"][0]["archivo"])
+    assert video._trae_audio(animado) and abs(video.duracion(animado) - 2) < 0.1, video._leer_ffmpeg("-i", animado)
+finally:
+    ia.video_desde_imagen = real
 personajes = [{"nombre": n} for n in ("Rafa", "Yari", "Don Tito", "Doña Ana", "Chepe")]
 avisos = serie._asignar_voces(personajes, ["hombre", "mujer", "hombre", "mujer", "hombre"])
 assert [p["voz"] for p in personajes] == ["es-DO-EmilioNeural", "es-DO-RamonaNeural", "es-PR-VictorNeural",

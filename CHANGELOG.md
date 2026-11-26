@@ -7,10 +7,12 @@ All notable changes to Ráfaga Studio are documented in this file.
 ### Added
 
 - Create with AI takes a song or track of yours as background music: it drops while the voice speaks and fades out at
-  the end. The Director passes it when you attach a song and ask for a video.
-- Paid AI clips that bring their own sound (Gemini, and Kling when its model adds sound) keep it under the
-  narration, lower while the voice speaks. Before, the montage muted it.
-- Videos end with a short fade to black and silence (ads skip it, because their closing card follows).
+  the end. The Director passes it when you attach a song and ask for a video with it in the background.
+- Paid AI clips keep the sound they bring. Photo to video keeps the ambient sound of a Gemini clip, and in videos,
+  ads and series, Kling clips with sound (its 3.0 Turbo model) keep it under the narration, lower while the voice
+  speaks. Before, both were muted.
+- Videos from Create with AI and series episodes end with a short fade to black and silence (ads with a closing card
+  skip it, because the card follows).
 
 ### Changed
 
@@ -18,16 +20,20 @@ All notable changes to Ráfaga Studio are documented in this file.
   a test of 29 typical requests with the free AI and no keys, it picked the right first step in 23 to 25 of them
   (before: none).
 - With Claude, the Director's instructions stay the same in every step and request, so Claude reads them from its cache
-  for an hour: faster and cheaper from the second step.
+  for an hour after its last use: faster and cheaper from the second step (the first step of each hour costs a little
+  more, to store them).
 - The Director does not run the same step with the same arguments twice in one request (except the next chapter of a
-  series and the lists), and its error messages tell it which arguments are valid. Yes/no written as text and
-  Python-style arguments are read correctly.
-- Free images for a video and the character sheets of a series are requested three at a time instead of one by one.
-  Paid images keep going one by one, so a job that fails midway does not pay for unused images.
+  series and the lists). When it gets the arguments wrong, the error tells it which ones are valid. Yes/no written as
+  text and Python-style arguments are read correctly.
+- Free images in Create with AI, ads and series episodes, and the character sheets of a series, are requested three at
+  a time instead of one by one. Paid images keep going one by one, so a job that fails midway does not pay for unused
+  images. Music videos, Design and a Pollinations account with its key still go one by one.
 - The free text AI waits only what the service asks for (it now allows one reply every 45 seconds and says when to
-  retry), instead of a fixed wait after each refusal. OpenAI and Gemini think less on each Director step, and the
-  OpenAI-compatible client has a time limit.
-- A free image service that ran out of today's quota is tried last for the next scenes instead of first.
+  retry), instead of a fixed wait after each refusal. Without keys, Director steps that come right after another reply
+  take close to a minute each. OpenAI and Gemini think less on each Director step, and the OpenAI-compatible client
+  has a time limit.
+- A free image service (Cloudflare or Hugging Face) that ran out of today's quota is tried last for the next hour
+  instead of first.
 - Ads: the web research has a 150-second limit, trimmed scenes keep the call to action and narration is never cut
   mid-word. If AI video fails in one ad variant, the next variants do not wait for it again.
 - Shorts, ads and music videos check the format before downloading or spending anything.

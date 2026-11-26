@@ -95,6 +95,11 @@ assert bajo < solo / 2, (solo, bajo)  # y baja cuando habla la voz
 assert abs(banda(con_son, VOZ, 1.3, 2.2) - banda(sin_son, VOZ, 1.3, 2.2)) < 0.02  # la voz, igual de entera
 estandar_clip = video._leer_ffmpeg("-i", con_son)
 assert "44100 Hz" in estandar_clip and "Audio: aac" in estandar_clip, estandar_clip
+# Foto a video deja el sonido que trae el clip (el de Gemini se paga); un clip mudo y un tramo musical, sin sonido
+animado = video.segmento_mudo(clip_son, video.duracion(clip_son), "9:16", tmp / "animado.mp4", 0, clip_son, sonido=True)
+assert video._trae_audio(animado) and banda(animado, AMBIENTE, 0.2, 1.8) > 0.005, video._leer_ffmpeg("-i", animado)
+assert not video._trae_audio(video.segmento_mudo(clip, 2.0, "9:16", tmp / "animado_mudo.mp4", 0, clip, sonido=True))
+assert not video._trae_audio(video.segmento_mudo(clip_son, 2.0, "9:16", tmp / "tramo.mp4", 0, clip_son))
 print("Clips sin volver a empezar ni quedarse quietos, y su sonido bajo la voz, pasados.")
 
 # ---------- 2. El acabado: fundido, look, texto en pantalla, -14 LUFS, estéreo ----------

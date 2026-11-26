@@ -145,7 +145,7 @@ try:
     dibujos = []
     ia.imagen = lambda prompt, w, h, d, *a: dibujos.append(prompt) or d
     ia.video_desde_imagen = lambda *a, **k: None
-    video.segmento_mudo = lambda img, s, f, destino, i, clip=None: destino
+    video.segmento_mudo = lambda img, s, f, destino, i, clip=None, **k: destino
     video.unir = lambda partes, d: d
     video.con_cancion = lambda visual, audio, f, palabras, d: karaoke.append(palabras) or d
     try:
@@ -510,6 +510,16 @@ try:
 finally:
     ia.video_desde_imagen = real
     claves.borrar("modal")
+# Foto a video deja el sonido de ambiente que trae el clip (el de Gemini se paga): antes salía mudo
+clip_son = hacer("animar_son.mp4", "-f", "lavfi", "-i", "color=c=gray:s=320x568:r=30:d=2", "-f", "lavfi", "-i",
+                 "sine=frequency=3000:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+ia.video_desde_imagen = lambda *a, **k: clip_son
+carpeta_nueva()
+try:
+    animado = Path(desde_prompt.animar_imagen(str(foto_animar), "que baile")["resultados"][0]["archivo"])
+    assert video._trae_audio(animado) and abs(video.duracion(animado) - 2) < 0.1, video._leer_ffmpeg("-i", animado)
+finally:
+    ia.video_desde_imagen = real
 personajes = [{"nombre": n} for n in ("Rafa", "Yari", "Don Tito", "Doña Ana", "Chepe")]
 avisos = serie._asignar_voces(personajes, ["hombre", "mujer", "hombre", "mujer", "hombre"])
 assert [p["voz"] for p in personajes] == ["es-DO-EmilioNeural", "es-DO-RamonaNeural", "es-PR-VictorNeural",

@@ -103,7 +103,7 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     Hugging Face (con «No usar» en Claves de IA, nunca al Space: sin Modal, falla sin subir nada); si eligió Kling o
     Seedance (de pago), únicamente a esa. Pollinations no anima fotos (no la ve).
     musica: ruta de una canción o pista que dio el usuario para el fondo (opcional): baja sola cuando habla la voz y
-    se funde al final. Sin ella, el video va sin música. No vale con solo_animar (ese clip va sin sonido).
+    se funde al final. Sin ella, el video va sin música. No vale con solo_animar (ese clip va sin música).
     Devuelve la ruta del video y el texto para publicar. Tarda varios minutos.
 
     guion (opcional): si tú escribes el guion, pásalo y no se usa la IA de texto de la app. Forma:
@@ -117,7 +117,7 @@ def crear_video(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str
     # antes de gastar nada. Nunca se fuerza animado: la ventana de costo del MCP se calculó con lo que pidió el agente
     modelo_video = validar_modelo(modelo_video, habla=animado is True and not (imagen and solo_animar))
     if imagen and solo_animar:
-        if musica:  # antes de gastar: el clip de la foto sale sin sonido y la música se perdía sin decirlo
+        if musica:  # antes de gastar: el clip de la foto sale sin música y la música se perdía sin decirlo
             raise ValueError(t("Con solo_animar el clip sale sin música: anímala y luego usa editar_video con el clip "
                                "y la canción."))
         if modelo_video == "ninguno":

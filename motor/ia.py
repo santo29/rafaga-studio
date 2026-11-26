@@ -1371,7 +1371,7 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
         return None
     todas = claves.cargar()
     movimiento = direccion_video(prompt)
-    if pago == "gemini":  # su propio sonido de ambiente: el montaje lo pone bajo la voz (video.escena_de_clip)
+    if pago == "gemini":  # su propio sonido de ambiente: Foto a video lo deja (video.segmento_mudo, sonido)
         return video_hablado(f"Animate this exact image as the first frame. {movimiento} No dialogue, no voice-over, "
                              "no music: only natural ambient sound.", formato, destino, imagen_png, "gemini")
     if forzar and not orden_foto():  # antes de subir nada

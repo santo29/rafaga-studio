@@ -621,7 +621,8 @@ def generar(prompt: str, formato: str = "9:16", segundos: int = 45, voz: str = "
 
 def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: float = 5,
                   aviso: Callable[[str, float], None] = lambda t, f: None) -> dict:
-    """Solo anima una imagen siguiendo el pedido (clip corto, sin voz), con quien diga ia.orden_foto."""
+    """Solo anima una imagen siguiendo el pedido (clip corto, sin voz ni música; con el sonido de ambiente que traiga
+    el clip), con quien diga ia.orden_foto."""
     imagen = str(seguro.archivo_medio(imagen, seguro.IMAGENES, t("imagen")))
     carpeta = PROYECTOS / time.strftime("%Y%m%d-%H%M%S-animacion")
     carpeta.mkdir(parents=True)
@@ -638,7 +639,8 @@ def animar_imagen(imagen: str, prompt: str, formato: str = "9:16", segundos: flo
         # forzar: pidió animar esta foto; «No usar» (lo de las escenas de un video) no la deja quieta
         clip = ia.video_desde_imagen(foto, prompt, formato, segundos, carpeta / "clip_ia.mp4", pago, forzar=True)
         aviso(t("Ajustando al formato…"), 0.9)
-        final = video.segmento_mudo(foto, video.duracion(clip), formato, carpeta / "animacion.mp4", 0, clip)
+        final = video.segmento_mudo(foto, video.duracion(clip), formato, carpeta / "animacion.mp4", 0, clip,
+                                     sonido=True)
     except Exception as error:  # el clip de pago que se cobró (llegara o no) se dice antes de reintentar
         relanzar_con_gasto(error, [ia.nota_pago(pago, 1)] if pago and (clip or isinstance(error, ia.Cobrado))
                            else [], carpeta)

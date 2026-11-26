@@ -295,9 +295,9 @@ def escena_de_clip(clip: Path, audio: Path, formato: str, palabras: list[dict], 
 
 
 def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, indice: int,
-                  clip: Path | None = None) -> Path:
+                  clip: Path | None = None, sonido: bool = False) -> Path:
     """Tramo de video sin sonido: el clip de IA (sin repetirse, ver _sin_bucle) o la imagen con zoom suave. Para
-    videos musicales."""
+    videos musicales. sonido: con un clip, deja el sonido que traiga (Foto a video: el de Gemini se paga)."""
     w, h = FORMATOS[formato]
     if clip:
         entrada = ["-i", clip.resolve()]
@@ -308,7 +308,8 @@ def segmento_mudo(imagen: Path, segundos: float, formato: str, destino: Path, in
         filtro = (f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},"
                   f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(segundos * 30)}:s={w}x{h}:fps=30,"
                   "setsar=1")
-    ffmpeg(*entrada, "-vf", f"{filtro},{COLOR}", "-t", segundos, "-an", "-c:v", "libx264", "-preset", "veryfast",
+    audio = ["-map", "0:v", "-map", "0:a?", "-c:a", "aac", "-b:a", "192k"] if sonido and clip else ["-an"]
+    ffmpeg(*entrada, "-vf", f"{filtro},{COLOR}", "-t", segundos, *audio, "-c:v", "libx264", "-preset", "veryfast",
            "-crf", "20", "-pix_fmt", "yuv420p", destino.name, cwd=destino.parent)
     return destino
 

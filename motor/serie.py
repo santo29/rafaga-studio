@@ -18,7 +18,7 @@ import unicodedata
 from pathlib import Path
 from typing import Callable
 
-from . import claves, desde_prompt, diseno, edicion, ia, memoria, seguro, video
+from . import claves, desde_prompt, diseno, edicion, ia, memoria, nubes, seguro, video
 from .idioma import IDIOMAS, actual, t, texto_de_error
 
 CARPETA = Path(__file__).resolve().parent.parent / "datos" / "series"
@@ -343,7 +343,7 @@ def crear_serie(titulo: str, idea: str, estilo: str = "", personajes: int = 3, f
     def dibujar(p):  # de este módulo: la actividad de la IA la apunta en «Dibujos animados» también desde un hilo
         return ia.imagen(_prompt_lamina(p, datos["estilo"]), *LAMINA, lamina(carpeta, p))
     # Gratis, de 3 en 3 (antes, una tras otra: hasta 6); de pago, una a una como siempre
-    dibujos = desde_prompt._Adelantos([(i, (p,)) for i, p in enumerate(datos["personajes"])], dibujar) \
+    dibujos = nubes.Adelantos([(i, (p,)) for i, p in enumerate(datos["personajes"])], dibujar) \
         if desde_prompt._imagenes_gratis() else None
     try:
         for i, p in enumerate(datos["personajes"]):

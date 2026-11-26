@@ -638,6 +638,23 @@ try:
     finally:
         OpenAIFalso.crear = crear_real
         ia._RAZONA_IGUAL.clear()
+    # Un 400 que no habla del razonamiento (la moderación): se repite sin él, pero el modelo no queda apuntado (si
+    # no, pensaría a fondo en cada paso hasta cerrar la app)
+
+    def moderado(self, **k):
+        enviados.append((self.base, k))
+        cuerpo = {"error": {"message": "Your request was flagged by our content filter."}}
+        raise openai.APIStatusError("400", body=cuerpo, response=httpx.Response(400, request=pedido, json=cuerpo))
+    OpenAIFalso.crear = moderado
+    try:
+        try:
+            ia.texto_json("i", "p", esquema, rapido=True)
+        except Exception:  # noqa: BLE001  falla: aquí solo importa lo que se recuerda
+            pass
+        assert not ia._RAZONA_IGUAL, ia._RAZONA_IGUAL
+    finally:
+        OpenAIFalso.crear = crear_real
+        ia._RAZONA_IGUAL.clear()
     # Sin pensar respondió a medias: la otra vez, pensando (con toda su calidad). Y el 400 de un modelo que no deja
     # apagarlo no se gasta el reintento: 400, una a medias y una buena salen bien
 

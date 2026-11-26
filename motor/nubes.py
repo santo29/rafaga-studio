@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -233,6 +234,54 @@ def rotar(uso: str, tareas: dict[str, Callable[[], object]], aviso: Callable[[st
     raise RuntimeError(t("Ninguna opción pudo hacerlo.") + "\n"
                        + "\n".join(errores or [t("No hay ninguna conectada.")]))
 
+
+class Adelantos:
+    """Trabajos pedidos por delante (las imágenes gratis de un video, las láminas de una serie), como mucho `a_la_vez`
+    en marcha, cada uno en un hilo daemon: al cerrar la app no se les espera (un ThreadPoolExecutor sí, y antes de
+    cerrar vaciaba su cola entera; ver nichos._a_tiempo). Aquí y no en desde_prompt: la actividad de la IA apunta la
+    página por los módulos de la pila del hilo, y este no es de ninguna. trabajos: [(clave, argumentos)], en orden; recoger(clave)
+    devuelve lo que dio funcion(*argumentos) o lanza su error, y pide el siguiente de la lista."""
+
+    def __init__(self, trabajos: list, funcion: Callable, a_la_vez: int = 3):
+        self._cola, self._funcion, self._hechos, self._parado = list(trabajos), funcion, {}, False
+        self._claves = {clave for clave, _ in trabajos}
+        for _ in range(a_la_vez):
+            self._siguiente()
+
+    def __contains__(self, clave) -> bool:
+        return clave in self._claves
+
+    def __bool__(self) -> bool:
+        return True
+
+    def _siguiente(self) -> None:
+        if self._parado or not self._cola:
+            return
+        clave, argumentos = self._cola.pop(0)
+        listo, salida = threading.Event(), {}
+
+        def correr():
+            try:
+                salida["valor"] = self._funcion(*argumentos)
+            except BaseException as error:  # noqa: BLE001  se relanza en el hilo del trabajo, al recogerlo
+                salida["error"] = error
+            finally:
+                listo.set()
+        self._hechos[clave] = (listo, salida)
+        threading.Thread(target=correr, daemon=True).start()
+
+    def recoger(self, clave):
+        while clave not in self._hechos and self._cola:  # aún no se pidió (no debería pasar): se piden los de antes
+            self._siguiente()
+        listo, salida = self._hechos.pop(clave)
+        listo.wait()
+        self._siguiente()
+        if "error" in salida:
+            raise salida["error"]
+        return salida["valor"]
+
+    def parar(self) -> None:
+        self._parado = True  # lo que ya está en marcha termina solo; lo de la cola no se pide
 
 # ---------- Separación de voz y pista ----------
 

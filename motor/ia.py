@@ -4,6 +4,7 @@ import contextlib
 import contextvars
 import json
 import math
+import random
 import re
 import sys
 import tempfile
@@ -363,7 +364,9 @@ def _sin_rellenar(datos) -> bool:
 
 
 LIMITE_GRATIS = 15_000  # caracteres que admite la IA gratis sin clave: con más responde 413 (medido: 15.530 sí, 16.100 no)
-ESPERA_GRATIS = 31  # s entre pedidos a la IA gratis: admite 1 respuesta cada 30 s por conexión
+# s entre una respuesta de la IA gratis y el pedido siguiente: admite 1 cada 30 s por conexión, y con 31 a veces
+# respondía 429 (medido: en el examen, 68 s por pedido en vez de 37)
+ESPERA_GRATIS = 33
 _ULTIMA_GRATIS = [0.0]  # cuándo empezó el último pedido a la IA gratis (time.monotonic)
 _TURNO_GRATIS = threading.Lock()
 
@@ -740,10 +743,12 @@ def _texto_con(c: dict, instrucciones: str, pedido: str, esquema: dict, rapido: 
         return _limpio(json.loads(next(b.text for b in r.content if b.type == "text")))
 
     from openai import APIStatusError, OpenAI, Timeout
-    # Con plazo, como Claude (_claude): el de fábrica espera 10 min por intento y lo repite dos veces
+    # Con plazo, como Claude (_claude). Sin streaming, el plazo cubre la respuesta entera: lo rápido, 120 s; un guion
+    # largo que razona tarda más, 600 s, y no se repite dos veces (eran 30 minutos con una conexión muerta; los 429 y
+    # 5xx ya los pasa texto_json a otra IA)
     cliente = OpenAI(api_key=c["clave"], base_url=claves.OPENAI_COMPAT[c["proveedor"]],
-                     # sin streaming el plazo cubre la respuesta entera: un guion largo que razona tarda más de 120 s
-                     timeout=Timeout(PLAZO_CLAUDE if rapido else PLAZO_LARGO, connect=15.0))
+                     timeout=Timeout(PLAZO_CLAUDE if rapido else PLAZO_LARGO, connect=15.0),
+                     max_retries=2 if rapido else 1)
     # El modo json_object funciona en todos los compatibles; el esquema va en las instrucciones.
     mensajes = [{"role": "system", "content": f"{instrucciones}\n\nResponde SOLO con JSON que cumpla este esquema:\n"
                                               f"{json.dumps(esquema)}"},
@@ -1192,7 +1197,7 @@ def imagen(prompt: str, ancho: int, alto: int, destino: Path, calidad: str = "1K
     from . import nubes
     todas = claves.cargar()
     vertical, horizontal = alto > ancho, ancho > alto
-    semilla = int(time.time()) % 2_000_000_000
+    semilla = random.randrange(2_000_000_000)  # no la hora: las imágenes adelantadas salen en el mismo segundo
 
     def cloudflare():
         # 10.000 "neuronas" gratis al día: ~100 imágenes FLUX schnell. Sale cuadrada; el montaje la recorta al formato.
@@ -1370,10 +1375,13 @@ def video_desde_imagen(imagen_png: Path, prompt: str, formato: str, segundos: fl
 
     def de_pago(proveedor):  # Kling o Seedance (solo si el usuario lo eligió): clip mudo que el montaje repite
         modulo = claves.modulo_video(proveedor)
-        try:  # Kling 3.0 Turbo suena siempre: su sonido va bajo la narración, así que nada de voces ni música
+        # Kling 3.0 Turbo suena siempre: su sonido va bajo la narración, así que nada de voces ni música. Al final y
+        # dentro de los 2.500 caracteres que admite Kling (recorta lo que pasa): si no, se perdía justo esto
+        sin_voces = " No dialogue, no voice-over, no music: only natural ambient sound."
+        try:
             _recordar_modelo(proveedor, "modelo_video",
-                             modulo.animar(todas[proveedor], imagen_png, f"{movimiento} No dialogue, no voice-over, no "
-                                           "music: only natural ambient sound.", destino, modulo.SEGUNDOS_CLIP))
+                             modulo.animar(todas[proveedor], imagen_png, movimiento[:2500 - len(sin_voces)] + sin_voces,
+                                           destino, modulo.SEGUNDOS_CLIP))
         except SinSaldo as e:  # el trabajo siguiente ya avisa antes de empezar (claves.impide)
             claves.recordar(proveedor, 402, str(e))
             raise

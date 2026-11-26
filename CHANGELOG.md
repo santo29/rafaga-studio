@@ -18,8 +18,8 @@ All notable changes to Ráfaga Studio are documented in this file.
   test of 29 typical requests with the free AI and no keys, it now picks the right first step in most of them.
 - With Claude, the Director's instructions stay the same in every step and request, so Claude reads them from its cache
   for an hour: faster and cheaper from the second step.
-- The Director never runs the same step with the same arguments twice in one request, and its error messages tell it
-  which arguments are valid. Yes/no written as text and Python-style arguments are read correctly.
+- The Director does not run the same step with the same arguments twice in one request (except the next chapter of a
+  series and the lists), and its error messages tell it which arguments are valid. Yes/no written as text and Python-style arguments are read correctly.
 - Free images for a video and the character sheets of a series are requested three at a time instead of one by one.
   Paid images keep going one by one, so a job that fails midway does not pay for unused images.
 - The free text AI waits only what is left of its 30 seconds; OpenAI and Gemini think less on each Director step; the

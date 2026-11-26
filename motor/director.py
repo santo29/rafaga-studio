@@ -90,7 +90,8 @@ Reglas:
   no es motivo para preguntar.
 - En géneros, estilos, voces y tipos usa solo los valores de la lista de cada herramienta.
 - Haz lo que pidió, con las herramientas justas. No repitas un trabajo que ya salió bien con los mismos
-  argumentos; dos piezas distintas (un post y una historia) sí son dos pasos.
+  argumentos; dos piezas distintas (un post y una historia) sí son dos pasos, y crear_episodio sin idea ni número
+  hace cada vez el capítulo siguiente («dos capítulos más» son dos pasos iguales).
 - Si el pedido necesita varias herramientas, en el mensaje del primer paso di el plan entero en una frase («Primero
   hago la canción y luego su video musical»).
 - La voz no la eliges tú: deja "voz" vacía salvo que pida una concreta o el video en otro idioma (entonces, una de la
@@ -217,8 +218,10 @@ REPETIBLES = {"listar_series", "listar_proyectos", "listar_opciones"}
 def _repetible(nombre: str, argumentos) -> bool:
     if nombre in REPETIBLES:
         return True
-    try:  # crear_episodio sin número es «el capítulo siguiente»: «dos capítulos más» son dos llamadas iguales
-        return nombre == "crear_episodio" and not _leer_argumentos(argumentos).get("numero")
+    try:  # crear_episodio sin número, idea ni guion es «el capítulo siguiente»: «dos capítulos más» son dos llamadas
+        # iguales. Con la misma idea o el mismo guion, sí se frena (saldría el mismo capítulo otra vez)
+        return nombre == "crear_episodio" and not any(_leer_argumentos(argumentos).get(k)
+                                                       for k in ("numero", "idea", "guion"))
     except ValueError:
         return False
 
@@ -332,8 +335,10 @@ def estado_estudio(modelo_video: str = "auto") -> str:
             lineas += [f"Servicios de IA conectados: {', '.join(map(claves.nombre, conectados)) or 'ninguno'}",
                        f"Escribe: {_escribe_ahora()}" + (f"; diseña: {claves.nombre(diseno)}" if diseno and diseno != texto
                                                          else ""),
-                       "Ves las fotos que te da: " + ("sí" if ia.ve_fotos() else "no; en crear_anuncios escribe en "
-                                                      "producto lo que dijo y, si no lo dijo, pregúntale qué anuncia"),
+                       "Ves las fotos que te da: " + ("sí" if ia.ve_fotos() else
+                                                      "no. Con una foto suya, en crear_anuncios pon en producto lo que "
+                                                      "dijo que es, aunque sea una palabra; pregúntale solo si no dijo "
+                                                      "nada de él. Un anuncio sin foto va con crear_diseno, sin preguntar"),
                        f"Imágenes: {_imagenes_ahora()}",
                        f"Voz de los videos: {_voz_ahora()}; los capítulos de una serie usan las voces que guardó la serie"
                        + ("; en este pedido crear_video habla con la voz de Gemini, no con esta"
@@ -661,6 +666,8 @@ def usos(nombre: str, args: dict) -> list[str]:
 def impide(nombre: str, args: dict) -> str | None:
     """Por qué esta herramienta no puede hacer su parte de pago ahora (el servicio no tiene saldo o su clave no vale,
     según la última comprobación): se dice antes de preguntar el costo y de esperar minutos a un fallo seguro."""
+    if nombre == "crear_video" and _solo_anima(args) and args.get("musica"):  # antes de preguntar el costo
+        return t("Con solo_animar el clip sale sin música: anímala y luego usa editar_video con el clip y la canción.")
     with claves.por_trabajo(args.get("modelo_video")):  # el modelo de video elegido para este trabajo
         return claves.impide(usos(nombre, args))
 

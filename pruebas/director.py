@@ -15,12 +15,14 @@ from PySide6.QtCore import QBuffer, QIODevice  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from motor import claves, diseno, director, edicion, herramientas, ia, nubes, video, voz  # noqa: E402
+from motor import claves, diseno, director, edicion, herramientas, ia, marca, memoria, nubes, shorts, video, voz  # noqa: E402,E501
 
 diseno.asegurar_qt()
 app = QApplication.instance()
 tmp = Path(tempfile.mkdtemp(prefix="rafaga-director-"))
 claves.ARCHIVO, claves.AJUSTES = tmp / "claves.json", tmp / "ajustes.json"  # sin claves: nunca las del usuario
+# ni su memoria, su marca ni sus trabajos (el Director los lee en cada pedido)
+memoria.ARCHIVO, marca.ARCHIVO, shorts.PROYECTOS = tmp / "memoria.json", tmp / "marca.json", tmp / "proyectos"
 
 
 def png(color="#7C5CFF", w=64, h=64) -> bytes:
@@ -192,6 +194,7 @@ try:
     # Lo que con los mismos argumentos hace otro trabajo (el capítulo siguiente) o lee el estudio, sí se repite
     assert director._repetible("crear_episodio", '{"serie_nombre": "X"}') and director._repetible("listar_series", "{}")
     assert not director._repetible("crear_episodio", '{"serie_nombre": "X", "numero": 2}')
+    assert not director._repetible("crear_episodio", '{"serie_nombre": "X", "idea": "encuentra un huevo"}')
     assert not director._repetible("crear_video", '{"prompt": "x"}')
     # Los argumentos al estilo de Python (como los enseña el catálogo) se leen; los sí/no escritos, como sí/no
     assert director._leer_argumentos("{'texto': 'x', 'n': (1, 2), 'ok': True}") == {"texto": "x", "n": [1, 2], "ok": True}
@@ -228,6 +231,15 @@ try:
         assert "Departamentos del estudio" not in instrucciones and "tipo: auto | anuncio" in instrucciones
         assert "C:/c.mp3" in pedido  # la conversación (con la canción) va antes que la memoria
         assert len(director._instrucciones(director.catalogo(), "", director.EJEMPLOS)) > ia.LIMITE_GRATIS  # enteras
+        # Si no cabe todo: fuera la memoria antes que la conversación (los especialistas leen la memoria por su
+        # cuenta; «a esa canción» solo se entiende con la conversación), y se dice que se recortó
+        memo, largo = "recuerdo " * 70, "x" * 1500
+        assert not ia.cabe_gratis(director._instrucciones(director.catalogo_corto(), "", ""), director._contexto(
+            largo, historial[-director.MAX_HISTORIAL_CORTO:], [], "", memo, corto=True), director.ESQUEMA)
+        instr, turno = director._compacto(largo, historial, [], "", memo)
+        assert "C:/c.mp3" in turno and "Lo que recuerdas" not in turno and ia.cabe_gratis(instr, turno, director.ESQUEMA)
+        instr, turno = director._compacto("x" * 3500, historial, [], "", memo)
+        assert "(no cabe aquí)" in turno or "(solo lo último" in turno, turno[-600:]
     finally:
         ia._texto_gratis, claves.para, ia.texto_json = gratis_real, para_real, _pensar
     try:

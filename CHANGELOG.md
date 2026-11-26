@@ -14,15 +14,17 @@ All notable changes to Ráfaga Studio are documented in this file.
 
 ### Changed
 
-- The AI Director answers without any key: its instructions did not fit the free AI (it rejected every request). In a
-  test of 29 typical requests with the free AI and no keys, it now picks the right first step in most of them.
+- The AI Director answers without any key: its instructions did not fit the free AI, which rejected every request. In
+  a test of 29 typical requests with the free AI and no keys, it picked the right first step in 23 to 25 of them
+  (before: none).
 - With Claude, the Director's instructions stay the same in every step and request, so Claude reads them from its cache
   for an hour: faster and cheaper from the second step.
 - The Director does not run the same step with the same arguments twice in one request (except the next chapter of a
   series and the lists), and its error messages tell it which arguments are valid. Yes/no written as text and Python-style arguments are read correctly.
 - Free images for a video and the character sheets of a series are requested three at a time instead of one by one.
   Paid images keep going one by one, so a job that fails midway does not pay for unused images.
-- The free text AI waits only what is left of its 30 seconds; OpenAI and Gemini think less on each Director step; the
+- The free text AI waits only what the service asks for (it now allows one reply every 45 seconds and says when to
+  retry), instead of a fixed wait after each refusal. OpenAI and Gemini think less on each Director step, and the
   OpenAI-compatible client has a time limit.
 - A free image service that ran out of today's quota is tried last for the next scenes instead of first.
 - Ads: the web research has a 150-second limit, trimmed scenes keep the call to action and narration is never cut

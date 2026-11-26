@@ -364,10 +364,12 @@ def _sin_rellenar(datos) -> bool:
 
 
 LIMITE_GRATIS = 15_000  # caracteres que admite la IA gratis sin clave: con más responde 413 (medido: 15.530 sí, 16.100 no)
-# s entre una respuesta de la IA gratis y el pedido siguiente: admite 1 cada 30 s por conexión, y con 31 a veces
-# respondía 429 (medido: en el examen, 68 s por pedido en vez de 37)
-ESPERA_GRATIS = 33
-_ULTIMA_GRATIS = [0.0]  # cuándo empezó el último pedido a la IA gratis (time.monotonic)
+# s entre una respuesta de la IA gratis y el pedido siguiente. Lo dice el propio servicio al pasarse («1 reply every
+# 45 seconds per IP», antes 30) y se aprende de ahí. Al pasarse dice también cuándo reintentar («Retry after 9s»): eso,
+# entre estos topes (antes se esperaban 32 s cada vez; medido en el examen: 72 s por pedido, la mitad de más)
+ESPERA_GRATIS = [32.0]
+REINTENTO_GRATIS = (3, 60)
+_PROXIMO_GRATIS = [0.0]  # desde cuándo se le puede pedir otra vez (time.monotonic)
 _TURNO_GRATIS = threading.Lock()
 
 
@@ -388,17 +390,35 @@ def cabe_gratis(instrucciones: str, pedido: str, esquema: dict) -> bool:
         <= LIMITE_GRATIS
 
 
+def _espera_gratis(r) -> float:
+    """Lo que hay que esperar antes del siguiente pedido a la IA gratis. Si respondió que se pasó del límite (402
+    FREE_LIMIT, 429 o 503 «at its limit»), lo que pide («Retry after 9s» o la cabecera Retry-After) entre
+    REINTENTO_GRATIS, y su ritmo («1 reply every 45 seconds») queda para los siguientes; si no, ESPERA_GRATIS."""
+    if r is None or r.status_code not in (402, 429, 503):
+        return ESPERA_GRATIS[0]
+    texto = r.text[:600]
+    if ritmo := re.search(r"every (\d+) seconds", texto, re.I):
+        ESPERA_GRATIS[0] = min(max(float(ritmo[1]) + 2, 10.0), 120.0)
+    pide = r.headers.get("retry-after") or (re.search(r"retry after (\d+)\s*s", texto, re.I) or [None, ""])[1]
+    try:
+        return min(max(float(pide), REINTENTO_GRATIS[0]), REINTENTO_GRATIS[1])
+    except ValueError:
+        return ESPERA_GRATIS[0]
+
+
 def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
     """IA de texto gratis y sin clave (GPT-OSS 20B en Pollinations).
-    ponytail: límite de 1 respuesta cada 30 s por conexión y menos calidad; con Groq/Gemini (gratis) va mejor."""
+    ponytail: límite de 1 respuesta cada 30-45 s por conexión (ver _espera_gratis) y menos calidad; con Groq o Gemini
+    (gratis) va mejor."""
     mensajes = _mensajes_gratis(instrucciones, pedido, esquema)
     problema = None
     for intento in range(4):
-        # Solo lo que falte de los 30 s desde la respuesta anterior (antes, siempre 32 s tras un 429, también cuando el
-        # Director volvía enseguida tras una herramienta rápida). Un pedido a la vez: el límite es por conexión
+        # Solo lo que falte (antes, siempre 32 s tras un fallo, también cuando el Director volvía enseguida tras una
+        # herramienta rápida, o cuando el servicio pedía 10). Un pedido a la vez: el límite es por conexión
         with _TURNO_GRATIS:
-            if _ULTIMA_GRATIS[0] and (espera := _ULTIMA_GRATIS[0] + ESPERA_GRATIS - time.monotonic()) > 0:
+            if (espera := _PROXIMO_GRATIS[0] - time.monotonic()) > 0:
                 time.sleep(espera)
+            r = None
             try:
                 # Sin cuenta, cada respuesta se corta en ~1500 tokens: con razonamiento bajo queda sitio para el JSON.
                 # La semilla cambia en cada intento porque el servicio devuelve la misma respuesta guardada si se repite.
@@ -410,7 +430,7 @@ def _texto_gratis(instrucciones: str, pedido: str, esquema: dict) -> dict:
                 problema = t("sin conexión con el servicio gratis ({error})", error=type(e).__name__)
                 continue
             finally:
-                _ULTIMA_GRATIS[0] = time.monotonic()
+                _PROXIMO_GRATIS[0] = time.monotonic() + _espera_gratis(r)
         if r.status_code in (402, 429) or r.status_code >= 500:  # límite gratis o caída pasajera
             problema = t("el servicio gratis respondió {codigo}", codigo=r.status_code)
             continue

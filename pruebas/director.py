@@ -110,6 +110,17 @@ try:
     assert '"required"' not in enviados[0]["messages"][0]["content"]  # no ve el esquema técnico (lo copiaba)
 finally:
     ia.seguro.pedir, ia.time.sleep = _pedir, _dormir
+# Cuánto esperar antes del siguiente pedido: lo que dice el propio servicio al pasarse (su ritmo, que cambió de 30 a 45
+# s, y cuándo reintentar), no 32 s fijos (eran 72 s por pedido, la mitad de más)
+import httpx  # noqa: E402
+espera_antes = ia.ESPERA_GRATIS[0]
+limite = httpx.Response(402, text='{"error": {"code": "FREE_LIMIT", "message": "Free limit reached: 1 reply every 45 '
+                                  'seconds per IP. Retry after 9s, or get unlimited replies"}}')
+assert ia._espera_gratis(limite) == 9 and ia.ESPERA_GRATIS[0] == 47  # y el ritmo aprendido, para los siguientes
+assert ia._espera_gratis(httpx.Response(200, text="{}")) == 47
+assert ia._espera_gratis(httpx.Response(503, headers={"retry-after": "500"}, text="at its limit")) == 60  # con tope
+assert ia._espera_gratis(httpx.Response(503, text="Retry after 1s")) == 3 and ia._espera_gratis(None) == 47
+ia.ESPERA_GRATIS[0] = espera_antes
 
 # ---------- Catálogo: el Director ve las mismas herramientas que el MCP ----------
 catalogo = director.catalogo()

@@ -41,10 +41,20 @@ the other `pruebas/*.py` test the app.
 
 ## Good first contributions · Buenas primeras contribuciones
 
-- A new free provider in `motor/nubes.py` (images, video, voice).
-- Vocal styles in `motor/cabina.py` and music genres in `motor/musica.py`.
+- A new interface language: a new `idiomas/<code>.json` with every key of `en.json`, plus its entries in `IDIOMAS`,
+  `_PAISES` and `_WINDOWS` (`motor/idioma.py`) and Edge voices in `VOCES` (`motor/desde_prompt.py`), so narration
+  starts in that language. `pruebas/idioma.py` checks that no translation is missing.
 - Translations and wording fixes in `idiomas/`.
-- New subtitle styles, filters and effects for the editor (`motor/edicion.py`).
+- Vocal styles in `motor/cabina.py` and music genres in `motor/musica.py`.
+- New subtitle styles: the entry in `motor/edicion.py` and its drawing in the ASS styles of `motor/video.py`.
+- A new free provider for images or video: its call in `motor/ia.py` and its place in `ORDEN` (`motor/nubes.py`).
+  It sends user data to another service, so it also needs its row in [PRIVACIDAD.md](PRIVACIDAD.md).
+
+Look for issues labeled [good first issue](https://github.com/santo29/rafaga-studio/issues?q=is%3Aopen+label%3A%22good+first+issue%22),
+and ask anything in [Discussions](https://github.com/santo29/rafaga-studio/discussions).
+
+Busca los issues con la etiqueta [good first issue](https://github.com/santo29/rafaga-studio/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+y pregunta lo que quieras en [Discussions](https://github.com/santo29/rafaga-studio/discussions).
 
 ## Licensing of contributions · Licencia de lo que aportas
 

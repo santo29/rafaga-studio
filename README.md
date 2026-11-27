@@ -6,8 +6,10 @@
 
 Ráfaga Studio exists to help content creators make their videos easily, without heavy editing and without paying for many tools at once.
 
-The AI creative studio for Windows. Describe your idea, connect your own API key, and get a finished video.<br>
-Or connect your favorite AI through MCP and direct the whole studio from your chat.
+Type one sentence and get a finished short video: script, images, voice, subtitles and the final cut.<br>
+A free, open-source (GPL-3.0) AI creative studio for Windows 10 and 11. Making a video from one sentence works without
+any API key.<br>
+Or connect Claude Code, Claude Desktop or another AI app that supports MCP, and direct the whole studio from your chat.
 
 [![Latest release](https://img.shields.io/github/v/release/santo29/rafaga-studio?color=7c5cff)](https://github.com/santo29/rafaga-studio/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/santo29/rafaga-studio?color=22c55e)](LICENSE)
@@ -18,7 +20,12 @@ Or connect your favorite AI through MCP and direct the whole studio from your ch
 [Download for Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
 [Free setup](#free-setup-3-videos-a-day) ·
 [Watch the demo](ejemplos/presentacion-app-en.mp4) ·
+[Questions and help](https://github.com/santo29/rafaga-studio/discussions) ·
 [Leer en español](README.es.md)
+
+<sub>53 MB installer, then about 1.5 GB of AI libraries (10 to 30 min). 64-bit Windows 10 or 11. Not code-signed yet: if Windows shows a warning, select More info, then Run anyway.</sub>
+
+<img src="assets/captura-app.jpg" width="800" alt="Ráfaga Studio home screen: the creative tools and which AI is working for you right now">
 
 https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 
@@ -29,17 +36,40 @@ https://github.com/user-attachments/assets/74f21c8e-2f5e-4906-b59d-5cff7e5332c9
 ## Overview
 
 Ráfaga Studio turns one sentence into a finished piece of content: script, scenes, voice, subtitles and the final cut.
-It runs on your PC, with no coding, no terminal, no account and no subscription.
+It runs on your PC, with no coding, no terminal, no Ráfaga account and no subscription.
 
 - **Your favorite AI, directing the studio.** Connect it through MCP, ask from your chat, and let it write the scripts.
 - **One key box for every service.** Paste a key and the app recognizes which service it belongs to.
 - **Real motion.** Text to video and photo to video, on your own Modal cloud or on the AI video service you choose.
 - **An AI Director.** Ask by text or voice, attach your photos, and it plans the work and runs the right tools.
-- **No membership and no surprise costs.** Free options are always available, and paid images, video, voices and songs
-  show their maximum cost and ask first. Three things run without asking: the text AI you connected (cents per script,
-  shown in **AI activity**), your own Modal credit and OpenAI if it is your transcription service, at US$0.006 per minute
-  in the auto subtitles, Magic Shorts, music video and talking-scene pages. See [what a video costs](#what-a-video-costs).
+- **No membership and no surprise costs.** Free options cover the script, images, motion, voice and subtitles.
+  AI-made songs and the lip-synced talking scenes of Create with AI need a paid service. Paid images, video, voices and
+  songs show their maximum cost and ask first. Three costs run without asking: the text AI you connected (cents per
+  script, shown in **AI activity**); your own Modal credit; and OpenAI, if you chose it for transcription (US$0.006 per
+  minute, in auto subtitles, Magic Shorts, music videos and talking scenes). See [what a video costs](#what-a-video-costs).
 - **Your data stays yours.** No servers of ours, no analytics. Keys are stored encrypted on your PC.
+
+## Examples
+
+Everything below was made with Ráfaga Studio. Brands and people are fictional. Claude, as the AI Director, wrote the
+scripts and laid out the designs. The talking apple uses paid Gemini clips (about US$1 per scene), the album cover,
+flyer and logo use paid Gemini images at 2K (about US$0.05 each), and the merengue dance was animated on our own Modal
+cloud with its free monthly credit. Results with no keys are simpler.
+
+| Talking character | Anime trailer | AI motion |
+|---|---|---|
+| <a href="ejemplos/manzana-habla.mp4"><img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"></a> | <a href="ejemplos/leyenda-rafaga.mp4"><img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"></a> | <a href="ejemplos/baile-merengue.mp4"><img src="ejemplos/baile-merengue.gif" width="170" alt="Two fictional dancers dancing merengue"></a> |
+
+| Album cover | Event flyer | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Album cover for a fictional artist"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer for a fictional party"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo for a fictional barbershop"> |
+
+| Brand ad | YouTube thumbnail | Mascot |
+|---|---|---|
+| <a href="ejemplos/anuncio-rafaga-en.mp4"><img src="ejemplos/anuncio-rafaga-en.gif" width="300" alt="Ráfaga Studio ad"></a> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="YouTube thumbnail"> | <img src="assets/mascota.jpg" width="200" alt="Rafa, the Ráfaga Studio mascot"> |
+
+The requests and layered designs behind these examples are in [`ejemplos/`](ejemplos), so they can be reproduced with
+`python ejemplos/crear.py` and `python ejemplos/crear_disenos.py`.
 
 ## Features
 
@@ -76,7 +106,33 @@ file.
   a Ráfaga Studio window.
 
 To connect, open **MCP connection** in the app and select connect. Ráfaga Studio registers itself in Claude Code and
-Claude Desktop. Other [MCP](https://modelcontextprotocol.io) clients can launch `mcp_server.py` with the app's Python.
+Claude Desktop. For other [MCP](https://modelcontextprotocol.io) clients that launch local servers, the same page shows
+the exact command to copy.
+
+<details>
+<summary>The 17 MCP tools</summary>
+
+| Tool | What it does |
+|---|---|
+| `crear_video` | Makes a complete video from a request: narration, images, voice, subtitles and the final cut |
+| `sacar_shorts` | Cuts the best shorts from a long video link (YouTube, Facebook, TikTok…), with titles and hashtags |
+| `investigar_nichos` | Researches viral niches with real YouTube data and suggests video ideas |
+| `crear_anuncios` | Makes several video ads for A/B tests from a product photo |
+| `crear_cancion` | Writes and produces a song or track |
+| `crear_video_musical` | Makes a music video for a song, with karaoke lyrics |
+| `producir_cancion` | Recording booth: turns a beat and a recorded vocal into a mixed and mastered song |
+| `separar_voz_y_pista` | Splits a song into vocals and instrumental on your PC |
+| `crear_diseno` | Designs a layered graphic: post, thumbnail, flyer, logo and more |
+| `editar_video` | Joins photos and videos in an editor project, with music and auto subtitles, and exports MP4 up to 4K |
+| `crear_serie` | Creates an animated series with original characters, each with a fixed look and voice |
+| `crear_episodio` | Writes and makes the next episode of a series |
+| `programar_publicacion` | Schedules a video on your YouTube channel: it is uploaded as private with its release time |
+| `recordar_preferencia` | Saves a lasting preference for future jobs |
+| `listar_series` | Lists the animated series (read only) |
+| `listar_proyectos` | Lists your projects (read only) |
+| `listar_opciones` | Lists formats, voices and connected AI services, without showing keys (read only) |
+
+</details>
 
 ## Install
 
@@ -85,7 +141,8 @@ Requirements: 64-bit Windows 10 or 11, about 3 GB of free space and an internet 
 1. Download the latest `RafagaStudio-Setup` installer (about 53 MB) from
    [Releases](https://github.com/santo29/rafaga-studio/releases/latest), under Assets.
 2. Open it. The installer is not code-signed yet, so Windows may show "Windows protected your PC". Select
-   **More info**, then **Run anyway**. It does not ask for administrator rights.
+   **More info**, then **Run anyway**. It does not ask for administrator rights. If Smart App Control is on in
+   Windows 11, it can block the installer, because it is not signed yet.
 3. Accept the terms and select **Install**. The installer downloads Python and the AI libraries (about 1.5 GB, 10 to 30
    minutes) and verifies the hash of every file. If your connection drops, run it again and it continues where it
    stopped.
@@ -96,8 +153,10 @@ Requirements: 64-bit Windows 10 or 11, about 3 GB of free space and an internet 
 2. Select **Generate video**. A progress bar shows each scene as it is made.
 3. When it finishes, watch it in the player, open its folder, or send it to the video editor.
 
-This works with no key at all, using free services that can be slower and produce simpler results. Connecting Groq and
-Cloudflare takes about two minutes, costs nothing and gives a much better first video. See the
+This works with no key at all, using free services. Without keys, each AI step is slower, because the free text service
+makes the app wait between replies. Images and motion share a small anonymous Hugging Face quota: once it runs out,
+scenes stop moving (they get a slow zoom) and images come out in low resolution and may carry a watermark. Connecting
+Groq and Cloudflare takes about two minutes, costs nothing and gives a much better first video. See the
 [free setup](#free-setup-3-videos-a-day).
 
 ## Free setup: 3 videos a day
@@ -148,8 +207,9 @@ Results vary with each model and request, and no model gets everything right. To
 
 ## What a video costs
 
-There is no membership. You pay each service directly for what you use, free options are always available, and the app
-shows the maximum cost of paid images, video, voices and songs before they start.
+There is no membership. You pay each service directly for what you use, most steps have a free option (AI-made songs and
+the lip-synced talking scenes of Create with AI do not), and the app shows the maximum cost of paid images, video,
+voices and songs before they start.
 
 This is what a 30-second vertical video with six moving scenes cost in a real test in November 2026:
 
@@ -205,25 +265,6 @@ In Automatic mode the app uses your Modal cloud first when it is connected, and 
 are never used in Automatic mode, and paid clips are capped at 15 per job.
 
 </details>
-
-## Examples
-
-Everything below was made with Ráfaga Studio. Brands and people are fictional.
-
-| Talking character | Anime trailer | AI motion |
-|---|---|---|
-| <a href="ejemplos/manzana-habla.mp4"><img src="ejemplos/manzana-habla.gif" width="170" alt="A talking apple"></a> | <a href="ejemplos/leyenda-rafaga.mp4"><img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Anime trailer"></a> | <a href="ejemplos/baile-merengue.mp4"><img src="ejemplos/baile-merengue.gif" width="170" alt="Two fictional dancers dancing merengue"></a> |
-
-| Album cover | Event flyer | Logo |
-|---|---|---|
-| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Album cover for a fictional artist"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer for a fictional party"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo for a fictional barbershop"> |
-
-| Brand ad | YouTube thumbnail | Mascot |
-|---|---|---|
-| <a href="ejemplos/anuncio-rafaga-en.mp4"><img src="ejemplos/anuncio-rafaga-en.gif" width="300" alt="Ráfaga Studio ad"></a> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="YouTube thumbnail"> | <img src="assets/mascota.jpg" width="200" alt="Rafa, the Ráfaga Studio mascot"> |
-
-The requests and layered designs behind these examples are in [`ejemplos/`](ejemplos), so they can be reproduced with
-`python ejemplos/crear.py` and `python ejemplos/crear_disenos.py`.
 
 ## Privacy and security
 

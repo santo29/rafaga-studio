@@ -1,6 +1,6 @@
 name: "💡 Idea / Feature request"
 description: Suggest something new · Propón algo nuevo
-labels: ["idea"]
+labels: ["enhancement"]
 body:
   - type: textarea
     id: problema

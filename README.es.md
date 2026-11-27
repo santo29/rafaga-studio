@@ -6,8 +6,10 @@
 
 Ráfaga Studio existe para ayudar a los creadores de contenido a hacer sus videos fácilmente, sin tanta edición y sin pagar muchas herramientas a la vez.
 
-El estudio creativo con IA para Windows. Describe tu idea, conecta tu propia clave y recibe un video terminado.<br>
-O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
+Escribe una frase y recibe un video corto terminado: guion, imágenes, voz, subtítulos y montaje final.<br>
+Un estudio creativo con IA para Windows 10 y 11, gratis y de código abierto (GPL-3.0). Hacer un video desde una frase
+funciona sin ninguna clave.<br>
+O conecta Claude Code, Claude Desktop u otra app de IA compatible con MCP, y dirige todo el estudio desde tu chat.
 
 [![Última versión](https://img.shields.io/github/v/release/santo29/rafaga-studio?color=7c5cff&label=versión)](https://github.com/santo29/rafaga-studio/releases/latest)
 [![Licencia: GPL-3.0](https://img.shields.io/github/license/santo29/rafaga-studio?color=22c55e&label=licencia)](LICENSE)
@@ -18,7 +20,10 @@ O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 [Descargar para Windows](https://github.com/santo29/rafaga-studio/releases/latest) ·
 [Configuración gratis](#configuración-gratis-3-videos-al-día) ·
 [Ver la demostración](ejemplos/presentacion-app.mp4) ·
+[Preguntas y ayuda](https://github.com/santo29/rafaga-studio/discussions) ·
 [Read in English](README.md)
+
+<sub>Instalador de 53 MB y luego unos 1,5 GB de librerías de IA (de 10 a 30 min). Windows 10 u 11 de 64 bits. Aún sin firma digital: si Windows muestra un aviso, elige Más información y luego Ejecutar de todas formas.</sub>
 
 <a href="ejemplos/presentacion-app.mp4"><img src="ejemplos/presentacion-app.gif" width="680" alt="Demostración de Ráfaga Studio"></a>
 
@@ -29,19 +34,43 @@ O conecta tu IA favorita por MCP y dirige todo el estudio desde tu chat.
 ## Resumen
 
 Ráfaga Studio convierte una frase en contenido terminado: guion, escenas, voz, subtítulos y montaje final. Funciona en
-tu PC, sin programar, sin consola, sin cuentas y sin suscripciones.
+tu PC, sin programar, sin consola, sin cuenta de Ráfaga y sin suscripciones.
 
 - **Tu IA favorita dirige el estudio.** Conéctala por MCP, pide desde tu chat y deja que escriba los guiones.
 - **Un solo cuadro para todas las claves.** Pegas una clave y la app reconoce de qué servicio es.
 - **Movimiento real.** Texto a video y foto a video, en tu propia nube Modal o en el servicio de video con IA que elijas.
 - **Un Director con IA.** Pides por texto o por voz, adjuntas tus fotos, y planifica el trabajo y usa las herramientas
   adecuadas.
-- **Sin membresía y sin costos sorpresa.** Siempre hay opciones gratis, y las imágenes, videos, voces y canciones de pago
-  enseñan su costo máximo y preguntan antes. Tres cosas van sin preguntar: la IA de texto que conectaste (céntimos por
-  guion, se ven en **Actividad de la IA**), tu propio crédito de Modal y OpenAI si es tu servicio de transcripción, a
-  US$0,006 por minuto en subtítulos automáticos, Shorts mágicos, video musical y escenas que hablan. Mira
-  [cuánto cuesta un video](#cuánto-cuesta-un-video).
+- **Sin membresía y sin costos sorpresa.** Hay opciones gratis para el guion, las imágenes, el movimiento, la voz y los
+  subtítulos. Las canciones hechas con IA y las escenas que hablan con labios sincronizados de Crear con IA necesitan
+  un servicio de pago. Las imágenes, videos, voces y canciones de pago enseñan su costo máximo y preguntan antes. Tres
+  costos van sin preguntar: la IA de texto que conectaste (centavos por guion, se ven en **Actividad de la IA**); tu
+  propio crédito de Modal; y OpenAI, si lo elegiste para transcribir (US$0,006 por minuto, en subtítulos automáticos,
+  Shorts mágicos, videos musicales y escenas que hablan). Mira [cuánto cuesta un video](#cuánto-cuesta-un-video).
 - **Tus datos son tuyos.** Sin servidores nuestros y sin analítica. Las claves se guardan cifradas en tu PC.
+
+## Ejemplos
+
+Todo lo siguiente se hizo con Ráfaga Studio. Las marcas y las personas son ficticias. Claude, como Director, escribió
+los guiones y armó los diseños. La manzana que habla usa clips de Gemini de pago (cerca de US$1 por escena), la
+portada de álbum, el flyer y el logo usan imágenes de Gemini de pago en 2K (cerca de US$0,05 cada una) y el baile de
+merengue se animó en nuestra propia nube Modal, con su crédito gratis del mes. Sin claves, los resultados son más
+simples.
+
+| Personaje que habla | Tráiler de anime | Movimiento con IA |
+|---|---|---|
+| <a href="ejemplos/manzana-habla.mp4"><img src="ejemplos/manzana-habla.gif" width="170" alt="Una manzana que habla"></a> | <a href="ejemplos/leyenda-rafaga.mp4"><img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Tráiler de anime"></a> | <a href="ejemplos/baile-merengue.mp4"><img src="ejemplos/baile-merengue.gif" width="170" alt="Dos bailarines ficticios bailando merengue"></a> |
+
+| Portada de álbum | Flyer de evento | Logo |
+|---|---|---|
+| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Portada de álbum de un artista ficticio"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer de una fiesta ficticia"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo de una barbería ficticia"> |
+
+| Anuncio de marca | Miniatura de YouTube | Mascota |
+|---|---|---|
+| <a href="ejemplos/anuncio-rafaga.mp4"><img src="ejemplos/anuncio-rafaga.gif" width="300" alt="Anuncio de Ráfaga Studio"></a> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="Miniatura de YouTube"> | <img src="assets/mascota.jpg" width="200" alt="Rafa, la mascota de Ráfaga Studio"> |
+
+Los pedidos y los diseños por capas de estos ejemplos están en [`ejemplos/`](ejemplos), y se pueden reproducir con
+`python ejemplos/crear.py` y `python ejemplos/crear_disenos.py`.
 
 ## Funciones
 
@@ -78,7 +107,33 @@ archivo terminado.
   aprobación en una ventana de Ráfaga Studio.
 
 Para conectarla, abre **Conexión MCP** en la app y elige conectar. Ráfaga Studio se registra en Claude Code y Claude
-Desktop. Otros clientes [MCP](https://modelcontextprotocol.io) pueden iniciar `mcp_server.py` con el Python de la app.
+Desktop. Para otros clientes [MCP](https://modelcontextprotocol.io) que inician servidores locales, esa misma página
+muestra el comando exacto para copiar.
+
+<details>
+<summary>Las 17 herramientas MCP</summary>
+
+| Herramienta | Qué hace |
+|---|---|
+| `crear_video` | Hace un video completo desde un pedido: narración, imágenes, voz, subtítulos y montaje final |
+| `sacar_shorts` | Saca los mejores shorts del enlace de un video largo (YouTube, Facebook, TikTok…), con títulos y hashtags |
+| `investigar_nichos` | Investiga nichos virales con datos reales de YouTube y propone ideas de video |
+| `crear_anuncios` | Hace varios anuncios en video para pruebas A/B desde la foto de un producto |
+| `crear_cancion` | Escribe y produce una canción o pista |
+| `crear_video_musical` | Hace el video musical de una canción, con la letra estilo karaoke |
+| `producir_cancion` | Cabina: de una pista y una voz grabada a una canción mezclada y masterizada |
+| `separar_voz_y_pista` | Separa una canción en voz e instrumental en tu PC |
+| `crear_diseno` | Diseña una pieza gráfica por capas: publicación, miniatura, flyer, logo y más |
+| `editar_video` | Une fotos y videos en un proyecto del editor, con música y subtítulos automáticos, y exporta MP4 hasta 4K |
+| `crear_serie` | Crea una serie animada con personajes originales, cada uno con su apariencia y su voz fijas |
+| `crear_episodio` | Escribe y hace el capítulo siguiente de una serie |
+| `programar_publicacion` | Programa un video en tu canal de YouTube: se sube como privado con su hora de salida |
+| `recordar_preferencia` | Guarda una preferencia duradera para los próximos trabajos |
+| `listar_series` | Lista las series animadas (solo lee) |
+| `listar_proyectos` | Lista tus proyectos (solo lee) |
+| `listar_opciones` | Lista formatos, voces y servicios de IA conectados, sin mostrar las claves (solo lee) |
+
+</details>
 
 ## Instalación
 
@@ -87,7 +142,8 @@ Requisitos: Windows 10 u 11 de 64 bits, unos 3 GB libres y conexión a internet.
 1. Baja el último instalador `RafagaStudio-Setup` (unos 53 MB) desde
    [Versiones](https://github.com/santo29/rafaga-studio/releases/latest), en la sección Assets.
 2. Ábrelo. El instalador aún no tiene firma digital, así que Windows puede mostrar «Windows protegió su PC». Elige
-   **Más información** y luego **Ejecutar de todas formas**. No pide permisos de administrador.
+   **Más información** y luego **Ejecutar de todas formas**. No pide permisos de administrador. Si el Control
+   inteligente de aplicaciones está activado en Windows 11, puede bloquear el instalador, porque aún no tiene firma.
 3. Acepta los términos y elige **Instalar**. El instalador descarga Python y las librerías de IA (unos 1,5 GB, de 10 a
    30 minutos) y comprueba la huella de cada archivo. Si se corta la conexión, ejecútalo otra vez y sigue donde quedó.
 
@@ -97,9 +153,11 @@ Requisitos: Windows 10 u 11 de 64 bits, unos 3 GB libres y conexión a internet.
 2. Elige **Generar video**. Una barra de progreso muestra cada escena mientras se hace.
 3. Al terminar, míralo en el reproductor, abre su carpeta o envíalo al editor de video.
 
-Funciona sin ninguna clave, con servicios gratis que pueden ser más lentos y dar resultados más simples. Conectar Groq y
-Cloudflare toma unos dos minutos, no cuesta nada y da un primer video mucho mejor. Mira la
-[configuración gratis](#configuración-gratis-3-videos-al-día).
+Funciona sin ninguna clave, con servicios gratis. Sin claves, cada paso de IA tarda más, porque el servicio de texto
+gratis hace esperar entre una respuesta y otra. Las imágenes y el movimiento comparten una pequeña cuota anónima de
+Hugging Face: cuando se acaba, las escenas dejan de moverse (van con un zoom suave) y las imágenes salen en baja
+resolución y pueden llevar marca de agua. Conectar Groq y Cloudflare toma unos dos minutos, no cuesta nada y da un
+primer video mucho mejor. Mira la [configuración gratis](#configuración-gratis-3-videos-al-día).
 
 ## Configuración gratis: 3 videos al día
 
@@ -152,7 +210,8 @@ Los resultados cambian según el modelo y el pedido, y ningún modelo acierta si
 
 ## Cuánto cuesta un video
 
-No hay membresía. Pagas directamente a cada servicio lo que usas, siempre hay opciones gratis y la app enseña el costo
+No hay membresía. Pagas directamente a cada servicio lo que usas, casi todos los pasos tienen una opción gratis (las
+canciones hechas con IA y las escenas que hablan con labios sincronizados de Crear con IA no), y la app enseña el costo
 máximo de las imágenes, videos, voces y canciones de pago antes de empezar.
 
 Esto costó un video vertical de 30 segundos con seis escenas en movimiento, en una prueba real de noviembre de 2026:
@@ -209,25 +268,6 @@ En modo Automático la app usa primero tu nube Modal si está conectada, y despu
 nunca se usan en Automático, y los clips de pago tienen un tope de 15 por trabajo.
 
 </details>
-
-## Ejemplos
-
-Todo lo siguiente se hizo con Ráfaga Studio. Las marcas y las personas son ficticias.
-
-| Personaje que habla | Tráiler de anime | Movimiento con IA |
-|---|---|---|
-| <a href="ejemplos/manzana-habla.mp4"><img src="ejemplos/manzana-habla.gif" width="170" alt="Una manzana que habla"></a> | <a href="ejemplos/leyenda-rafaga.mp4"><img src="ejemplos/leyenda-rafaga.gif" width="300" alt="Tráiler de anime"></a> | <a href="ejemplos/baile-merengue.mp4"><img src="ejemplos/baile-merengue.gif" width="170" alt="Dos bailarines ficticios bailando merengue"></a> |
-
-| Portada de álbum | Flyer de evento | Logo |
-|---|---|---|
-| <img src="ejemplos/portada-alto-voltaje.jpg" width="240" alt="Portada de álbum de un artista ficticio"> | <img src="ejemplos/flyer-noche-neon.jpg" width="170" alt="Flyer de una fiesta ficticia"> | <img src="ejemplos/logo-barberia-el-rey.jpg" width="240" alt="Logo de una barbería ficticia"> |
-
-| Anuncio de marca | Miniatura de YouTube | Mascota |
-|---|---|---|
-| <a href="ejemplos/anuncio-rafaga.mp4"><img src="ejemplos/anuncio-rafaga.gif" width="300" alt="Anuncio de Ráfaga Studio"></a> | <img src="ejemplos/miniatura-leyenda.jpg" width="300" alt="Miniatura de YouTube"> | <img src="assets/mascota.jpg" width="200" alt="Rafa, la mascota de Ráfaga Studio"> |
-
-Los pedidos y los diseños por capas de estos ejemplos están en [`ejemplos/`](ejemplos), y se pueden reproducir con
-`python ejemplos/crear.py` y `python ejemplos/crear_disenos.py`.
 
 ## Privacidad y seguridad
 
